@@ -53,7 +53,11 @@ Je kunt een token aanmaken via **Home Assistant > Profiel > Beveiliging > Langle
 
 ## Gebruik
 
-Open het notebook en voer de cellen uit:
+### Optie 1: JupyterLab add-on in Home Assistant
+
+Je kunt dit notebook direct in Home Assistant draaien via de [JupyterLab add-on](https://github.com/hassio-addons/addon-jupyterlab). Upload het notebook en het `.env` bestand naar JupyterLab en voer de cellen uit. Het voordeel is dat je geen aparte Python-installatie nodig hebt en dat de API-verbinding met Home Assistant lokaal blijft.
+
+### Optie 2: Lokaal draaien
 
 ```bash
 jupyter notebook "Quatt stooklijn v4.ipynb"
