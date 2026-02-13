@@ -49,7 +49,7 @@ HA_URL=https://jouw-homeassistant-url.com
 TOKEN=jouw-long-lived-access-token
 ```
 
-Je kunt een token aanmaken via **Home Assistant > Profiel > Beveiliging > Langlevende toegangstokens**.
+Je kunt een token aanmaken via **Home Assistant > Profiel > Beveiliging > Langlevende toegangstokens** of ga direct naar [http://homeassistant.local:8123/profile/security](http://homeassistant.local:8123/profile/security).
 
 ## Gebruik
 
