@@ -1,91 +1,116 @@
 # Quatt Stooklijn Analyse
 
-Analyse-tool voor het berekenen van de stooklijn en het warmteverliescoëfficiënt van je woning op basis van data uit Home Assistant. Ontworpen voor gebruikers van een Quatt warmtepomp, maar ook bruikbaar voor gasverwarmingsdata.
+Home Assistant custom integration for analyzing your Quatt heat pump heating curve (stooklijn). Calculates optimal heating curves, COP, heat loss characteristics, and optionally compares with historical gas consumption.
 
-## Wat doet het?
+## Features
 
-Dit Jupyter notebook haalt verwarmingsdata op uit Home Assistant en analyseert de relatie tussen buitentemperatuur en warmtevraag. Het berekent:
+- **Heating curve analysis** — Calculates the optimal stooklijn based on actual heat pump data and compares it with Quatt's estimated curve
+- **Heat loss coefficient** — Determines your home's heat loss in W/K using linear regression
+- **COP tracking** — Average coefficient of performance and per-temperature scatter data
+- **Knee temperature** — Detects the outdoor temperature where supplemental heating (boiler) kicks in
+- **Gas comparison** (optional) — Compare heat pump performance with historical gas consumption from before installation
+- **Dashboard included** — Pre-built Lovelace dashboard with interactive charts
 
-- **Stooklijn** — de optimale verwarmingscurve voor je woning
-- **Warmteverliescoëfficiënt** — hoeveel warmte je woning verliest per °C temperatuurverschil
-- **COP-analyse** — hoe efficiënt je warmtepomp presteert bij verschillende buitentemperaturen
-- **Capaciteitsanalyse** — of je warmtepomp voldoende capaciteit heeft bij vriestemperaturen
-- **Warm water correctie** — schat automatisch het gasverbruik voor warm water en trekt dit af van de verwarmingsvraag (gas-gebruikers)
+## Requirements
 
-## Ondersteunde configuraties
+- Home Assistant 2024.1.0 or newer
+- [Quatt integration](https://www.home-assistant.io/integrations/quatt/) configured and running
+- [apexcharts-card](https://github.com/RomRider/apexcharts-card) (HACS frontend) for the dashboard charts
 
-| Type | Cell 2 (warmtepomp) | Cell 2B (gas) | Omschrijving |
-|---|---|---|---|
-| 🔵 Warmtepomp | ✅ | ⏭️ Skip | Quatt warmtepomp gebruikers |
-| 🟠 Gas | ⏭️ Skip | ✅ | Alleen gasverwarming |
-| 🟣 Overstap | ✅ | ✅ | Gas → warmtepomp (vergelijking) |
+## Installation
 
-> ⚠️ **Overstappers:** Zorg dat de datumperiodes van Cell 2 en Cell 2B **niet overlappen**. Gebruik Cell 2B voor de periode *vóór* de warmtepomp en Cell 2 voor de periode *erna*.
+### HACS (recommended)
 
-## Vereisten
+1. Open HACS in Home Assistant
+2. Go to **Integrations** > **Custom repositories**
+3. Add this repository URL and select **Integration** as category
+4. Search for "Quatt Stooklijn" and install
+5. Restart Home Assistant
 
-- Python 3.x
-- Home Assistant met [Quatt integratie](https://github.com/marcoboers/home-assistant-quatt)
-- Een long-lived access token van Home Assistant
+### Manual
 
-### Installatie
+1. Copy the `custom_components/quatt_stooklijn` folder to your Home Assistant `config/custom_components/` directory
+2. Restart Home Assistant
 
-```bash
-pip install pandas numpy scipy matplotlib seaborn requests openpyxl python-dotenv
-```
+## Configuration
 
-## Configuratie
+1. Go to **Settings** > **Devices & Services** > **Add Integration**
+2. Search for "Quatt Stooklijn"
+3. Follow the setup wizard:
 
-Kopieer het voorbeeldbestand en vul je eigen gegevens in:
+### Step 1: Heat pump data
+- **Start/end date** — The period to analyze (after heat pump installation)
+- **Temperature sensors** — Comma-separated entity IDs for outdoor temperature (in priority order)
+- **Power sensor** — Entity for total heat pump power
 
-```bash
-cp .env.example .env
-```
+### Step 2: Gas analysis (optional)
+- **Gas entity** — Cumulative gas meter (m³)
+- **Gas period** — Date range from *before* heat pump installation
+- **Calorific value** — Gas energy content (default: 9.77 kWh/m³ for Dutch gas)
+- **Boiler efficiency** — Your old boiler's efficiency (default: 0.90)
+- **Hot water threshold** — Temperature above which gas usage is counted as hot water only (default: 18°C)
 
-Bewerk `.env` met je Home Assistant URL en token:
+### Step 3: Current stooklijn (optional)
+- Enter your current Quatt stooklijn setting as two points (e.g. -10°C/10000W and 16°C/0W) for comparison in charts
 
-```
-HA_URL=https://jouw-homeassistant-url.com
-TOKEN=jouw-long-lived-access-token
-```
+## Usage
 
-Je kunt een token aanmaken via **Home Assistant > Profiel > Beveiliging > Langlevende toegangstokens** of ga direct naar [http://homeassistant.local:8123/profile/security](http://homeassistant.local:8123/profile/security).
+After configuration, trigger an analysis:
 
-## Gebruik
+1. Call the `quatt_stooklijn.run_analysis` service, or
+2. Press the **Analyse Starten** button on the dashboard
 
-### Optie 1: JupyterLab add-on in Home Assistant
+The analysis fetches data from Home Assistant's recorder, runs calculations, and populates the sensors.
 
-Je kunt dit notebook direct in Home Assistant draaien via de [JupyterLab add-on](https://github.com/hassio-addons/addon-jupyterlab). Upload het notebook en het `.env` bestand naar JupyterLab en voer de cellen uit. Het voordeel is dat je geen aparte Python-installatie nodig hebt en dat de API-verbinding met Home Assistant lokaal blijft.
+### Dashboard
 
-### Optie 2: Lokaal draaien
+Import the dashboard from `dashboards/quatt_stooklijn_dashboard.yaml`:
 
-```bash
-jupyter notebook "Quatt stooklijn v4.ipynb"
-```
+1. Go to **Settings** > **Dashboards** > **Add Dashboard**
+2. Choose **New dashboard from scratch**
+3. Open the dashboard, switch to YAML mode (three dots > **Edit in YAML**)
+4. Paste the contents of `quatt_stooklijn_dashboard.yaml`
 
-Het notebook werkt incrementeel — eerder opgehaalde data wordt opgeslagen in CSV-bestanden en bij een volgende run alleen aangevuld met ontbrekende dagen.
+The dashboard shows:
+- Key metrics (heat loss, balance temperature, knee point, COP)
+- Heat loss vs outdoor temperature (with gas comparison if configured)
+- Stooklijn comparison: optimal vs Quatt estimated vs your actual setting
+- Heating demand vs Quatt capacity
+- COP vs outdoor temperature
+- Heat demand table at various temperatures
 
-### Configureerbare parameters in het notebook
+## Sensors
 
-| Parameter | Standaard | Beschrijving |
-|---|---|---|
-| `START_DATE` | `2025-08-01` | Startdatum voor warmtepomp data |
-| `END_DATE` | `2026-02-13` | Einddatum voor warmtepomp data |
-| `GAS_START_DATE` | `2025-08-01` | Startdatum voor gasdata |
-| `GAS_END_DATE` | `2026-02-13` | Einddatum voor gasdata |
-| `MIN_POWER_FILTER` | `2500` W | Minimaal vermogen om meting mee te nemen |
-| `BIN_SIZE` | `0.5` °C | Breedte van temperatuurbins |
-| `GAS_CALORIFIC_VALUE` | `9.77` kWh/m³ | Calorische waarde van gas |
-| `BOILER_EFFICIENCY` | `0.90` | Rendement van de ketel |
-| `HOT_WATER_OUTSIDE_TEMP_THRESHOLD` | `18.0` °C | Buitentemperatuur waarboven alleen warm water wordt verbruikt |
+| Sensor | Unit | Description |
+|--------|------|-------------|
+| `heat_loss_coefficient` | W/K | Heat loss per degree below balance point |
+| `balance_point` | °C | Outdoor temp where no heating is needed |
+| `optimal_stooklijn_slope` | W/°C | Slope of the optimal heating curve |
+| `quatt_stooklijn_slope` | W/°C | Slope of Quatt's estimated curve |
+| `knee_temperature` | °C | Temperature where boiler must assist |
+| `average_cop` | — | Average coefficient of performance |
+| `freezing_performance_slope` | W/°C | Heat pump performance below 0°C |
+| `gas_heat_loss_coefficient` | W/K | Heat loss from gas period (if configured) |
+| `actual_stooklijn` | W/°C | Your configured Quatt stooklijn |
+| `last_analysis` | timestamp | When the last analysis was run |
+| `analysis_status` | — | Current analysis status |
 
-## Uitvoer
+## Services
 
-Het notebook genereert:
+| Service | Description |
+|---------|-------------|
+| `quatt_stooklijn.run_analysis` | Run the full analysis pipeline |
+| `quatt_stooklijn.clear_data` | Clear all analysis results and reset sensors |
 
-- **Grafieken** — stooklijn, COP-curves, capaciteitsanalyse, warmteverlies
-- **quatt_hourly.csv** — uurdata van de warmtepomp
-- **quatt_daily.csv** — dagelijkse samenvatting
-- **quatt_insights_data.xlsx** — gecombineerd Excel-bestand
-- **gas_hourly.csv** — uurdata gasverbruik (alleen bij gas-gebruikers)
-- **gas_daily.csv** — dagelijkse gasverbruik samenvatting (alleen bij gas-gebruikers)
+## How it works
+
+The integration ports the analysis from a Jupyter notebook into a Home Assistant integration:
+
+1. **Data collection** — Fetches heat pump data via the Quatt `get_insights` service and gas history from HA's recorder
+2. **Stooklijn calculation** — Fits piecewise linear models to hourly power vs temperature data, using envelope filtering to find the maximum capacity curve
+3. **Heat loss regression** — Linear regression on daily heat energy vs outdoor temperature to determine your home's thermal characteristics
+4. **COP calculation** — Computes daily COP from heat output and electrical input
+
+## License
+
+MIT

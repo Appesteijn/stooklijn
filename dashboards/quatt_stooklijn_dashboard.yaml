@@ -1,0 +1,558 @@
+title: Quatt Stooklijn Analyse
+views:
+  - title: Stooklijn Analyse
+    icon: mdi:chart-line
+    cards: []
+    type: sections
+    sections:
+      - type: grid
+        column_span: 4
+        cards:
+          - square: false
+            type: grid
+            columns: 3
+            cards:
+              - type: entity
+                entity: text.quatt_stooklijn_analyse_startdatum
+                name: Startdatum
+              - type: entity
+                entity: text.quatt_stooklijn_analyse_einddatum
+                name: Einddatum
+              - type: entity
+                entity: sensor.quatt_stooklijn_last_analysis
+                name: Laatste Analyse
+                icon: mdi:clock-check-outline
+              - show_name: true
+                show_icon: true
+                type: button
+                name: Analyse Starten
+                icon: mdi:play-circle
+                tap_action:
+                  action: call-service
+                  service: quatt_stooklijn.run_analysis
+                icon_height: 48px
+              - show_name: true
+                show_icon: true
+                type: button
+                name: Data Wissen
+                icon: mdi:delete-outline
+                tap_action:
+                  action: call-service
+                  service: quatt_stooklijn.clear_data
+                  confirmation:
+                    text: Weet je zeker dat je alle analysedata wilt wissen?
+                icon_height: 48px
+              - type: entity
+                entity: sensor.quatt_stooklijn_analysis_status
+                name: Status
+                icon: mdi:information-outline
+            grid_options: &ref_0
+              columns: 24
+              rows: auto
+          - square: false
+            type: grid
+            columns: 2
+            cards:
+              - type: entity
+                entity: sensor.quatt_stooklijn_average_cop
+                name: Gemiddelde COP
+                icon: mdi:gauge
+              - type: entity
+                entity: sensor.quatt_stooklijn_heat_loss_coefficient
+                name: Warmteverlies
+                icon: mdi:home-thermometer
+              - type: entity
+                entity: sensor.quatt_stooklijn_balance_point_temperature
+                name: Balans Temperatuur
+                icon: mdi:thermometer-check
+              - type: entity
+                entity: sensor.quatt_stooklijn_knee_temperature
+                name: Knikpunt
+                icon: mdi:thermometer-alert
+            grid_options: *ref_0
+      - type: grid
+        column_span: 4
+        cards:
+          - type: markdown
+            title: Wat betekenen deze waarden?
+            content: >
+              {% set hlc =
+              states('sensor.quatt_stooklijn_heat_loss_coefficient') %}
+
+              {% set bp =
+              states('sensor.quatt_stooklijn_balance_point_temperature') %}
+
+              {% set knee = states('sensor.quatt_stooklijn_knee_temperature') %}
+
+              {% set cop = states('sensor.quatt_stooklijn_average_cop') %}
+
+              {% if hlc not in ['unknown', 'unavailable', 'None'] %}
+
+              **Warmteverlies ({{ hlc }} W/K)** — Per graad dat het buiten
+              kouder is dan de balanstemperatuur, verliest je huis {{ hlc }}
+              Watt aan warmte. Hoe lager dit getal, hoe beter je huis is
+              geïsoleerd.
+
+
+              **Balanstemperatuur ({{ bp }}°C)** — De buitentemperatuur waarbij
+              je huis geen verwarming nodig heeft. Boven deze temperatuur levert
+              interne warmte (apparaten, zonlicht, bewoners) voldoende energie.
+
+
+              **Knikpunt ({{ knee }}°C)** — De buitentemperatuur waaronder de
+              warmtepomp het alleen niet meer redt en de cv-ketel moet
+              bijspringen. Hoe lager dit punt, hoe groter het werkgebied van je
+              warmtepomp.
+
+
+              **Gemiddelde COP ({{ cop }})** — De efficiëntie van de warmtepomp:
+              hoeveel kWh warmte je krijgt per kWh elektriciteit. Een COP van {{
+              cop }} betekent dat elke kWh stroom {{ cop }} kWh warmte oplevert.
+
+              {% else %}
+
+              *Voer eerst een analyse uit om uitleg bij de waarden te zien.*
+
+              {% endif %}
+            grid_options:
+              columns: 33
+              rows: auto
+          - type: markdown
+            title: Warmtevraag bij verschillende temperaturen
+            content: >
+              {% set temps =
+              state_attr('sensor.quatt_stooklijn_heat_loss_coefficient',
+              'heat_at_temps') %}
+
+              {% if temps %}
+
+              Buitentemp | Vermogen | Per dag
+
+              :--|--:|--:
+
+              {% for t, w in temps.items() -%}
+
+              **{{ t }}°C** | **{{ w | round(0) | int }} W** | {{ (w * 24 /
+              1000) | round(1) }} kWh/dag
+
+              {% endfor %}
+
+              {% else %}
+
+              *Voer eerst een analyse uit*
+
+              {% endif %}
+            grid_options:
+              columns: 15
+              rows: auto
+          - type: custom:apexcharts-card
+            header:
+              show: false
+            graph_span: 35h
+            span:
+              start: day
+            update_interval: 1h
+            apex_config:
+              chart:
+                height: 400
+              title:
+                text: Warmteverlies vs Buitentemperatuur
+                align: left
+              markers:
+                size:
+                  - 5
+                  - 0
+                  - 5
+                  - 0
+              stroke:
+                width:
+                  - 0
+                  - 2
+                  - 0
+                  - 2
+              xaxis:
+                title:
+                  text: Buitentemperatuur (°C)
+                tickAmount: 7
+                labels:
+                  formatter: |
+                    EVAL:function(val) {
+                      var d = new Date(); d.setHours(0,0,0,0);
+                      return Math.round((val - d.getTime()) / 3600000 - 10);
+                    }
+              yaxis:
+                - title:
+                    text: Warmtevraag (W)
+                  min: 0
+                  labels:
+                    formatter: |
+                      EVAL:function(val) { return Math.round(val); }
+              legend:
+                show: true
+                position: top
+                formatter: |
+                  EVAL:function(name) { return name.split(':')[0]; }
+              tooltip:
+                x:
+                  formatter: |
+                    EVAL:function(val) {
+                      var d = new Date(); d.setHours(0,0,0,0);
+                      return ((val - d.getTime()) / 3600000 - 10).toFixed(1) + ' °C';
+                    }
+            series:
+              - entity: sensor.quatt_stooklijn_heat_loss_coefficient
+                name: Warmtepomp data
+                type: line
+                color: "#64B5F6"
+                stroke_width: 0
+                data_generator: |
+                  var d = new Date(); d.setHours(0,0,0,0);
+                  var B = d.getTime(), H = 3600000;
+                  const attr = entity.attributes.scatter_data;
+                  if (!attr) return [];
+                  return attr.map(p => [B + (p.temp + 10) * H, p.heat]);
+              - entity: sensor.quatt_stooklijn_heat_loss_coefficient
+                name: Warmtepomp trendlijn
+                type: line
+                color: "#2196F3"
+                data_generator: >
+                  var d = new Date(); d.setHours(0,0,0,0);
+
+                  var B = d.getTime(), H = 3600000;
+
+                  const attr = entity.attributes;
+
+                  if (!attr || !attr.scatter_data || attr.scatter_data.length <
+                  2) return [];
+
+                  const hlc = parseFloat(entity.state);
+
+                  const bp = attr.scatter_data.reduce((s, p) => s + p.heat, 0) /
+                  attr.scatter_data.length;
+
+                  const avgT = attr.scatter_data.reduce((s, p) => s + p.temp, 0)
+                  / attr.scatter_data.length;
+
+                  const slope = -hlc;
+
+                  const intercept = bp - slope * avgT;
+
+                  const points = [];
+
+                  for (let t = -10; t <= 25; t += 1) {
+                    const y = slope * t + intercept;
+                    if (y > 0) points.push([B + (t + 10) * H, y]);
+                  }
+
+                  return points;
+              - entity: sensor.quatt_stooklijn_gas_heat_loss_coefficient
+                name: Gas data
+                type: line
+                color: "#FFB74D"
+                stroke_width: 0
+                data_generator: >
+                  var d = new Date(); d.setHours(0,0,0,0);
+
+                  var B = d.getTime(), H = 3600000;
+
+                  const attr = entity.attributes;
+
+                  if (!attr || !attr.scatter_data) return [];
+
+                  return attr.scatter_data.map(p => [B + (p.temp + 10) * H,
+                  p.heat]);
+              - entity: sensor.quatt_stooklijn_gas_heat_loss_coefficient
+                name: Gas trendlijn
+                type: line
+                color: "#FF9800"
+                data_generator: >
+                  var d = new Date(); d.setHours(0,0,0,0);
+
+                  var B = d.getTime(), H = 3600000;
+
+                  const attr = entity.attributes;
+
+                  if (!attr || !attr.scatter_data || attr.scatter_data.length <
+                  2) return [];
+
+                  const hlc = parseFloat(entity.state);
+
+                  const slope = -hlc;
+
+                  const avgT = attr.scatter_data.reduce((s, p) => s + p.temp, 0)
+                  / attr.scatter_data.length;
+
+                  const bp = attr.scatter_data.reduce((s, p) => s + p.heat, 0) /
+                  attr.scatter_data.length;
+
+                  const intercept = bp - slope * avgT;
+
+                  const points = [];
+
+                  for (let t = -10; t <= 25; t += 1) {
+                    const y = slope * t + intercept;
+                    if (y > 0) points.push([B + (t + 10) * H, y]);
+                  }
+
+                  return points;
+            grid_options:
+              columns: 24
+              rows: auto
+          - type: custom:apexcharts-card
+            header:
+              show: false
+            graph_span: 35h
+            span:
+              start: day
+            update_interval: 1h
+            apex_config:
+              chart:
+                height: 400
+              title:
+                text: "Stooklijn Vergelijking: Optimaal vs Quatt"
+                align: left
+              xaxis:
+                title:
+                  text: Buitentemperatuur (°C)
+                tickAmount: 7
+                labels:
+                  formatter: |
+                    EVAL:function(val) {
+                      var d = new Date(); d.setHours(0,0,0,0);
+                      return Math.round((val - d.getTime()) / 3600000 - 10);
+                    }
+              yaxis:
+                - title:
+                    text: Vermogen (W)
+                  min: 0
+                  labels:
+                    formatter: |
+                      EVAL:function(val) { return Math.round(val); }
+              legend:
+                show: true
+                position: top
+                formatter: |
+                  EVAL:function(name) { return name.split(':')[0]; }
+              tooltip:
+                x:
+                  formatter: |
+                    EVAL:function(val) {
+                      var d = new Date(); d.setHours(0,0,0,0);
+                      return ((val - d.getTime()) / 3600000 - 10).toFixed(1) + ' °C';
+                    }
+            series:
+              - entity: sensor.quatt_stooklijn_optimal_stooklijn_slope
+                name: Optimale stooklijn
+                type: line
+                color: "#4CAF50"
+                stroke_width: 3
+                data_generator: |
+                  var d = new Date(); d.setHours(0,0,0,0);
+                  var B = d.getTime(), H = 3600000;
+                  const slope = parseFloat(entity.state);
+                  const intercept = entity.attributes.intercept;
+                  if (!slope || !intercept) return [];
+                  const points = [];
+                  for (let t = -10; t <= 25; t += 1) {
+                    const y = slope * t + intercept;
+                    if (y > 0) points.push([B + (t + 10) * H, y]);
+                  }
+                  return points;
+              - entity: sensor.quatt_stooklijn_quatt_stooklijn_slope
+                name: Quatt stooklijn (geschat)
+                type: line
+                color: "#FFC107"
+                stroke_width: 3
+                data_generator: |
+                  var d = new Date(); d.setHours(0,0,0,0);
+                  var B = d.getTime(), H = 3600000;
+                  const slope = parseFloat(entity.state);
+                  const intercept = entity.attributes.intercept;
+                  if (!slope || !intercept) return [];
+                  const points = [];
+                  for (let t = -10; t <= 25; t += 1) {
+                    const y = slope * t + intercept;
+                    if (y > 0) points.push([B + (t + 10) * H, y]);
+                  }
+                  return points;
+              - entity: sensor.quatt_stooklijn_actual_stooklijn_setting
+                name: Actuele Quatt instelling
+                type: line
+                color: "#2196F3"
+                stroke_width: 3
+                data_generator: |
+                  var d = new Date(); d.setHours(0,0,0,0);
+                  var B = d.getTime(), H = 3600000;
+                  const slope = parseFloat(entity.state);
+                  const intercept = entity.attributes.intercept;
+                  if (!slope || intercept == null) return [];
+                  const points = [];
+                  for (let t = -10; t <= 25; t += 1) {
+                    const y = slope * t + intercept;
+                    if (y > 0) points.push([B + (t + 10) * H, y]);
+                  }
+                  return points;
+            grid_options:
+              columns: 24
+              rows: auto
+          - type: custom:apexcharts-card
+            header:
+              show: false
+            graph_span: 35h
+            span:
+              start: day
+            update_interval: 1h
+            apex_config:
+              chart:
+                height: 400
+              title:
+                text: Warmtevraag vs Quatt Capaciteit
+                align: left
+              markers:
+                size:
+                  - 5
+                  - 0
+                  - 0
+              stroke:
+                width:
+                  - 0
+                  - 3
+                  - 2
+              xaxis:
+                title:
+                  text: Buitentemperatuur (°C)
+                tickAmount: 7
+                labels:
+                  formatter: |
+                    EVAL:function(val) {
+                      var d = new Date(); d.setHours(0,0,0,0);
+                      return Math.round((val - d.getTime()) / 3600000 - 10);
+                    }
+              yaxis:
+                - title:
+                    text: Vermogen (W)
+                  min: 0
+                  max: 12000
+                  labels:
+                    formatter: |
+                      EVAL:function(val) { return Math.round(val); }
+              legend:
+                show: true
+                position: top
+                formatter: |
+                  EVAL:function(name) { return name.split(':')[0]; }
+              tooltip:
+                x:
+                  formatter: |
+                    EVAL:function(val) {
+                      var d = new Date(); d.setHours(0,0,0,0);
+                      return ((val - d.getTime()) / 3600000 - 10).toFixed(1) + ' °C';
+                    }
+            series:
+              - entity: sensor.quatt_stooklijn_optimal_stooklijn_slope
+                name: Dagelijkse warmtevraag
+                type: line
+                color: "#66BB6A"
+                stroke_width: 0
+                data_generator: |
+                  var d = new Date(); d.setHours(0,0,0,0);
+                  var B = d.getTime(), H = 3600000;
+                  const attr = entity.attributes.scatter_data;
+                  if (!attr) return [];
+                  return attr.map(p => [B + (p.temp + 10) * H, p.heat]);
+              - entity: sensor.quatt_stooklijn_quatt_stooklijn_slope
+                name: Quatt stooklijn (geschat)
+                type: line
+                color: "#F44336"
+                data_generator: |
+                  var d = new Date(); d.setHours(0,0,0,0);
+                  var B = d.getTime(), H = 3600000;
+                  const slope = parseFloat(entity.state);
+                  const intercept = entity.attributes.intercept;
+                  if (!slope || !intercept) return [];
+                  const points = [];
+                  for (let t = -10; t <= 25; t += 1) {
+                    const y = slope * t + intercept;
+                    if (y > 0) points.push([B + (t + 10) * H, y]);
+                  }
+                  return points;
+              - entity: sensor.quatt_stooklijn_freezing_performance_slope
+                name: Werkelijke capaciteit (vorst)
+                type: line
+                color: "#2196F3"
+                data_generator: |
+                  var d = new Date(); d.setHours(0,0,0,0);
+                  var B = d.getTime(), H = 3600000;
+                  const slope = parseFloat(entity.state);
+                  const intercept = entity.attributes.intercept;
+                  if (!slope || !intercept) return [];
+                  const points = [];
+                  for (let t = -10; t <= 5; t += 1) {
+                    const y = slope * t + intercept;
+                    if (y > 0) points.push([B + (t + 10) * H, y]);
+                  }
+                  return points;
+            grid_options:
+              columns: 24
+              rows: auto
+          - type: custom:apexcharts-card
+            header:
+              show: false
+            graph_span: 35h
+            span:
+              start: day
+            update_interval: 1h
+            apex_config:
+              chart:
+                height: 400
+              title:
+                text: COP vs Buitentemperatuur
+                align: left
+              markers:
+                size: 5
+              stroke:
+                width: 0
+              xaxis:
+                title:
+                  text: Buitentemperatuur (°C)
+                tickAmount: 7
+                labels:
+                  formatter: |
+                    EVAL:function(val) {
+                      var d = new Date(); d.setHours(0,0,0,0);
+                      return Math.round((val - d.getTime()) / 3600000 - 10);
+                    }
+              yaxis:
+                - title:
+                    text: COP
+                  min: 0
+                  max: 8
+                  labels:
+                    formatter: |
+                      EVAL:function(val) { return val.toFixed(1); }
+              legend:
+                show: true
+                position: top
+                formatter: |
+                  EVAL:function(name) { return name.split(':')[0]; }
+              tooltip:
+                x:
+                  formatter: |
+                    EVAL:function(val) {
+                      var d = new Date(); d.setHours(0,0,0,0);
+                      return ((val - d.getTime()) / 3600000 - 10).toFixed(1) + ' °C';
+                    }
+            series:
+              - entity: sensor.quatt_stooklijn_average_cop
+                name: Dagelijkse COP
+                type: line
+                color: "#2196F3"
+                data_generator: |
+                  var d = new Date(); d.setHours(0,0,0,0);
+                  var B = d.getTime(), H = 3600000;
+                  const attr = entity.attributes.cop_scatter_data;
+                  if (!attr) return [];
+                  return attr.map(p => [B + (p.temp + 10) * H, p.cop]);
+            grid_options:
+              columns: 24
+              rows: auto

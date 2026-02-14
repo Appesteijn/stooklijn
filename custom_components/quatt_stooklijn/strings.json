@@ -1,0 +1,67 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Quatt Heat Pump Configuration",
+        "description": "Configure your Quatt heat pump data range and sensor entities.",
+        "data": {
+          "quatt_start_date": "Start date (YYYY-MM-DD)",
+          "quatt_end_date": "End date (YYYY-MM-DD)",
+          "temp_entities": "Temperature sensor entities (comma-separated, in priority order)",
+          "power_entity": "Total power sensor entity"
+        }
+      },
+      "gas": {
+        "title": "Gas Analysis (Optional)",
+        "description": "Configure gas consumption analysis to compare with heat pump performance. Use the period BEFORE your heat pump was installed.",
+        "data": {
+          "gas_enabled": "Enable gas analysis",
+          "gas_entity": "Gas meter entity (cumulative m³)",
+          "gas_start_date": "Gas period start date (YYYY-MM-DD)",
+          "gas_end_date": "Gas period end date (YYYY-MM-DD)",
+          "gas_calorific_value": "Gas calorific value (kWh/m³)",
+          "boiler_efficiency": "Boiler efficiency (0-1)",
+          "hot_water_temp_threshold": "Hot water threshold temperature (°C)"
+        }
+      },
+      "options": {
+        "title": "Additional Options",
+        "description": "Optional: Set your current Quatt stooklijn for comparison. The stooklijn is defined by two points: a low temperature with its power, and a high temperature with its power (e.g. -10°C / 10000W and 16°C / 0W). Leave empty if unknown.",
+        "data": {
+          "actual_stooklijn_temp1": "Stooklijn point 1: temperature (°C, e.g. -10)",
+          "actual_stooklijn_power1": "Stooklijn point 1: power (W, e.g. 10000)",
+          "actual_stooklijn_temp2": "Stooklijn point 2: temperature (°C, e.g. 16)",
+          "actual_stooklijn_power2": "Stooklijn point 2: power (W, e.g. 0)"
+        }
+      }
+    },
+    "error": {
+      "invalid_date_range": "End date must be after start date",
+      "invalid_date_format": "Invalid date format. Use YYYY-MM-DD",
+      "gas_entity_required": "Gas entity is required when gas analysis is enabled",
+      "invalid_stooklijn_value": "Stooklijn values must be numbers (e.g. -10, 10000)"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Update Configuration",
+        "description": "Fill in the bottom four fields only if you know your current Quatt stooklijn (optional).",
+        "data": {
+          "quatt_start_date": "Quatt start date (YYYY-MM-DD)",
+          "quatt_end_date": "Quatt end date (YYYY-MM-DD)",
+          "actual_stooklijn_temp1": "Stooklijn point 1: temperature (°C, e.g. -10)",
+          "actual_stooklijn_power1": "Stooklijn point 1: power (W, e.g. 10000)",
+          "actual_stooklijn_temp2": "Stooklijn point 2: temperature (°C, e.g. 16)",
+          "actual_stooklijn_power2": "Stooklijn point 2: power (W, e.g. 0)"
+        }
+      }
+    }
+  },
+  "services": {
+    "run_analysis": {
+      "name": "Run Stooklijn Analysis",
+      "description": "Runs the full analysis pipeline: fetches data, calculates heating curves, COP, and heat loss."
+    }
+  }
+}

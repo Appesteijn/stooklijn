@@ -1,0 +1,11 @@
+run_analysis:
+  name: Run Stooklijn Analysis
+  description: >-
+    Runs the full Quatt stooklijn analysis pipeline. Fetches data from Home
+    Assistant, calculates heating curves, COP, and heat loss, and updates all
+    sensor entities with the results.
+
+clear_data:
+  name: Clear Analysis Data
+  description: >-
+    Clears all analysis results and resets all sensors to their initial state.
