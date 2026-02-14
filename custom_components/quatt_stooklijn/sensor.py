@@ -176,7 +176,7 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
         name="Analysis Status",
         icon="mdi:information-outline",
         value_fn=lambda d: d.analysis_status,
-        attr_fn=None,
+        attr_fn=lambda _: None,
     ),
     QuattSensorDescription(
         key="actual_stooklijn",
@@ -265,5 +265,7 @@ class QuattStooklijnSensor(
     def extra_state_attributes(self) -> dict | None:
         """Return extra attributes (scatter data for dashboard)."""
         if self.coordinator.data is None:
+            return None
+        if self.entity_description.attr_fn is None:
             return None
         return self.entity_description.attr_fn(self.coordinator.data)
