@@ -14,7 +14,7 @@ Home Assistant custom integration for analyzing your Quatt heat pump heating cur
 ## Requirements
 
 - Home Assistant 2024.1.0 or newer
-- [Quatt integration](https://www.home-assistant.io/integrations/quatt/) configured and running
+- [Quatt integration](https://github.com/marcoboers/home-assistant-quatt) configured and running
 - [apexcharts-card](https://github.com/RomRider/apexcharts-card) (HACS frontend) for the dashboard charts
 
 ## Installation
@@ -23,7 +23,7 @@ Home Assistant custom integration for analyzing your Quatt heat pump heating cur
 
 1. Open HACS in Home Assistant
 2. Go to **Integrations** > **Custom repositories**
-3. Add this repository URL and select **Integration** as category
+3. Add `https://github.com/Appesteijn/stooklijn` and select **Integration** as category
 4. Search for "Quatt Stooklijn" and install
 5. Restart Home Assistant
 
