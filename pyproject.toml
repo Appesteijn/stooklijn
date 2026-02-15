@@ -1,6 +1,6 @@
 [project]
 name = "quatt-stooklijn"
-version = "0.0.5"
+version = "0.0.6"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
