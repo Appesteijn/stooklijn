@@ -79,7 +79,11 @@ async def async_fetch_quatt_insights(
 
     # Build hourly DataFrame
     if hourly_chunks:
-        hourly_chunks = [c for c in hourly_chunks if not c.empty and not c.isna().all().all()]
+        hourly_chunks = [
+            c.dropna(axis=1, how="all")
+            for c in hourly_chunks
+            if not c.empty and not c.isna().all().all()
+        ]
         df_hourly = pd.concat(hourly_chunks, ignore_index=True)
         df_hourly["timestamp"] = pd.to_datetime(df_hourly["timestamp"])
         df_hourly = df_hourly.set_index("timestamp")

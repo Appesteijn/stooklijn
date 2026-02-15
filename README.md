@@ -1,6 +1,6 @@
-# Quatt Stooklijn Analyse
+# Quatt Warmteanalyse
 
-Home Assistant custom integration for analyzing your Quatt heat pump heating curve (stooklijn). Calculates optimal heating curves, COP, heat loss characteristics, and optionally compares with historical gas consumption.
+Home Assistant custom integration for analyzing your Quatt heat pump performance. Calculates optimal heating curves (stooklijn), COP, heat loss characteristics, and optionally compares with historical gas consumption.
 
 ## Features
 
@@ -24,7 +24,7 @@ Home Assistant custom integration for analyzing your Quatt heat pump heating cur
 1. Open HACS in Home Assistant
 2. Go to **Integrations** > **Custom repositories**
 3. Add `https://github.com/Appesteijn/stooklijn` and select **Integration** as category
-4. Search for "Quatt Stooklijn" and install
+4. Search for "Quatt Warmteanalyse" and install
 5. Restart Home Assistant
 
 ### Manual
@@ -35,7 +35,7 @@ Home Assistant custom integration for analyzing your Quatt heat pump heating cur
 ## Configuration
 
 1. Go to **Settings** > **Devices & Services** > **Add Integration**
-2. Search for "Quatt Stooklijn"
+2. Search for "Quatt Warmteanalyse"
 3. Follow the setup wizard:
 
 ### Step 1: Heat pump data

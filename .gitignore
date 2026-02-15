@@ -3,3 +3,6 @@
 .claude/
 *.csv
 *.xlsx
+__pycache__/
+*.pyc
+.pytest_cache/

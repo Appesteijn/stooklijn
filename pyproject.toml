@@ -1,0 +1,7 @@
+[project]
+name = "quatt-stooklijn"
+version = "0.0.5"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

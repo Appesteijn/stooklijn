@@ -1,4 +1,4 @@
-# Quatt Stooklijn Analyse
+# Quatt Warmteanalyse
 
 Analyse-tool voor het berekenen van de stooklijn en het warmteverliescoëfficiënt van je woning op basis van data uit Home Assistant. Ontworpen voor gebruikers van een Quatt warmtepomp, maar ook bruikbaar voor gasverwarmingsdata.
 

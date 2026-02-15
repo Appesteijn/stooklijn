@@ -1,6 +1,6 @@
 {
   "domain": "quatt_stooklijn",
-  "name": "Quatt Stooklijn Analyse",
+  "name": "Quatt Warmteanalyse",
   "codeowners": [],
   "config_flow": true,
   "dependencies": ["recorder"],

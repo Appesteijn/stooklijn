@@ -57,9 +57,9 @@ class QuattDateText(TextEntity):
         self._attr_icon = "mdi:calendar"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Quatt Stooklijn",
+            "name": "Quatt Warmteanalyse",
             "manufacturer": "Quatt",
-            "model": "Stooklijn Analyse",
+            "model": "Warmteanalyse",
         }
 
     @property

@@ -60,7 +60,7 @@
   },
   "services": {
     "run_analysis": {
-      "name": "Run Stooklijn Analysis",
+      "name": "Run Warmteanalyse",
       "description": "Runs the full analysis pipeline: fetches data, calculates heating curves, COP, and heat loss."
     }
   }

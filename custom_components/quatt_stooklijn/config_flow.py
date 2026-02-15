@@ -180,7 +180,7 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     )
 
             return self.async_create_entry(
-                title="Quatt Stooklijn",
+                title="Quatt Warmteanalyse",
                 data=self._data,
             )
 
