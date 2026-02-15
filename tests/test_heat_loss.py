@@ -41,11 +41,11 @@ class TestCalculateHeatLoss:
 
         assert result.heat_at_temps is not None
         # At -10°C: heat = -200*(-10) + 4000 = 6000
-        assert result.heat_at_temps[-10] == pytest.approx(6000, abs=10)
+        assert result.heat_at_temps[-10]["heat"] == pytest.approx(6000, abs=10)
         # At 0°C: heat = 4000
-        assert result.heat_at_temps[0] == pytest.approx(4000, abs=10)
+        assert result.heat_at_temps[0]["heat"] == pytest.approx(4000, abs=10)
         # At 15°C: heat = -200*15 + 4000 = 1000
-        assert result.heat_at_temps[15] == pytest.approx(1000, abs=10)
+        assert result.heat_at_temps[15]["heat"] == pytest.approx(1000, abs=10)
 
     def test_heat_at_temps_clipped_to_zero(self):
         """Heat demand should never be negative."""
@@ -57,7 +57,7 @@ class TestCalculateHeatLoss:
 
         result = calculate_heat_loss(df)
         # At 15°C the regression would predict negative → should be clipped to 0
-        assert result.heat_at_temps[15] >= 0
+        assert result.heat_at_temps[15]["heat"] >= 0
 
     def test_empty_dataframe(self):
         """Empty DataFrame should return empty result."""

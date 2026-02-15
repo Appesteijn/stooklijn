@@ -21,8 +21,8 @@ class HeatLossResult:
     # Scatter data for dashboard
     scatter_data: list[dict] | None = None
 
-    # Heat demand at specific temperatures
-    heat_at_temps: dict[int, float] | None = None
+    # Heat demand at specific temperatures (with COP if available)
+    heat_at_temps: dict[int, dict] | None = None
 
 
 _MIN_HEATING_WATTS = 200  # Minimum W to count as a heating day
@@ -78,11 +78,36 @@ def calculate_heat_loss(
     if slope != 0:
         result.balance_point = float(-intercept / slope)
 
-    # Heat demand at specific temperatures
+    # Heat demand at specific temperatures (with COP if available)
     result.heat_at_temps = {}
+
+    # Check if COP data is available for interpolation
+    has_cop = "averageCOP" in df_daily.columns
+    cop_data = None
+    if has_cop:
+        cop_df = df_daily[["avg_temperatureOutside", "averageCOP"]].replace(
+            [np.inf, -np.inf], np.nan
+        ).dropna()
+        if len(cop_df) >= 2:
+            cop_data = cop_df.sort_values("avg_temperatureOutside")
+
     for temp in [-10, -5, 0, 5, 10, 15]:
         demand = slope * temp + intercept
-        result.heat_at_temps[temp] = max(0.0, float(demand))
+        heat_value = max(0.0, float(demand))
+
+        # Interpolate COP if data is available
+        cop_value = None
+        if cop_data is not None and len(cop_data) >= 2:
+            cop_value = float(np.interp(
+                temp,
+                cop_data["avg_temperatureOutside"].values,
+                cop_data["averageCOP"].values
+            ))
+
+        result.heat_at_temps[temp] = {
+            "heat": heat_value,
+            "cop": cop_value
+        }
 
     # Scatter data for dashboard (all points for context, regression uses filtered)
     result.scatter_data = [

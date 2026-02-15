@@ -103,7 +103,7 @@ class TestSensorValueFunctions:
         ts = datetime(2024, 6, 15, 12, 0, tzinfo=timezone.utc)
         data = _make_data(last_analysis=ts)
         desc = _find_desc("last_analysis")
-        assert desc.value_fn(data) == ts
+        assert desc.value_fn(data) == "2024-06-15"
 
     def test_analysis_status(self):
         data = _make_data(analysis_status="completed")

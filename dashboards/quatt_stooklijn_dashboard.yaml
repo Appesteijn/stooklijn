@@ -126,14 +126,17 @@ views:
 
               {% if temps %}
 
-              Buitentemp | Vermogen | Per dag
+              Buitentemp | Vermogen | Warmte/dag | COP | Stroom/dag
 
-              :--|--:|--:
+              :--|--:|--:|--:|--:
 
-              {% for t, w in temps.items() -%}
+              {% for t, data in temps.items() -%}
 
-              **{{ t }}°C** | **{{ w | round(0) | int }} W** | {{ (w * 24 /
-              1000) | round(1) }} kWh/dag
+              **{{ t }}°C** | **{{ data.heat | round(0) | int }} W** | {{ (data.heat
+              * 24 / 1000) | round(1) }} kWh | {% if data.cop %}{{ data.cop |
+              round(2) }}{% else %}-{% endif %} | {% if data.cop and data.cop > 0
+              %}{{ ((data.heat * 24 / 1000) / data.cop) | round(1) }} kWh{% else
+              %}-{% endif %}
 
               {% endfor %}
 
