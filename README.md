@@ -1,5 +1,9 @@
 # Quatt Warmteanalyse
 
+<p align="center">
+  <img src="icon.png" alt="Quatt Warmteanalyse" width="128">
+</p>
+
 Home Assistant custom integration for analyzing your Quatt heat pump performance. Calculates optimal heating curves (stooklijn), COP, heat loss characteristics, and optionally compares with historical gas consumption.
 
 ## Features
