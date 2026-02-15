@@ -167,9 +167,10 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
     QuattSensorDescription(
         key="last_analysis",
         name="Last Analysis",
-        device_class=SensorDeviceClass.TIMESTAMP,
         icon="mdi:clock-check-outline",
-        value_fn=lambda d: d.last_analysis,
+        value_fn=lambda d: (
+            d.last_analysis.strftime("%Y-%m-%d") if d.last_analysis else None
+        ),
     ),
     QuattSensorDescription(
         key="analysis_status",
