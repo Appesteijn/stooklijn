@@ -131,6 +131,7 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
                     CONF_HOT_WATER_TEMP_THRESHOLD, DEFAULT_HOT_WATER_TEMP_THRESHOLD
                 ),
                 df_hourly if not df_hourly.empty else None,
+                temp_entities=config.get(CONF_TEMP_ENTITIES),
             )
 
         # Step 3: Fetch live history for knee detection

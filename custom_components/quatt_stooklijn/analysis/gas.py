@@ -23,6 +23,7 @@ async def async_fetch_gas_data(
     boiler_efficiency: float = 0.90,
     hot_water_temp_threshold: float = 18.0,
     df_hourly_hp: pd.DataFrame | None = None,
+    temp_entities: list[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Fetch gas consumption data and return (df_gas_hourly, df_gas_daily).
 
@@ -35,6 +36,7 @@ async def async_fetch_gas_data(
         boiler_efficiency: Boiler efficiency ratio (default 0.90)
         hot_water_temp_threshold: Days above this temp are hot-water-only
         df_hourly_hp: Optional heat pump hourly data for temperature reuse
+        temp_entities: Temperature sensor entity IDs to fetch from recorder
     """
     from homeassistant.util import dt as dt_util
 
@@ -91,7 +93,57 @@ async def async_fetch_gas_data(
 
     # Temperature data & hot water correction
     has_temp = False
-    if df_hourly_hp is not None and not df_hourly_hp.empty:
+
+    # Primary: fetch temperature from HA recorder for the gas date range
+    if temp_entities:
+        for temp_entity in temp_entities:
+            def _fetch_temp(eid=temp_entity):
+                return state_changes_during_period(hass, start_dt, end_dt, eid)
+
+            temp_states = await get_instance(hass).async_add_executor_job(_fetch_temp)
+            entity_temp_states = temp_states.get(temp_entity, [])
+            if entity_temp_states:
+                temp_records = []
+                for s in entity_temp_states:
+                    try:
+                        ts = s.last_changed
+                        if ts.tzinfo is not None:
+                            ts = ts.replace(tzinfo=None)
+                        temp_records.append(
+                            {"timestamp": ts, "temperatureOutside": float(s.state)}
+                        )
+                    except (ValueError, TypeError):
+                        continue
+                if temp_records:
+                    df_temp = pd.DataFrame(temp_records)
+                    df_temp["timestamp"] = pd.to_datetime(
+                        df_temp["timestamp"]
+                    ).dt.floor("h")
+                    df_temp = df_temp.groupby("timestamp")[
+                        "temperatureOutside"
+                    ].median()
+                    df_temp = df_temp.to_frame()
+
+                    df_gas_hourly = df_gas_hourly.join(df_temp, how="left")
+
+                    daily_temp = df_temp.groupby(df_temp.index.date)[
+                        "temperatureOutside"
+                    ].mean()
+                    df_gas_daily["avg_temperatureOutside"] = (
+                        df_gas_daily.index.map(
+                            lambda d: daily_temp.get(d.date(), None)
+                        )
+                    )
+                    has_temp = True
+                    _LOGGER.info(
+                        "Gas temperature from recorder: %s (%d records)",
+                        temp_entity,
+                        len(temp_records),
+                    )
+                    break
+
+    # Fallback: use heat pump hourly data (works when date ranges overlap)
+    if not has_temp and df_hourly_hp is not None and not df_hourly_hp.empty:
         if "temperatureOutside" in df_hourly_hp.columns:
             df_hp_temp = df_hourly_hp[["temperatureOutside"]].copy()
             if df_hp_temp.index.tz is not None:
