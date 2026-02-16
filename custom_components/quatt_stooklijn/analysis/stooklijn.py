@@ -63,6 +63,136 @@ def _piecewise_linear(x, x0, y0, k1, k2):
     return np.where(x < x0, k1 * (x - x0) + y0, k2 * (x - x0) + y0)
 
 
+def _filter_stable_hours(df: pd.DataFrame, power_col: str, temp_col: str) -> pd.DataFrame:
+    """Filter hours where heat pump ran continuously (not partial hours).
+
+    Removes hours with:
+    - Very low power (< MIN_POWER_FILTER)
+    - Large power variations (potential defrost cycles or on/off switching)
+
+    Args:
+        df: DataFrame with hourly data
+        power_col: Name of power column
+        temp_col: Name of temperature column
+
+    Returns:
+        Filtered DataFrame with stable operation hours
+    """
+    if df.empty or power_col not in df.columns or temp_col not in df.columns:
+        return df
+
+    # Filter minimum power
+    df_filtered = df[df[power_col] >= MIN_POWER_FILTER].copy()
+
+    if len(df_filtered) < 10:
+        return df_filtered
+
+    # Calculate rolling statistics to identify stable periods
+    # Use 3-hour window to detect stability
+    df_filtered["power_rolling_std"] = (
+        df_filtered[power_col].rolling(window=3, center=True, min_periods=1).std()
+    )
+
+    # Keep hours where power is relatively stable
+    # Threshold: std dev should be < 20% of mean power
+    mean_power = df_filtered[power_col].mean()
+    stability_threshold = mean_power * 0.20
+
+    df_stable = df_filtered[
+        df_filtered["power_rolling_std"] < stability_threshold
+    ].copy()
+
+    # Drop the helper column
+    df_stable = df_stable.drop(columns=["power_rolling_std"])
+
+    _LOGGER.debug(
+        "Filtered stable hours: %d → %d (removed %d unstable)",
+        len(df_filtered),
+        len(df_stable),
+        len(df_filtered) - len(df_stable),
+    )
+
+    return df_stable
+
+
+def _perform_knee_detection_quatt(df_hourly: pd.DataFrame) -> tuple[float | None, float | None, float | None, float | None]:
+    """Perform knee detection using Quatt hourly data.
+
+    Uses all available Quatt hourly data (not just last 10 days) for more
+    reliable knee detection. Filters out partial hours and defrosts.
+
+    Args:
+        df_hourly: Quatt insights hourly data with hpHeat and temperatureOutside
+
+    Returns:
+        Tuple of (knee_temp, knee_power, slope_api, intercept_api)
+    """
+    if df_hourly is None or df_hourly.empty:
+        return None, None, None, None
+
+    if "hpHeat" not in df_hourly.columns or "temperatureOutside" not in df_hourly.columns:
+        return None, None, None, None
+
+    # Prepare data
+    df_prep = df_hourly[
+        (df_hourly["hpHeat"].notna()) & (df_hourly["temperatureOutside"].notna())
+    ].copy()
+
+    if df_prep.empty:
+        return None, None, None, None
+
+    # Filter for stable operation hours (removes partial hours and defrosts)
+    df_stable = _filter_stable_hours(df_prep, "hpHeat", "temperatureOutside")
+
+    if len(df_stable) < 20:  # Need enough data points
+        _LOGGER.warning(
+            "Not enough stable hours for knee detection (%d < 20)", len(df_stable)
+        )
+        return None, None, None, None
+
+    # Prepare for curve fitting
+    x_data = df_stable["temperatureOutside"].values
+    y_data = df_stable["hpHeat"].values
+
+    # Initial parameters for piecewise fit
+    p0 = [1.0, y_data.max(), 0, -400]
+    lower_b = [-5, 2000, -500, -2000]  # Wider temp range
+    upper_b = [5, 12000, 500, -100]     # Higher max power for Duo
+
+    try:
+        popt, _ = curve_fit(
+            _piecewise_linear, x_data, y_data, p0=p0, bounds=(lower_b, upper_b)
+        )
+
+        knee_temp = float(popt[0])
+        knee_power = float(popt[1])
+
+        # Fit line to data right of knee (normal operation stooklijn)
+        df_right = df_stable[df_stable["temperatureOutside"] >= knee_temp]
+        slope_api = None
+        intercept_api = None
+
+        if len(df_right) > 10:
+            slope, intercept = np.polyfit(
+                df_right["temperatureOutside"].values, df_right["hpHeat"].values, 1
+            )
+            slope_api = float(slope)
+            intercept_api = float(intercept)
+
+        _LOGGER.info(
+            "Knee detection (Quatt): %.2f°C, %d W (from %d stable hours)",
+            knee_temp,
+            knee_power,
+            len(df_stable),
+        )
+
+        return knee_temp, knee_power, slope_api, intercept_api
+
+    except Exception as e:
+        _LOGGER.warning("Quatt-based knee detection failed: %s", e)
+        return None, None, None, None
+
+
 async def async_fetch_live_history(
     hass: HomeAssistant,
     temp_entities: list[str],
@@ -160,9 +290,30 @@ def calculate_stooklijn(
     dynamic_min_temp = -0.5  # fallback
 
     # =========================================================
-    # STEP 1: Knee detection (piecewise linear fit on live data)
+    # STEP 1: Knee detection (piecewise linear fit)
     # =========================================================
-    if df_ha_merged is not None and not df_ha_merged.empty:
+    # Try Quatt hourly data first (preferred: longer history, better filtering)
+    # Fall back to HA recorder data if Quatt data is unavailable
+    knee_detected = False
+
+    if df_hourly is not None and not df_hourly.empty:
+        _LOGGER.info("Attempting knee detection with Quatt hourly data...")
+        knee_temp, knee_power, slope_api, intercept_api = _perform_knee_detection_quatt(
+            df_hourly
+        )
+
+        if knee_temp is not None:
+            dynamic_min_temp = knee_temp
+            result.knee_temperature = knee_temp
+            result.knee_power = knee_power
+            if slope_api is not None:
+                result.slope_api = slope_api
+                result.intercept_api = intercept_api
+            knee_detected = True
+
+    # Fallback to HA recorder data if Quatt knee detection failed
+    if not knee_detected and df_ha_merged is not None and not df_ha_merged.empty:
+        _LOGGER.info("Falling back to HA recorder data for knee detection...")
         # Categorize data
         valid_mask = df_ha_merged["power"] >= MIN_POWER_FILTER
         df_fit = df_ha_merged[valid_mask].copy()
@@ -193,12 +344,21 @@ def calculate_stooklijn(
                     result.intercept_api = float(intercept)
 
                 _LOGGER.info(
-                    "Knee detected at %.2f°C, %d W",
+                    "Knee detected (recorder): %.2f°C, %d W (from %d days)",
                     result.knee_temperature,
                     result.knee_power,
+                    DAYS_HISTORY,
                 )
-            except Exception:
-                _LOGGER.warning("Piecewise fit failed for knee detection")
+                knee_detected = True
+            except Exception as e:
+                _LOGGER.warning("Recorder-based knee detection failed: %s", e)
+
+    if not knee_detected:
+        _LOGGER.warning(
+            "Knee detection failed with both Quatt and recorder data. "
+            "Using fallback temperature: %.2f°C",
+            dynamic_min_temp,
+        )
 
     # =========================================================
     # STEP 2: Max-envelope analysis (freezing performance)

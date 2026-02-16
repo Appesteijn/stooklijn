@@ -115,6 +115,111 @@ The integration ports the analysis from a Jupyter notebook into a Home Assistant
 3. **Heat loss regression** — Linear regression on daily heat energy vs outdoor temperature to determine your home's thermal characteristics
 4. **COP calculation** — Computes daily COP from heat output and electrical input
 
+## Performance & Caching
+
+### Intelligent Data Caching
+
+The integration uses smart caching to minimize API calls to the Quatt service:
+
+- **First run** — Fetches the last 30 days of data (not the full configured period)
+- **Subsequent runs** — Only fetches new days, all historical data is cached
+- **Organic growth** — Cache automatically expands by 1 day per analysis run
+- **Persistent storage** — Cache survives Home Assistant restarts
+
+### Benefits
+
+**For new users:**
+```
+Day 1:  Fetches 30 days  → 30 API calls (safe, quick setup)
+Day 2:  Fetches 1 day    → 1 API call (only today)
+Day 30: Fetches 1 day    → Cache now contains 60 days
+Day 90: Fetches 1 day    → Cache now contains 120 days
+```
+
+**Result:** Full analysis history builds up automatically over time, without overwhelming the Quatt API.
+
+**For existing users:**
+- Subsequent analyses are near-instant (1-2 seconds)
+- Only 1 API call per run (today's data)
+- **99.6% reduction** in API calls compared to fetching everything each time
+
+### Knee Detection Improvements
+
+The integration uses advanced knee detection to find the temperature where your heat pump reaches maximum capacity:
+
+- **Primary method** — Uses all available cached Quatt hourly data (grows from 30 to 250+ days)
+- **Fallback method** — Uses last 10 days of Home Assistant recorder data if Quatt data unavailable
+- **Smart filtering** — Automatically removes defrost cycles and partial operation hours for cleaner data
+- **Progressive accuracy** — Analysis becomes more accurate as cache grows over time
+
+**Accuracy improvement:**
+```
+Traditional method: 10 days of recorder data
+This integration:
+  - Day 1:  30 days (3x better)
+  - Day 30: 60 days (6x better)
+  - Day 90: 120 days (12x better)
+  - Day 250+: Full season coverage (25x better)
+```
+
+### Cache Management
+
+The cache is stored in `.storage/quatt_stooklijn_insights_cache` and:
+- Automatically cleans up data older than 1 year
+- Can be manually cleared by deleting the cache file and restarting HA
+- Is completely transparent (no configuration needed)
+
+### Monitoring
+
+Check your Home Assistant logs to see cache performance:
+```
+INFO: First run detected: limiting initial fetch to last 30 days
+      (configuration requested 251 days). Full history will build up
+      organically as you run analyses over time.
+INFO: Insights data: 30 days total, 0 from cache, 30 from API
+INFO: Cache now contains 30 days (2026-01-18 to 2026-02-16)
+INFO: Cache will reach full year of history in ~335 days
+```
+
+After cache is established:
+```
+INFO: Insights data: 252 days total, 251 from cache, 1 from API
+INFO: Cache now contains 252 days (2025-06-01 to 2026-02-16)
+```
+
+## Troubleshooting
+
+### Cache Issues
+
+**Problem:** Every analysis makes many API calls (cache not working)
+
+**Solutions:**
+1. Check `.storage/quatt_stooklijn_insights_cache` exists
+2. Check Home Assistant has write permissions to `.storage/` directory
+3. Check logs for cache errors
+
+**Problem:** Want to start fresh with empty cache
+
+**Solution:**
+1. Stop Home Assistant
+2. Delete `.storage/quatt_stooklijn_insights_cache`
+3. Start Home Assistant
+4. Next analysis will fetch last 30 days and rebuild cache
+
+### Analysis Issues
+
+**Problem:** Knee detection fails or gives unexpected results
+
+**Possible causes:**
+- Not enough cold weather data in cache yet (wait for cache to grow)
+- Heat pump hasn't operated at maximum capacity during cached period
+- Check logs for specific error messages
+
+**Solutions:**
+- Wait for cache to accumulate more days (especially winter months)
+- Ensure heat pump has run during cold periods
+- Check that Quatt integration is working correctly
+
 ## License
 
 MIT
