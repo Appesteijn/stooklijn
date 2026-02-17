@@ -30,6 +30,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # Auto-run analysis on startup so dashboards are populated immediately
+    async def _async_startup_analysis(_event=None) -> None:
+        """Run analysis automatically after HA startup."""
+        _LOGGER.info("Running automatic startup analysis")
+        coordinator.data.analysis_status = "running"
+        coordinator.async_set_updated_data(coordinator.data)
+        try:
+            await coordinator.async_refresh()
+        except Exception:
+            coordinator.data.analysis_status = "error"
+            coordinator.async_set_updated_data(coordinator.data)
+            _LOGGER.exception("Startup analysis failed")
+
+    # Schedule after HA is fully started to avoid blocking boot
+    from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+    if hass.is_running:
+        # HA already running (e.g. integration reload), run immediately
+        entry.async_create_background_task(
+            hass, _async_startup_analysis(), "quatt_stooklijn_startup_analysis"
+        )
+    else:
+        # HA still starting, wait for full startup
+        entry.async_on_unload(
+            hass.bus.async_listen_once(
+                EVENT_HOMEASSISTANT_STARTED, _async_startup_analysis
+            )
+        )
+
     # Register service (once for the domain)
     if not hass.services.has_service(DOMAIN, SERVICE_RUN_ANALYSIS):
 
