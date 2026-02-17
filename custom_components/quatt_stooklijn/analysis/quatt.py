@@ -126,7 +126,7 @@ async def _async_fetch_recorder_daily(
     df["totalHeatPerHour"] = (
         df["totalHpHeat"].fillna(0) + df["totalBoilerHeat"].fillna(0)
     ) / 24
-    df["totalBoilerGas"] = 0  # Not available from recorder
+    df["totalBoilerGas"] = 0.0  # Not available from recorder
 
     # Calculate COP from energy totals (not from the COP sensor, which
     # averages over 24h including off-periods and gives too-low values)
