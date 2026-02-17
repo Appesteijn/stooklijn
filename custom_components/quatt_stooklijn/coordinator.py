@@ -6,6 +6,8 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+import pandas as pd
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
@@ -170,12 +172,16 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
                 "gas",
             )
 
-        # Step 6: Calculate average COP
+        # Step 6: Calculate average COP (only heating days)
         average_cop = None
         if not df_daily.empty and "averageCOP" in df_daily.columns:
-            cop_valid = df_daily["averageCOP"].replace(
-                [float("inf"), -float("inf")], None
-            ).dropna()
+            # Filter: only days with meaningful heating and valid COP
+            cop_mask = (
+                df_daily["averageCOP"].replace([float("inf"), -float("inf")], None).notna()
+                & (df_daily.get("totalHeatPerHour", pd.Series(0)) >= 200)
+                & (df_daily["averageCOP"] > 0)
+            )
+            cop_valid = df_daily.loc[cop_mask, "averageCOP"]
             if len(cop_valid) > 0:
                 average_cop = float(cop_valid.mean())
 

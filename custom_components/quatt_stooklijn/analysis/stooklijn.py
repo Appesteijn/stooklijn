@@ -414,6 +414,8 @@ def calculate_stooklijn(
     # =========================================================
     # STEP 3: Optimal stooklijn from daily usage pattern
     # =========================================================
+    _MIN_HEATING_W = 200  # Minimum W/h to count as a heating day
+
     if df_daily is not None and not df_daily.empty:
         cols_needed = ["avg_temperatureOutside", "totalHeatPerHour"]
         if all(c in df_daily.columns for c in cols_needed):
@@ -421,9 +423,14 @@ def calculate_stooklijn(
                 [np.inf, -np.inf], np.nan
             ).dropna()
 
-            if len(plot_data) > 5:
-                x = plot_data["avg_temperatureOutside"].values
-                y = plot_data["totalHeatPerHour"].values
+            # Filter out non-heating days (summer) for regression
+            heating_data = plot_data[
+                plot_data["totalHeatPerHour"] >= _MIN_HEATING_W
+            ]
+
+            if len(heating_data) > 5:
+                x = heating_data["avg_temperatureOutside"].values
+                y = heating_data["totalHeatPerHour"].values
                 slope, intercept = np.polyfit(x, y, 1)
 
                 y_pred = slope * x + intercept
@@ -458,11 +465,16 @@ def calculate_stooklijn(
                     )
                 result.scatter_data = scatter
 
-        # Build COP scatter data
+        # Build COP scatter data (only heating days with valid COP)
         if "averageCOP" in df_daily.columns and "avg_temperatureOutside" in df_daily.columns:
             cop_data = df_daily[["avg_temperatureOutside", "averageCOP"]].replace(
                 [np.inf, -np.inf], np.nan
             ).dropna()
+            # Filter: only days with meaningful COP (heating days)
+            cop_data = cop_data[cop_data["averageCOP"] > 0]
+            if "totalHeatPerHour" in df_daily.columns:
+                valid_idx = df_daily["totalHeatPerHour"] >= _MIN_HEATING_W
+                cop_data = cop_data[cop_data.index.isin(df_daily[valid_idx].index)]
             result.cop_scatter_data = [
                 {
                     "temp": round(float(row["avg_temperatureOutside"]), 1),
