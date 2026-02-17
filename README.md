@@ -110,28 +110,31 @@ The dashboard shows:
 
 The integration ports the analysis from a Jupyter notebook into a Home Assistant integration:
 
-1. **Data collection** — Uses a hybrid approach combining three data sources (see below)
-2. **Stooklijn calculation** — Fits piecewise linear models to hourly power vs temperature data, using envelope filtering to find the maximum capacity curve
-3. **Heat loss regression** — Linear regression on daily heat energy vs outdoor temperature to determine your home's thermal characteristics
-4. **COP calculation** — Computes daily COP from heat output (`totalHpHeat`) and electrical input (`totalHpElectric`) for accurate values
-5. **Auto-startup** — Analysis runs automatically when Home Assistant starts, so dashboards are always populated
+1. **Data collection** — Uses a hybrid approach combining four data sources (see below)
+2. **Stooklijn estimation** — Estimates the current Quatt stooklijn from HA recorder minute-level power data, using the 2500W filter to capture full-capacity operation
+3. **Knee detection** — Piecewise linear fit on Quatt hourly data to find the temperature where the boiler must assist
+4. **Heat loss regression** — Linear regression on daily heat energy vs outdoor temperature to determine your home's thermal characteristics
+5. **COP calculation** — Computes daily COP from heat output (`totalHpHeat`) and electrical input (`totalHpElectric`) for accurate values
+6. **Auto-startup** — Analysis runs automatically when Home Assistant starts, so dashboards are always populated
 
 ### Hybrid data approach
 
-The integration combines three data sources for the best balance of coverage, accuracy, and speed:
+The integration combines four data sources for the best balance of coverage, accuracy, and speed:
 
 | Source | Data type | Period | Purpose |
 |--------|-----------|--------|---------|
-| **HA Recorder** | Daily means | Full configured period (months) | Heat loss regression, COP scatter, stooklijn |
+| **HA Recorder statistics** | Daily means | Full configured period (months) | Heat loss regression, COP scatter, optimal stooklijn |
+| **HA Recorder state changes** | Minute-level | Last 30 days | Quatt stooklijn estimation (instantaneous power) |
 | **Quatt API** | Hourly detail | Last 30 days | Knee detection, envelope analysis |
 | **Cache** | Hourly detail | Previously fetched days | Extends hourly data beyond 30-day API window |
 
 **How it works per analysis run:**
 
 1. **Recorder statistics** — Fetches daily mean values from HA's long-term statistics for the full configured period. These are derived from the Quatt integration sensors that HA already records (power, temperature, electricity input, boiler heat).
-2. **Cached historical data** — Checks the cache for any hourly data from before the 30-day API window. This data was fetched in previous runs and is reused without any API calls.
-3. **Quatt API** — Fetches the last 30 days of hourly data from the Quatt `get_insights` service. Already-cached days are skipped.
-4. **Merge** — Recorder data forms the base, API data overwrites recent days (more accurate for the last 30 days).
+2. **Recorder state changes** — Fetches minute-level power and temperature readings from the last 30 days (limited by HA's `purge_keep_days` setting, default 10 days). Used to estimate the Quatt stooklijn — minute-level data is essential here because hourly averages from the API can mask partial operation hours.
+3. **Cached historical data** — Checks the cache for any hourly data from before the 30-day API window. This data was fetched in previous runs and is reused without any API calls.
+4. **Quatt API** — Fetches the last 30 days of hourly data from the Quatt `get_insights` service. Already-cached days are skipped.
+5. **Merge** — Recorder data forms the base, API data overwrites recent days (more accurate for the last 30 days).
 
 **Result:** From the first run you get months of daily data (via recorder), plus 30 days of hourly detail. The hourly cache grows organically over time.
 
@@ -150,12 +153,21 @@ Day 90:     ~1 API call   (cache now contains 120 days of hourly data)
 
 Subsequent analyses typically complete in 1-2 seconds with only 1 API call.
 
+### Quatt stooklijn estimation
+
+The integration estimates your current Quatt stooklijn (heating curve) from HA recorder data:
+
+- Uses **minute-level state changes** from the recorder (not Quatt API hourly averages)
+- Filters for continuous full-capacity operation (≥ 2500W)
+- Fits a linear regression to data right of the knee point
+- Minute-level data is essential: hourly averages can include partial operation hours that distort the slope
+
 ### Knee detection
 
 The integration uses advanced knee detection to find the temperature where your heat pump reaches maximum capacity:
 
 - **Primary method** — Uses all available Quatt hourly data (30 days + cached history)
-- **Fallback method** — Uses last 10 days of HA recorder data if Quatt data is unavailable
+- **Fallback method** — Uses last 30 days of HA recorder data if Quatt data is unavailable
 - **Smart filtering** — Automatically removes defrost cycles and partial operation hours
 - **Progressive accuracy** — As the cache grows, more hourly data is available for knee detection
 
@@ -171,11 +183,13 @@ The cache is stored in `.storage/quatt_stooklijn_insights_cache` and:
 
 Check your Home Assistant logs to see data source performance:
 ```
-INFO: Fetching recorder statistics for 2025-06-01 to 2026-02-16...
-INFO: Recorder statistics: 261 days (2025-06-01 to 2026-02-16)
+INFO: Fetching recorder statistics for 2025-06-01 to 2026-02-17...
+INFO: Recorder statistics: 261 days (2025-06-01 to 2026-02-17)
 INFO: Found 28 days of cached historical hourly data
-INFO: Fetching Quatt API data for 2026-01-18 to 2026-02-16 (30 days)...
+INFO: Fetching Quatt API data for 2026-01-19 to 2026-02-17 (30 days)...
 INFO: API/cache data: 58 days total (57 from cache, 1 from API)
+INFO: Knee detection (Quatt): 0.16°C, 6437 W (from 245 stable hours)
+INFO: Quatt stooklijn estimated from recorder: slope=-353.5 W/°C, intercept=6037 W, zero at 17.1°C (1820 data points)
 ```
 
 ## Troubleshooting
