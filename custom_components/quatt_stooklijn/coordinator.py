@@ -108,12 +108,15 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
         """Execute the analysis steps."""
         config = self.config
 
-        # Step 1: Fetch Quatt insights data
+        # Step 1: Fetch Quatt insights data (hybrid: recorder + API)
         _LOGGER.info("Fetching Quatt insights data...")
+        temp_entities = config.get(CONF_TEMP_ENTITIES, [])
         df_hourly, df_daily = await async_fetch_quatt_insights(
             self.hass,
             config[CONF_QUATT_START_DATE],
             config[CONF_QUATT_END_DATE],
+            power_entity=config.get(CONF_POWER_ENTITY, "sensor.heatpump_total_power"),
+            temp_entity=temp_entities[0] if temp_entities else "sensor.heatpump_hp1_temperature_outside",
         )
 
         # Step 2: Fetch gas data (if enabled)

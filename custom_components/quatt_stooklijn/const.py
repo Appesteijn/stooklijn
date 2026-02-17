@@ -32,6 +32,14 @@ DEFAULT_TEMP_ENTITIES = [
 ]
 DEFAULT_POWER_ENTITY = "sensor.heatpump_total_power"
 
+# Recorder statistics sensors (derived from Quatt integration)
+RECORDER_POWER_INPUT_ENTITY = "sensor.heatpump_total_power_input"
+RECORDER_COP_ENTITY = "sensor.heatpump_total_quatt_cop"
+RECORDER_BOILER_HEAT_ENTITY = "sensor.heatpump_boiler_heat_power"
+
+# How many days of detailed hourly data to fetch from Quatt API
+API_FETCH_DAYS = 30
+
 # Analysis parameters
 MIN_POWER_FILTER = 2500  # W - minimum power to consider heat pump active
 STD_DEV_THRESHOLD = 2.0  # Z-score threshold for outlier removal
