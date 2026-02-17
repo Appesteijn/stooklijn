@@ -151,7 +151,7 @@ views:
           - type: custom:apexcharts-card
             header:
               show: false
-            graph_span: 35h
+            graph_span: 30h
             span:
               start: day
             update_interval: 1h
@@ -310,7 +310,7 @@ views:
           - type: custom:apexcharts-card
             header:
               show: false
-            graph_span: 35h
+            graph_span: 30h
             span:
               start: day
             update_interval: 1h
@@ -409,7 +409,7 @@ views:
           - type: custom:apexcharts-card
             header:
               show: false
-            graph_span: 35h
+            graph_span: 30h
             span:
               start: day
             update_interval: 1h
@@ -510,7 +510,7 @@ views:
           - type: custom:apexcharts-card
             header:
               show: false
-            graph_span: 35h
+            graph_span: 30h
             span:
               start: day
             update_interval: 1h
