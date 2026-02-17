@@ -444,9 +444,9 @@ def calculate_stooklijn(
                 if slope != 0:
                     result.balance_temp_optimal = float(-intercept / slope)
 
-                # Build scatter data for dashboard (daily points)
+                # Build scatter data for dashboard (only heating days)
                 scatter = []
-                for _, row in plot_data.iterrows():
+                for _, row in heating_data.iterrows():
                     cop_val = None
                     if "averageCOP" in df_daily.columns:
                         idx = row.name if hasattr(row, "name") else None
