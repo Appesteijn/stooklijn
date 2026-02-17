@@ -59,12 +59,12 @@ Home Assistant custom integration for analyzing your Quatt heat pump performance
 
 ## Usage
 
-After configuration, trigger an analysis:
+The analysis runs **automatically** when Home Assistant starts, so your dashboards are always populated after a restart.
+
+You can also trigger an analysis manually:
 
 1. Call the `quatt_stooklijn.run_analysis` service, or
 2. Press the **Analyse Starten** button on the dashboard
-
-The analysis fetches data from Home Assistant's recorder, runs calculations, and populates the sensors.
 
 ### Dashboard
 
@@ -110,86 +110,77 @@ The dashboard shows:
 
 The integration ports the analysis from a Jupyter notebook into a Home Assistant integration:
 
-1. **Data collection** — Fetches heat pump data via the Quatt `get_insights` service and gas history from HA's recorder
+1. **Data collection** — Uses a hybrid approach combining three data sources (see below)
 2. **Stooklijn calculation** — Fits piecewise linear models to hourly power vs temperature data, using envelope filtering to find the maximum capacity curve
 3. **Heat loss regression** — Linear regression on daily heat energy vs outdoor temperature to determine your home's thermal characteristics
-4. **COP calculation** — Computes daily COP from heat output and electrical input
+4. **COP calculation** — Computes daily COP from heat output (`totalHpHeat`) and electrical input (`totalHpElectric`) for accurate values
+5. **Auto-startup** — Analysis runs automatically when Home Assistant starts, so dashboards are always populated
+
+### Hybrid data approach
+
+The integration combines three data sources for the best balance of coverage, accuracy, and speed:
+
+| Source | Data type | Period | Purpose |
+|--------|-----------|--------|---------|
+| **HA Recorder** | Daily means | Full configured period (months) | Heat loss regression, COP scatter, stooklijn |
+| **Quatt API** | Hourly detail | Last 30 days | Knee detection, envelope analysis |
+| **Cache** | Hourly detail | Previously fetched days | Extends hourly data beyond 30-day API window |
+
+**How it works per analysis run:**
+
+1. **Recorder statistics** — Fetches daily mean values from HA's long-term statistics for the full configured period. These are derived from the Quatt integration sensors that HA already records (power, temperature, electricity input, boiler heat).
+2. **Cached historical data** — Checks the cache for any hourly data from before the 30-day API window. This data was fetched in previous runs and is reused without any API calls.
+3. **Quatt API** — Fetches the last 30 days of hourly data from the Quatt `get_insights` service. Already-cached days are skipped.
+4. **Merge** — Recorder data forms the base, API data overwrites recent days (more accurate for the last 30 days).
+
+**Result:** From the first run you get months of daily data (via recorder), plus 30 days of hourly detail. The hourly cache grows organically over time.
 
 ## Performance & Caching
 
-### Intelligent Data Caching
+### API call efficiency
 
-The integration uses smart caching to minimize API calls to the Quatt service:
+Thanks to the hybrid approach, the integration makes very few API calls:
 
-- **First run** — Fetches the last 30 days of data (not the full configured period)
-- **Subsequent runs** — Only fetches new days, all historical data is cached
-- **Organic growth** — Cache automatically expands by 1 day per analysis run
-- **Persistent storage** — Cache survives Home Assistant restarts
-
-### Benefits
-
-**For new users:**
 ```
-Day 1:  Fetches 30 days  → 30 API calls (safe, quick setup)
-Day 2:  Fetches 1 day    → 1 API call (only today)
-Day 30: Fetches 1 day    → Cache now contains 60 days
-Day 90: Fetches 1 day    → Cache now contains 120 days
+First run:  ~30 API calls (last 30 days) + instant recorder fetch
+Day 2:      ~1 API call   (only today, rest cached)
+Day 30:     ~1 API call   (cache now contains 60 days of hourly data)
+Day 90:     ~1 API call   (cache now contains 120 days of hourly data)
 ```
 
-**Result:** Full analysis history builds up automatically over time, without overwhelming the Quatt API.
+Subsequent analyses typically complete in 1-2 seconds with only 1 API call.
 
-**For existing users:**
-- Subsequent analyses are near-instant (1-2 seconds)
-- Only 1 API call per run (today's data)
-- **99.6% reduction** in API calls compared to fetching everything each time
-
-### Knee Detection Improvements
+### Knee detection
 
 The integration uses advanced knee detection to find the temperature where your heat pump reaches maximum capacity:
 
-- **Primary method** — Uses all available cached Quatt hourly data (grows from 30 to 250+ days)
-- **Fallback method** — Uses last 10 days of Home Assistant recorder data if Quatt data unavailable
-- **Smart filtering** — Automatically removes defrost cycles and partial operation hours for cleaner data
-- **Progressive accuracy** — Analysis becomes more accurate as cache grows over time
+- **Primary method** — Uses all available Quatt hourly data (30 days + cached history)
+- **Fallback method** — Uses last 10 days of HA recorder data if Quatt data is unavailable
+- **Smart filtering** — Automatically removes defrost cycles and partial operation hours
+- **Progressive accuracy** — As the cache grows, more hourly data is available for knee detection
 
-**Accuracy improvement:**
-```
-Traditional method: 10 days of recorder data
-This integration:
-  - Day 1:  30 days (3x better)
-  - Day 30: 60 days (6x better)
-  - Day 90: 120 days (12x better)
-  - Day 250+: Full season coverage (25x better)
-```
-
-### Cache Management
+### Cache management
 
 The cache is stored in `.storage/quatt_stooklijn_insights_cache` and:
 - Automatically cleans up data older than 1 year
 - Can be manually cleared by deleting the cache file and restarting HA
 - Is completely transparent (no configuration needed)
+- Survives Home Assistant restarts
 
 ### Monitoring
 
-Check your Home Assistant logs to see cache performance:
+Check your Home Assistant logs to see data source performance:
 ```
-INFO: First run detected: limiting initial fetch to last 30 days
-      (configuration requested 251 days). Full history will build up
-      organically as you run analyses over time.
-INFO: Insights data: 30 days total, 0 from cache, 30 from API
-INFO: Cache now contains 30 days (2026-01-18 to 2026-02-16)
-INFO: Cache will reach full year of history in ~335 days
-```
-
-After cache is established:
-```
-INFO: Insights data: 252 days total, 251 from cache, 1 from API
-INFO: Cache now contains 252 days (2025-06-01 to 2026-02-16)
+INFO: Fetching recorder statistics for 2025-06-01 to 2026-02-16...
+INFO: Recorder statistics: 261 days (2025-06-01 to 2026-02-16)
+INFO: Found 28 days of cached historical hourly data
+INFO: Fetching Quatt API data for 2026-01-18 to 2026-02-16 (30 days)...
+INFO: API/cache data: 58 days total (57 from cache, 1 from API)
 ```
 
 ## Troubleshooting
 
-### Cache Issues
+### Cache issues
 
 **Problem:** Every analysis makes many API calls (cache not working)
 
@@ -204,21 +195,30 @@ INFO: Cache now contains 252 days (2025-06-01 to 2026-02-16)
 1. Stop Home Assistant
 2. Delete `.storage/quatt_stooklijn_insights_cache`
 3. Start Home Assistant
-4. Next analysis will fetch last 30 days and rebuild cache
+4. Next analysis will fetch last 30 days from API and rebuild cache (recorder data is always available)
 
-### Analysis Issues
+### Analysis issues
 
 **Problem:** Knee detection fails or gives unexpected results
 
 **Possible causes:**
-- Not enough cold weather data in cache yet (wait for cache to grow)
+- Not enough cold weather data in hourly cache yet (daily data from recorder is always available)
 - Heat pump hasn't operated at maximum capacity during cached period
 - Check logs for specific error messages
 
 **Solutions:**
-- Wait for cache to accumulate more days (especially winter months)
+- Wait for cache to accumulate more winter days (knee detection uses hourly data)
 - Ensure heat pump has run during cold periods
 - Check that Quatt integration is working correctly
+
+**Problem:** COP values seem too low
+
+**Possible causes:**
+- Summer days without heating drag down the average
+- The integration filters on days with >= 200W heating demand, but check your configured date range
+
+**Solution:**
+- The integration automatically filters non-heating days from COP and stooklijn calculations
 
 ## License
 
