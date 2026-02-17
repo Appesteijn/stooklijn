@@ -240,9 +240,12 @@ views:
 
                   const intercept = bp - slope * avgT;
 
+                  const maxT = Math.max(...attr.scatter_data.map(p => p.temp)) +
+                  1;
+
                   const points = [];
 
-                  for (let t = -10; t <= 25; t += 1) {
+                  for (let t = -10; t <= maxT; t += 1) {
                     const y = slope * t + intercept;
                     if (y > 0) points.push([B + (t + 10) * H, y]);
                   }
@@ -290,9 +293,12 @@ views:
 
                   const intercept = bp - slope * avgT;
 
+                  const maxT = Math.max(...attr.scatter_data.map(p => p.temp)) +
+                  1;
+
                   const points = [];
 
-                  for (let t = -10; t <= 25; t += 1) {
+                  for (let t = -10; t <= maxT; t += 1) {
                     const y = slope * t + intercept;
                     if (y > 0) points.push([B + (t + 10) * H, y]);
                   }
@@ -355,8 +361,10 @@ views:
                   const slope = parseFloat(entity.state);
                   const intercept = entity.attributes.intercept;
                   if (!slope || !intercept) return [];
+                  const sd = entity.attributes.scatter_data;
+                  const maxT = sd ? Math.max(...sd.map(p => p.temp)) + 1 : 20;
                   const points = [];
-                  for (let t = -10; t <= 25; t += 1) {
+                  for (let t = -10; t <= maxT; t += 1) {
                     const y = slope * t + intercept;
                     if (y > 0) points.push([B + (t + 10) * H, y]);
                   }
@@ -372,8 +380,10 @@ views:
                   const slope = parseFloat(entity.state);
                   const intercept = entity.attributes.intercept;
                   if (!slope || !intercept) return [];
+                  const sd = entity.attributes.scatter_data;
+                  const maxT = sd ? Math.max(...sd.map(p => p.temp)) + 1 : 20;
                   const points = [];
-                  for (let t = -10; t <= 25; t += 1) {
+                  for (let t = -10; t <= maxT; t += 1) {
                     const y = slope * t + intercept;
                     if (y > 0) points.push([B + (t + 10) * H, y]);
                   }
@@ -390,7 +400,7 @@ views:
                   const intercept = entity.attributes.intercept;
                   if (!slope || intercept == null) return [];
                   const points = [];
-                  for (let t = -10; t <= 25; t += 1) {
+                  for (let t = -10; t <= 20; t += 1) {
                     const y = slope * t + intercept;
                     if (y > 0) points.push([B + (t + 10) * H, y]);
                   }
@@ -473,8 +483,10 @@ views:
                   const slope = parseFloat(entity.state);
                   const intercept = entity.attributes.intercept;
                   if (!slope || !intercept) return [];
+                  const sd = entity.attributes.scatter_data;
+                  const maxT = sd ? Math.max(...sd.map(p => p.temp)) + 1 : 20;
                   const points = [];
-                  for (let t = -10; t <= 25; t += 1) {
+                  for (let t = -10; t <= maxT; t += 1) {
                     const y = slope * t + intercept;
                     if (y > 0) points.push([B + (t + 10) * H, y]);
                   }
