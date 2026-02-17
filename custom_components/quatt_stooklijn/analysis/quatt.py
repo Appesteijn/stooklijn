@@ -21,7 +21,6 @@ from ..cache import QuattInsightsCache
 from ..const import (
     API_FETCH_DAYS,
     RECORDER_BOILER_HEAT_ENTITY,
-    RECORDER_COP_ENTITY,
     RECORDER_POWER_INPUT_ENTITY,
 )
 
@@ -61,7 +60,6 @@ async def _async_fetch_recorder_daily(
         power_entity,
         temp_entity,
         RECORDER_POWER_INPUT_ENTITY,
-        RECORDER_COP_ENTITY,
         RECORDER_BOILER_HEAT_ENTITY,
     }
 
@@ -108,8 +106,6 @@ async def _async_fetch_recorder_daily(
                 records[day]["totalBoilerHeat"] = mean_val * 24
             elif sensor_id == temp_entity:
                 records[day]["avg_temperatureOutside"] = mean_val
-            elif sensor_id == RECORDER_COP_ENTITY:
-                records[day]["averageCOP"] = mean_val
 
     if not records:
         _LOGGER.warning("Recorder statistics returned no usable data")
@@ -130,6 +126,15 @@ async def _async_fetch_recorder_daily(
         df["totalHpHeat"].fillna(0) + df["totalBoilerHeat"].fillna(0)
     ) / 24
     df["totalBoilerGas"] = 0  # Not available from recorder
+
+    # Calculate COP from energy totals (not from the COP sensor, which
+    # averages over 24h including off-periods and gives too-low values)
+    hp_heat = df["totalHpHeat"].fillna(0)
+    hp_elec = df["totalHpElectric"].fillna(0)
+    df["averageCOP"] = (hp_heat / hp_elec).replace(
+        [float("inf"), -float("inf")], 0
+    )
+    df.loc[hp_elec <= 0, "averageCOP"] = 0
 
     _LOGGER.info(
         "Recorder statistics: %d days (%s to %s)",
