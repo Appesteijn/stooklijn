@@ -2,6 +2,7 @@
 
 Uses a hybrid approach:
 - Recorder long-term statistics for historical daily data (months of history)
+- Cached hourly data for any previously fetched days (beyond the API window)
 - Quatt get_insights API for recent hourly data (last 30 days, cached)
 """
 
@@ -151,8 +152,15 @@ async def _async_fetch_api_days(
     start_dt: datetime,
     end_dt: datetime,
     cache: QuattInsightsCache,
+    *,
+    cache_only: bool = False,
 ) -> tuple[list[pd.DataFrame], list[dict], int, int]:
-    """Fetch daily/hourly data from Quatt API for a date range, using cache."""
+    """Fetch daily/hourly data from Quatt API for a date range, using cache.
+
+    Args:
+        cache_only: If True, only return cached data (no API calls).
+                    Used to retrieve historical hourly data beyond the API window.
+    """
     all_dates = pd.date_range(start=start_dt, end=end_dt)
 
     hourly_chunks = []
@@ -169,8 +177,8 @@ async def _async_fetch_api_days(
         if cached_data is not None:
             data = cached_data
             cache_hits += 1
-        else:
-            # Fetch from API
+        elif not cache_only:
+            # Fetch from API (only when not in cache-only mode)
             try:
                 response = await hass.services.async_call(
                     "quatt",
@@ -241,8 +249,9 @@ async def async_fetch_quatt_insights(
     """Fetch Quatt data using a hybrid approach.
 
     1. Recorder statistics for the full configured period (daily means)
-    2. Quatt API for the last API_FETCH_DAYS days (hourly detail, cached)
-    3. Merge: API daily data overwrites recorder data where available
+    2. Cached hourly data for historical period (before API window, cache-only)
+    3. Quatt API for the last API_FETCH_DAYS days (hourly detail, with API fallback)
+    4. Merge: API daily data overwrites recorder data where available
     """
     cache = await _get_cache(hass)
 
@@ -255,8 +264,33 @@ async def async_fetch_quatt_insights(
         hass, start_date, end_date, power_entity, temp_entity
     )
 
-    # === Step 2: Quatt API for last N days (hourly detail) ===
+    # === Step 2: Cached hourly data for historical period (before API window) ===
     api_start = max(start_dt, end_dt - timedelta(days=API_FETCH_DAYS - 1))
+    history_end = api_start - timedelta(days=1)
+
+    hourly_chunks = []
+    daily_records = []
+    total_cache_hits = 0
+
+    if history_end >= start_dt:
+        _LOGGER.info(
+            "Checking cache for historical hourly data %s to %s...",
+            start_date,
+            history_end.strftime("%Y-%m-%d"),
+        )
+        hist_hourly, hist_daily, _, hist_cache_hits = await _async_fetch_api_days(
+            hass, start_dt, history_end, cache, cache_only=True
+        )
+        hourly_chunks.extend(hist_hourly)
+        daily_records.extend(hist_daily)
+        total_cache_hits += hist_cache_hits
+
+        if hist_cache_hits > 0:
+            _LOGGER.info(
+                "Found %d days of cached historical hourly data", hist_cache_hits
+            )
+
+    # === Step 3: Quatt API for last N days (hourly detail) ===
     api_start_str = api_start.strftime("%Y-%m-%d")
 
     _LOGGER.info(
@@ -266,22 +300,25 @@ async def async_fetch_quatt_insights(
         (end_dt - api_start).days + 1,
     )
 
-    hourly_chunks, daily_records, api_calls_made, cache_hits = (
+    api_hourly, api_daily, api_calls_made, api_cache_hits = (
         await _async_fetch_api_days(hass, api_start, end_dt, cache)
     )
+    hourly_chunks.extend(api_hourly)
+    daily_records.extend(api_daily)
+    total_cache_hits += api_cache_hits
 
     # Save cache if we made any API calls
     if api_calls_made > 0:
         await cache.async_save()
 
     _LOGGER.info(
-        "API data: %d days (%d from cache, %d from API)",
-        cache_hits + api_calls_made,
-        cache_hits,
+        "API/cache data: %d days total (%d from cache, %d from API)",
+        total_cache_hits + api_calls_made,
+        total_cache_hits,
         api_calls_made,
     )
 
-    # === Step 3: Build hourly DataFrame ===
+    # === Step 4: Build hourly DataFrame ===
     if hourly_chunks:
         hourly_chunks = [
             c.dropna(axis=1, how="all")
@@ -295,7 +332,7 @@ async def async_fetch_quatt_insights(
     else:
         df_hourly = pd.DataFrame()
 
-    # === Step 4: Build API daily DataFrame ===
+    # === Step 5: Build API daily DataFrame ===
     df_daily_api = pd.DataFrame()
     if daily_records:
         df_daily_api = pd.DataFrame(daily_records)
@@ -328,7 +365,7 @@ async def async_fetch_quatt_insights(
                 [float("inf"), -float("inf")], 0
             )
 
-    # === Step 5: Merge — recorder as base, API overwrites recent days ===
+    # === Step 6: Merge — recorder as base, API overwrites recent days ===
     if not df_daily_recorder.empty and not df_daily_api.empty:
         # API data is more accurate for recent days, so it takes priority
         df_daily = df_daily_recorder.copy()
