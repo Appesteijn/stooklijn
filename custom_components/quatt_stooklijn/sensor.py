@@ -43,6 +43,9 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
         ),
         attr_fn=lambda d: {
             "r2": d.heat_loss_hp.r2,
+            "slope": d.heat_loss_hp.slope,
+            "intercept": d.heat_loss_hp.intercept,
+            "balance_point": d.heat_loss_hp.balance_point,
             "scatter_data": d.heat_loss_hp.scatter_data,
             "heat_at_temps": d.heat_loss_hp.heat_at_temps,
         }
@@ -158,6 +161,8 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
         ),
         attr_fn=lambda d: {
             "r2": d.heat_loss_gas.r2,
+            "slope": d.heat_loss_gas.slope,
+            "intercept": d.heat_loss_gas.intercept,
             "balance_point": d.heat_loss_gas.balance_point,
             "scatter_data": d.heat_loss_gas.scatter_data,
         }

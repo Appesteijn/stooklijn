@@ -218,38 +218,19 @@ views:
                 name: Warmtepomp trendlijn
                 type: line
                 color: "#2196F3"
-                data_generator: >
+                data_generator: |
                   var d = new Date(); d.setHours(0,0,0,0);
-
                   var B = d.getTime(), H = 3600000;
-
                   const attr = entity.attributes;
-
-                  if (!attr || !attr.scatter_data || attr.scatter_data.length <
-                  2) return [];
-
-                  const hlc = parseFloat(entity.state);
-
-                  const bp = attr.scatter_data.reduce((s, p) => s + p.heat, 0) /
-                  attr.scatter_data.length;
-
-                  const avgT = attr.scatter_data.reduce((s, p) => s + p.temp, 0)
-                  / attr.scatter_data.length;
-
-                  const slope = -hlc;
-
-                  const intercept = bp - slope * avgT;
-
-                  const maxT = Math.max(...attr.scatter_data.map(p => p.temp)) +
-                  1;
-
+                  if (!attr || !attr.slope || !attr.intercept) return [];
+                  const slope = attr.slope;
+                  const intercept = attr.intercept;
+                  const maxT = slope !== 0 ? Math.min(-intercept / slope + 1, 20) : 20;
                   const points = [];
-
                   for (let t = -10; t <= maxT; t += 1) {
                     const y = slope * t + intercept;
                     if (y > 0) points.push([B + (t + 10) * H, y]);
                   }
-
                   return points;
               - entity: sensor.quatt_stooklijn_gas_heat_loss_coefficient
                 name: Gas data
@@ -271,38 +252,19 @@ views:
                 name: Gas trendlijn
                 type: line
                 color: "#FF9800"
-                data_generator: >
+                data_generator: |
                   var d = new Date(); d.setHours(0,0,0,0);
-
                   var B = d.getTime(), H = 3600000;
-
                   const attr = entity.attributes;
-
-                  if (!attr || !attr.scatter_data || attr.scatter_data.length <
-                  2) return [];
-
-                  const hlc = parseFloat(entity.state);
-
-                  const slope = -hlc;
-
-                  const avgT = attr.scatter_data.reduce((s, p) => s + p.temp, 0)
-                  / attr.scatter_data.length;
-
-                  const bp = attr.scatter_data.reduce((s, p) => s + p.heat, 0) /
-                  attr.scatter_data.length;
-
-                  const intercept = bp - slope * avgT;
-
-                  const maxT = Math.max(...attr.scatter_data.map(p => p.temp)) +
-                  1;
-
+                  if (!attr || !attr.slope || !attr.intercept) return [];
+                  const slope = attr.slope;
+                  const intercept = attr.intercept;
+                  const maxT = slope !== 0 ? Math.min(-intercept / slope + 1, 20) : 20;
                   const points = [];
-
                   for (let t = -10; t <= maxT; t += 1) {
                     const y = slope * t + intercept;
                     if (y > 0) points.push([B + (t + 10) * H, y]);
                   }
-
                   return points;
             grid_options:
               columns: 24
