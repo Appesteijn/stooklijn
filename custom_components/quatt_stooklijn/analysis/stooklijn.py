@@ -115,23 +115,27 @@ def _filter_stable_hours(df: pd.DataFrame, power_col: str, temp_col: str) -> pd.
     return df_stable
 
 
-def _perform_knee_detection_quatt(df_hourly: pd.DataFrame) -> tuple[float | None, float | None, float | None, float | None]:
+def _perform_knee_detection_quatt(df_hourly: pd.DataFrame) -> tuple[float | None, float | None]:
     """Perform knee detection using Quatt hourly data.
 
     Uses all available Quatt hourly data (not just last 10 days) for more
     reliable knee detection. Filters out partial hours and defrosts.
 
+    Note: Only returns knee point. The Quatt stooklijn slope is calculated
+    separately from HA recorder minute-level data (more accurate than
+    hourly averages from the API).
+
     Args:
         df_hourly: Quatt insights hourly data with hpHeat and temperatureOutside
 
     Returns:
-        Tuple of (knee_temp, knee_power, slope_api, intercept_api)
+        Tuple of (knee_temp, knee_power)
     """
     if df_hourly is None or df_hourly.empty:
-        return None, None, None, None
+        return None, None
 
     if "hpHeat" not in df_hourly.columns or "temperatureOutside" not in df_hourly.columns:
-        return None, None, None, None
+        return None, None
 
     # Prepare data
     df_prep = df_hourly[
@@ -139,7 +143,7 @@ def _perform_knee_detection_quatt(df_hourly: pd.DataFrame) -> tuple[float | None
     ].copy()
 
     if df_prep.empty:
-        return None, None, None, None
+        return None, None
 
     # Filter for stable operation hours (removes partial hours and defrosts)
     df_stable = _filter_stable_hours(df_prep, "hpHeat", "temperatureOutside")
@@ -148,7 +152,7 @@ def _perform_knee_detection_quatt(df_hourly: pd.DataFrame) -> tuple[float | None
         _LOGGER.warning(
             "Not enough stable hours for knee detection (%d < 20)", len(df_stable)
         )
-        return None, None, None, None
+        return None, None
 
     # Prepare for curve fitting
     x_data = df_stable["temperatureOutside"].values
@@ -167,18 +171,6 @@ def _perform_knee_detection_quatt(df_hourly: pd.DataFrame) -> tuple[float | None
         knee_temp = float(popt[0])
         knee_power = float(popt[1])
 
-        # Fit line to data right of knee (normal operation stooklijn)
-        df_right = df_stable[df_stable["temperatureOutside"] >= knee_temp]
-        slope_api = None
-        intercept_api = None
-
-        if len(df_right) > 10:
-            slope, intercept = np.polyfit(
-                df_right["temperatureOutside"].values, df_right["hpHeat"].values, 1
-            )
-            slope_api = float(slope)
-            intercept_api = float(intercept)
-
         _LOGGER.info(
             "Knee detection (Quatt): %.2f°C, %d W (from %d stable hours)",
             knee_temp,
@@ -186,11 +178,11 @@ def _perform_knee_detection_quatt(df_hourly: pd.DataFrame) -> tuple[float | None
             len(df_stable),
         )
 
-        return knee_temp, knee_power, slope_api, intercept_api
+        return knee_temp, knee_power
 
     except Exception as e:
         _LOGGER.warning("Quatt-based knee detection failed: %s", e)
-        return None, None, None, None
+        return None, None
 
 
 async def async_fetch_live_history(
@@ -298,23 +290,17 @@ def calculate_stooklijn(
 
     if df_hourly is not None and not df_hourly.empty:
         _LOGGER.info("Attempting knee detection with Quatt hourly data...")
-        knee_temp, knee_power, slope_api, intercept_api = _perform_knee_detection_quatt(
-            df_hourly
-        )
+        knee_temp, knee_power = _perform_knee_detection_quatt(df_hourly)
 
         if knee_temp is not None:
             dynamic_min_temp = knee_temp
             result.knee_temperature = knee_temp
             result.knee_power = knee_power
-            if slope_api is not None:
-                result.slope_api = slope_api
-                result.intercept_api = intercept_api
             knee_detected = True
 
     # Fallback to HA recorder data if Quatt knee detection failed
     if not knee_detected and df_ha_merged is not None and not df_ha_merged.empty:
         _LOGGER.info("Falling back to HA recorder data for knee detection...")
-        # Categorize data
         valid_mask = df_ha_merged["power"] >= MIN_POWER_FILTER
         df_fit = df_ha_merged[valid_mask].copy()
 
@@ -334,15 +320,6 @@ def calculate_stooklijn(
                 result.knee_temperature = float(popt[0])
                 result.knee_power = float(popt[1])
 
-                # Fit line to data right of knee (API stooklijn)
-                df_right = df_fit[df_fit["temp"] >= dynamic_min_temp]
-                if len(df_right) > 1:
-                    slope, intercept = np.polyfit(
-                        df_right["temp"].values, df_right["power"].values, 1
-                    )
-                    result.slope_api = float(slope)
-                    result.intercept_api = float(intercept)
-
                 _LOGGER.info(
                     "Knee detected (recorder): %.2f°C, %d W (from %d days)",
                     result.knee_temperature,
@@ -359,6 +336,33 @@ def calculate_stooklijn(
             "Using fallback temperature: %.2f°C",
             dynamic_min_temp,
         )
+
+    # =========================================================
+    # STEP 1b: Quatt stooklijn estimation from recorder data
+    # =========================================================
+    # Use HA recorder minute-level data (not Quatt hourly averages) to
+    # estimate the current Quatt stooklijn. Minute-level data correctly
+    # captures instantaneous power, avoiding the problem where hourly
+    # averages of partial operation pass the power filter.
+    if df_ha_merged is not None and not df_ha_merged.empty:
+        valid_mask = df_ha_merged["power"] >= MIN_POWER_FILTER
+        df_fit = df_ha_merged[valid_mask].copy()
+
+        df_right = df_fit[df_fit["temp"] >= dynamic_min_temp]
+        if len(df_right) > 1:
+            slope, intercept = np.polyfit(
+                df_right["temp"].values, df_right["power"].values, 1
+            )
+            result.slope_api = float(slope)
+            result.intercept_api = float(intercept)
+            _LOGGER.info(
+                "Quatt stooklijn estimated from recorder: slope=%.1f W/°C, "
+                "intercept=%.0f W, zero at %.1f°C (%d data points)",
+                slope,
+                intercept,
+                -intercept / slope if slope != 0 else float("inf"),
+                len(df_right),
+            )
 
     # =========================================================
     # STEP 2: Max-envelope analysis (freezing performance)
