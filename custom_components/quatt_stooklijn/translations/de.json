@@ -1,0 +1,67 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Quatt Wärmepumpe Konfiguration",
+        "description": "Konfiguriere den Datumszeitraum und die Sensorentitäten für deine Quatt Wärmepumpe.",
+        "data": {
+          "quatt_start_date": "Startdatum (JJJJ-MM-TT)",
+          "quatt_end_date": "Enddatum (JJJJ-MM-TT)",
+          "temp_entities": "Außentemperatur-Sensoren (kommagetrennt, in Prioritätsreihenfolge)",
+          "power_entity": "Gesamtleistungs-Sensor Entität"
+        }
+      },
+      "gas": {
+        "title": "Gasverbrauchsanalyse (optional)",
+        "description": "Konfiguriere die Gasverbrauchsanalyse zum Vergleich mit der Wärmepumpenleistung. Verwende den Zeitraum VOR der Installation deiner Wärmepumpe.",
+        "data": {
+          "gas_enabled": "Gasanalyse aktivieren",
+          "gas_entity": "Gaszähler Entität (kumulativ m³)",
+          "gas_start_date": "Gasperiode Startdatum (JJJJ-MM-TT)",
+          "gas_end_date": "Gasperiode Enddatum (JJJJ-MM-TT)",
+          "gas_calorific_value": "Heizwert Gas (kWh/m³)",
+          "boiler_efficiency": "Kesselwirkungsgrad (0-1)",
+          "hot_water_temp_threshold": "Schwelltemperatur Warmwasser (°C)"
+        }
+      },
+      "options": {
+        "title": "Weitere Optionen",
+        "description": "Optional: Gib deine aktuelle Quatt Heizkurve zum Vergleich ein. Die Heizkurve wird durch zwei Punkte definiert: eine niedrige Temperatur mit zugehöriger Leistung und eine hohe Temperatur mit zugehöriger Leistung (z.B. -10°C / 10000W und 16°C / 0W). Leer lassen wenn unbekannt.",
+        "data": {
+          "actual_stooklijn_temp1": "Heizkurve Punkt 1: Temperatur (°C, z.B. -10)",
+          "actual_stooklijn_power1": "Heizkurve Punkt 1: Leistung (W, z.B. 10000)",
+          "actual_stooklijn_temp2": "Heizkurve Punkt 2: Temperatur (°C, z.B. 16)",
+          "actual_stooklijn_power2": "Heizkurve Punkt 2: Leistung (W, z.B. 0)"
+        }
+      }
+    },
+    "error": {
+      "invalid_date_range": "Das Enddatum muss nach dem Startdatum liegen",
+      "invalid_date_format": "Ungültiges Datumsformat. Bitte JJJJ-MM-TT verwenden",
+      "gas_entity_required": "Gaszähler Entität ist erforderlich wenn die Gasanalyse aktiviert ist",
+      "invalid_stooklijn_value": "Heizkurvenwerte müssen Zahlen sein (z.B. -10, 10000)"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Konfiguration aktualisieren",
+        "description": "Fülle die unteren vier Felder nur aus, wenn du deine aktuelle Quatt Heizkurve kennst (optional).",
+        "data": {
+          "quatt_start_date": "Quatt Startdatum (JJJJ-MM-TT)",
+          "quatt_end_date": "Quatt Enddatum (JJJJ-MM-TT)",
+          "actual_stooklijn_temp1": "Heizkurve Punkt 1: Temperatur (°C, z.B. -10)",
+          "actual_stooklijn_power1": "Heizkurve Punkt 1: Leistung (W, z.B. 10000)",
+          "actual_stooklijn_temp2": "Heizkurve Punkt 2: Temperatur (°C, z.B. 16)",
+          "actual_stooklijn_power2": "Heizkurve Punkt 2: Leistung (W, z.B. 0)"
+        }
+      }
+    }
+  },
+  "services": {
+    "run_analysis": {
+      "name": "Wärmeanalyse ausführen",
+      "description": "Führt die vollständige Analysepipeline aus: ruft Daten ab und berechnet Heizkurven, COP und Wärmeverlustkoeffizient."
+    }
+  }
+}

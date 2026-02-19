@@ -1,0 +1,67 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configuration de la pompe à chaleur Quatt",
+        "description": "Configurez la période d'analyse et les entités de capteurs pour votre pompe à chaleur Quatt.",
+        "data": {
+          "quatt_start_date": "Date de début (AAAA-MM-JJ)",
+          "quatt_end_date": "Date de fin (AAAA-MM-JJ)",
+          "temp_entities": "Capteurs de température extérieure (séparés par des virgules, par ordre de priorité)",
+          "power_entity": "Entité capteur de puissance totale"
+        }
+      },
+      "gas": {
+        "title": "Analyse de consommation de gaz (optionnel)",
+        "description": "Configurez l'analyse de consommation de gaz pour comparer avec les performances de la pompe à chaleur. Utilisez la période AVANT l'installation de votre pompe à chaleur.",
+        "data": {
+          "gas_enabled": "Activer l'analyse du gaz",
+          "gas_entity": "Entité compteur de gaz (m³ cumulatif)",
+          "gas_start_date": "Date de début de la période gaz (AAAA-MM-JJ)",
+          "gas_end_date": "Date de fin de la période gaz (AAAA-MM-JJ)",
+          "gas_calorific_value": "Pouvoir calorifique du gaz (kWh/m³)",
+          "boiler_efficiency": "Rendement de la chaudière (0-1)",
+          "hot_water_temp_threshold": "Température seuil eau chaude (°C)"
+        }
+      },
+      "options": {
+        "title": "Options supplémentaires",
+        "description": "Optionnel : Saisissez votre courbe de chauffe Quatt actuelle pour comparaison. La courbe de chauffe est définie par deux points : une température basse avec sa puissance et une température haute avec sa puissance (ex. -10°C / 10000W et 16°C / 0W). Laisser vide si inconnu.",
+        "data": {
+          "actual_stooklijn_temp1": "Courbe de chauffe point 1 : température (°C, ex. -10)",
+          "actual_stooklijn_power1": "Courbe de chauffe point 1 : puissance (W, ex. 10000)",
+          "actual_stooklijn_temp2": "Courbe de chauffe point 2 : température (°C, ex. 16)",
+          "actual_stooklijn_power2": "Courbe de chauffe point 2 : puissance (W, ex. 0)"
+        }
+      }
+    },
+    "error": {
+      "invalid_date_range": "La date de fin doit être postérieure à la date de début",
+      "invalid_date_format": "Format de date invalide. Utilisez AAAA-MM-JJ",
+      "gas_entity_required": "L'entité compteur de gaz est requise lorsque l'analyse du gaz est activée",
+      "invalid_stooklijn_value": "Les valeurs de courbe de chauffe doivent être des nombres (ex. -10, 10000)"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Mettre à jour la configuration",
+        "description": "Remplissez les quatre champs du bas uniquement si vous connaissez votre courbe de chauffe Quatt actuelle (optionnel).",
+        "data": {
+          "quatt_start_date": "Date de début Quatt (AAAA-MM-JJ)",
+          "quatt_end_date": "Date de fin Quatt (AAAA-MM-JJ)",
+          "actual_stooklijn_temp1": "Courbe de chauffe point 1 : température (°C, ex. -10)",
+          "actual_stooklijn_power1": "Courbe de chauffe point 1 : puissance (W, ex. 10000)",
+          "actual_stooklijn_temp2": "Courbe de chauffe point 2 : température (°C, ex. 16)",
+          "actual_stooklijn_power2": "Courbe de chauffe point 2 : puissance (W, ex. 0)"
+        }
+      }
+    }
+  },
+  "services": {
+    "run_analysis": {
+      "name": "Lancer l'analyse thermique",
+      "description": "Exécute le pipeline d'analyse complet : récupère les données et calcule les courbes de chauffe, le COP et le coefficient de déperdition thermique."
+    }
+  }
+}

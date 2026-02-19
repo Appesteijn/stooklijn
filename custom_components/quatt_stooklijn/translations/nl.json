@@ -1,0 +1,67 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Quatt warmtepomp configuratie",
+        "description": "Stel de datumperiode en sensorentiteiten in voor je Quatt warmtepomp.",
+        "data": {
+          "quatt_start_date": "Startdatum (JJJJ-MM-DD)",
+          "quatt_end_date": "Einddatum (JJJJ-MM-DD)",
+          "temp_entities": "Buitentemperatuur sensoren (komma-gescheiden, op volgorde van prioriteit)",
+          "power_entity": "Totaal vermogen sensor entiteit"
+        }
+      },
+      "gas": {
+        "title": "Gasverbruik analyse (optioneel)",
+        "description": "Configureer de gasverbruikanalyse om te vergelijken met de warmtepompprestaties. Gebruik de periode VOOR de installatie van je warmtepomp.",
+        "data": {
+          "gas_enabled": "Gasanalyse inschakelen",
+          "gas_entity": "Gasmeter entiteit (cumulatief m³)",
+          "gas_start_date": "Gasperiode startdatum (JJJJ-MM-DD)",
+          "gas_end_date": "Gasperiode einddatum (JJJJ-MM-DD)",
+          "gas_calorific_value": "Calorische waarde gas (kWh/m³)",
+          "boiler_efficiency": "Ketelrendement (0-1)",
+          "hot_water_temp_threshold": "Drempeltemperatuur tapwater (°C)"
+        }
+      },
+      "options": {
+        "title": "Extra opties",
+        "description": "Optioneel: Voer je huidige Quatt stooklijn in ter vergelijking. De stooklijn wordt bepaald door twee punten: een lage temperatuur met bijbehorend vermogen en een hoge temperatuur met bijbehorend vermogen (bijv. -10°C / 10000W en 16°C / 0W). Laat leeg als onbekend.",
+        "data": {
+          "actual_stooklijn_temp1": "Stooklijn punt 1: temperatuur (°C, bijv. -10)",
+          "actual_stooklijn_power1": "Stooklijn punt 1: vermogen (W, bijv. 10000)",
+          "actual_stooklijn_temp2": "Stooklijn punt 2: temperatuur (°C, bijv. 16)",
+          "actual_stooklijn_power2": "Stooklijn punt 2: vermogen (W, bijv. 0)"
+        }
+      }
+    },
+    "error": {
+      "invalid_date_range": "De einddatum moet na de startdatum liggen",
+      "invalid_date_format": "Ongeldig datumformaat. Gebruik JJJJ-MM-DD",
+      "gas_entity_required": "Gasmeter entiteit is verplicht wanneer gasanalyse is ingeschakeld",
+      "invalid_stooklijn_value": "Stooklijnwaarden moeten getallen zijn (bijv. -10, 10000)"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configuratie bijwerken",
+        "description": "Vul de onderste vier velden alleen in als je je huidige Quatt stooklijn kent (optioneel).",
+        "data": {
+          "quatt_start_date": "Quatt startdatum (JJJJ-MM-DD)",
+          "quatt_end_date": "Quatt einddatum (JJJJ-MM-DD)",
+          "actual_stooklijn_temp1": "Stooklijn punt 1: temperatuur (°C, bijv. -10)",
+          "actual_stooklijn_power1": "Stooklijn punt 1: vermogen (W, bijv. 10000)",
+          "actual_stooklijn_temp2": "Stooklijn punt 2: temperatuur (°C, bijv. 16)",
+          "actual_stooklijn_power2": "Stooklijn punt 2: vermogen (W, bijv. 0)"
+        }
+      }
+    }
+  },
+  "services": {
+    "run_analysis": {
+      "name": "Warmteanalyse uitvoeren",
+      "description": "Voert de volledige analysepipeline uit: haalt data op en berekent stooklijnen, COP en warmteverliescoëfficiënt."
+    }
+  }
+}
