@@ -33,11 +33,13 @@ def _stub_ha():
     _ensure_module("homeassistant.helpers")
     _ensure_module("homeassistant.helpers.update_coordinator")
     _ensure_module("homeassistant.helpers.entity_platform")
+    _ensure_module("homeassistant.helpers.storage")
     _ensure_module("homeassistant.components")
     _ensure_module("homeassistant.components.sensor")
     _ensure_module("homeassistant.components.text")
     _ensure_module("homeassistant.components.recorder")
     _ensure_module("homeassistant.components.recorder.history")
+    _ensure_module("homeassistant.components.recorder.statistics")
     _ensure_module("homeassistant.util")
     _ensure_module("homeassistant.util.dt")
     _ensure_module("voluptuous")
@@ -106,6 +108,12 @@ def _stub_ha():
     recorder.get_instance = MagicMock()
     history = sys.modules["homeassistant.components.recorder.history"]
     history.state_changes_during_period = MagicMock()
+    stats_mod = sys.modules["homeassistant.components.recorder.statistics"]
+    stats_mod.statistics_during_period = MagicMock()
+
+    # Storage stub
+    storage_mod = sys.modules["homeassistant.helpers.storage"]
+    storage_mod.Store = MagicMock
 
     # dt_util
     dt_mod = sys.modules["homeassistant.util.dt"]
