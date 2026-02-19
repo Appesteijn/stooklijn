@@ -234,6 +234,10 @@ INFO: Quatt stooklijn estimated from recorder: slope=-353.5 W/°C, intercept=603
 **Solution:**
 - The integration automatically filters non-heating days from COP and stooklijn calculations
 
+## Credits
+
+This integration is based on the Jupyter notebooks originally created by [Rickvdt](https://github.com/Rickvdt/hello-world). The notebooks provided the foundation for the analysis methods used here.
+
 ## License
 
 MIT
