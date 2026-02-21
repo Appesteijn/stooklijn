@@ -142,7 +142,6 @@ from custom_components.quatt_stooklijn.analysis.heat_loss import (
 from custom_components.quatt_stooklijn.analysis.stooklijn import (
     StooklijnResult,
     calculate_stooklijn,
-    _piecewise_linear,
 )
 from custom_components.quatt_stooklijn.coordinator import (
     QuattStooklijnData,

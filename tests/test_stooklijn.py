@@ -8,37 +8,59 @@ import pytest
 
 from custom_components.quatt_stooklijn.analysis.stooklijn import (
     StooklijnResult,
-    _piecewise_linear,
+    _find_knee_by_grid_search,
     calculate_stooklijn,
 )
 
 
-class TestPiecewiseLinear:
-    """Tests for the piecewise linear helper."""
+class TestFindKneeByGridSearch:
+    """Tests for the grid-search knee detection helper."""
 
-    def test_below_knee(self):
-        """Points below x0 should follow k1 slope."""
-        # x0=2, y0=6000, k1=-100, k2=-400
-        result = _piecewise_linear(np.array([0.0]), 2.0, 6000.0, -100.0, -400.0)
-        # y = -100*(0-2) + 6000 = 200 + 6000 = 6200
-        assert result[0] == pytest.approx(6200)
+    def _make_knee_data(self, knee_temp: float, n: int = 30):
+        """Synthetic data with a clear knee at knee_temp.
 
-    def test_above_knee(self):
-        """Points above x0 should follow k2 slope."""
-        result = _piecewise_linear(np.array([5.0]), 2.0, 6000.0, -100.0, -400.0)
-        # y = -400*(5-2) + 6000 = -1200 + 6000 = 4800
-        assert result[0] == pytest.approx(4800)
+        Left of knee: flat (slope ~0), right of knee: decreasing (slope -400 W/°C).
+        """
+        temps = np.linspace(-4, 8, n)
+        power = np.where(
+            temps < knee_temp,
+            6000.0,  # flat on the cold side (at max capacity)
+            6000.0 - 400.0 * (temps - knee_temp),  # decreasing on the warm side
+        )
+        return temps, power
 
-    def test_at_knee(self):
-        """At the knee point, both slopes give y0."""
-        result = _piecewise_linear(np.array([2.0]), 2.0, 6000.0, -100.0, -400.0)
-        assert result[0] == pytest.approx(6000)
+    def test_finds_correct_knee(self):
+        """Grid search should find the knee at the correct temperature."""
+        x, y = self._make_knee_data(knee_temp=1.0)
+        knee_t, knee_p = _find_knee_by_grid_search(x, y)
 
-    def test_vectorized(self):
-        """Should work on arrays."""
-        x = np.array([-1, 0, 2, 5, 10])
-        result = _piecewise_linear(x, 2.0, 6000.0, -100.0, -400.0)
-        assert len(result) == 5
+        assert knee_t is not None
+        assert knee_t == pytest.approx(1.0, abs=0.5)  # within one step
+        assert knee_p is not None
+        assert knee_p == pytest.approx(6000.0, rel=0.05)
+
+    def test_returns_none_when_right_slope_positive(self):
+        """If the warm side has a positive slope, no valid knee exists."""
+        # Power increases with temperature everywhere — no physical knee
+        x = np.linspace(-4, 8, 30)
+        y = 3000.0 + 200.0 * x  # always increasing
+        knee_t, knee_p = _find_knee_by_grid_search(x, y)
+        assert knee_t is None
+        assert knee_p is None
+
+    def test_returns_none_with_too_few_points(self):
+        """Fewer points than min_points_per_segment on one side → None."""
+        x = np.array([-1.0, 0.0, 1.0])
+        y = np.array([6000.0, 5800.0, 5200.0])
+        knee_t, _ = _find_knee_by_grid_search(x, y, min_points_per_segment=5)
+        assert knee_t is None
+
+    def test_knee_at_negative_temp(self):
+        """Should correctly detect a knee below 0°C."""
+        x, y = self._make_knee_data(knee_temp=-2.0)
+        knee_t, _ = _find_knee_by_grid_search(x, y)
+        assert knee_t is not None
+        assert knee_t == pytest.approx(-2.0, abs=0.5)
 
 
 class TestCalculateStooklijn:

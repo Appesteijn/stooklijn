@@ -1,313 +1,215 @@
-# Knee Detection Improvements - Implementation Details
+# Knikpuntdetectie — Implementatie en bevindingen
 
-## Summary
+Dit document beschrijft hoe knikpuntdetectie werkt, waarom bepaalde keuzes zijn gemaakt,
+en wat experimenten met echte data hebben geleerd.
 
-Improved knee detection to use **251 days** of Quatt hourly data instead of just 10 days of recorder data.
+---
 
-## Changes Made
+## Wat is het knikpunt?
 
-### 1. New Helper Function: `_filter_stable_hours()`
-
-**Purpose:** Filter out unstable operation hours to improve data quality
-
-**What it does:**
-- Removes hours with very low power (< 2500W)
-- Detects and removes hours with large power variations (defrosts, on/off cycling)
-- Uses 3-hour rolling window to identify stable periods
-- Keeps only hours where power std dev < 20% of mean power
-
-**Why this helps:**
-- Eliminates defrost cycles (sudden power drops)
-- Removes partial operation hours (WP only ran part of the hour)
-- Results in cleaner data for curve fitting
-
-**Example:**
-```
-Input:  1000 hours of data
-↓ Filter min power (< 2500W)
-→ 800 hours
-↓ Filter unstable periods
-→ 600 stable hours  ← Used for knee detection
-```
-
-### 2. New Function: `_perform_knee_detection_quatt()`
-
-**Purpose:** Perform knee detection using Quatt hourly data
-
-**What it uses:**
-- **All available Quatt hourly data** (251 days in your case!)
-- Filtered for stable operation only
-- Temperature range: -5°C to +5°C (wider than before)
-- Power range: 2000W to 12000W (for Duo systems)
-
-**Improvements over old method:**
-```
-Old (recorder):        New (Quatt):
-- 10 days             → 251 days ✅
-- ~240 hours          → ~6000 hours ✅
-- Recent data only    → Full season coverage ✅
-- High resolution     → Hourly averages
-- May miss cold days  → Covers full winter ✅
-```
-
-**Output:**
-- Knee temperature (°C where WP hits max capacity)
-- Knee power (W at that temperature)
-- Slope and intercept for normal operation range
-
-### 3. Modified STEP 1: Smart Fallback Logic
-
-**New workflow:**
+Het knikpunt is de buitentemperatuur waarbij de warmtepomp overgaat van **maximaal vermogen**
+(koud genoeg dat de WP alles moet geven wat erin zit) naar **moduleren** (milder weer, WP draait
+op een lager toerental omdat het huis minder warmte nodig heeft).
 
 ```
-┌─────────────────────────────────┐
-│ Try: Quatt hourly data          │
-│ (251 days, filtered, stable)    │
-└────────────┬────────────────────┘
-             │
-         ✅ Success?
-             │
-        ┌────┴────┐
-       Yes        No
-        │          │
-        │     ┌────▼─────────────────────┐
-        │     │ Fallback: HA recorder    │
-        │     │ (10 days, high-res)      │
-        │     └────┬─────────────────────┘
-        │          │
-        │      ✅ Success?
-        │          │
-        │     ┌────┴────┐
-        │    Yes        No
-        │     │          │
-        └─────┴──────────┴─────────┐
-                                   │
-                         ┌─────────▼─────────┐
-                         │ Use fallback      │
-                         │ temp: -0.5°C      │
-                         └───────────────────┘
+Vermogen (W)
+│
+│  ████████████████  ← WP op max (koude kant)
+│  ████████████████\
+│                   \  ← WP moduleert (warme kant)
+│                    \
+└────────────────────────── Buitentemperatuur (°C)
+                    ↑
+              knikpunt
 ```
 
-**Why this is better:**
-1. **Primary:** Quatt data (251 days, cleaned) → Best accuracy
-2. **Fallback:** Recorder data (10 days) → Still works if Quatt fails
-3. **Last resort:** Fixed value (-0.5°C) → System never crashes
+---
 
-## Performance Impact
+## Algoritme: exhaustieve grid search
 
-### With Caching ✅
+De kniktemperatuur wordt gevonden door voor **elke kandidaat-kniktemperatuur** (stappen van
+0,25 °C van −4 °C tot +4 °C) de totale regressiefout te berekenen van twee afzonderlijke
+lineaire fits (links en rechts van het knikpunt). Het knikpunt met de laagste totale MSE wint.
 
-**First analysis:**
-```
-Cache: Empty
-API calls: 251 (fetch all historical data)
-Knee detection: Uses all 251 days
-Time: ~5-10 minutes
-```
-
-**Second analysis (next day):**
-```
-Cache: 251 days loaded
-API calls: 1 (only today)
-Knee detection: Uses all 251 cached days
-Time: ~1-2 seconds ⚡
-```
-
-**Result:** No performance penalty thanks to caching!
-
-## Data Quality Improvements
-
-### Old Method (Recorder, 10 days)
 ```python
-Data points: ~240 hours
-Temperature range: Whatever happened last 10 days
-Risk: May miss cold periods
-Example: If last 10 days were mild (5-15°C),
-         knee detection might fail
+def _find_knee_by_grid_search(x_data, y_data, ...):
+    for knee_t in candidates:          # elke 0,25°C van -4 tot +4
+        split left / right             # splits op knee_t
+        fit two linear regressions
+        # Fysieke beperkingen:
+        #  1. warme kant moet negatieve helling hebben
+        #  2. koude kant moet vlakker zijn dan warme kant (factor 0,75)
+        mse = total_residuals / n_points
+        if mse < best_mse: update best
 ```
 
-### New Method (Quatt, 251 days)
-```python
-Data points: ~6000 hours → ~600 stable hours
-Temperature range: Full season (-5°C to +25°C)
-Benefits:
-  ✅ Guaranteed to have cold periods
-  ✅ Multiple temperature cycles
-  ✅ Defrosts and partial hours filtered out
-  ✅ More robust curve fitting
+**Voordelen ten opzichte van `scipy.curve_fit`** (de vroegere methode):
+
+| Aspect | Vroeger (`curve_fit`) | Nu (grid search) |
+|--------|----------------------|-------------------|
+| Lokale minima | Gevoelig (startpunt-afhankelijk) | Evalueert alle opties |
+| Determinisme | Data-distributie-afhankelijk | Altijd zelfde resultaat |
+| Debugbaarheid | Black-box optimizer | Elke kandidaat inspecteerbaar |
+| Scipy dependency | Vereist | Niet meer nodig |
+
+---
+
+## Databronnen en hun beperkingen
+
+### Quatt uurdata (`df_hourly`)
+- Afkomstig van `quatt.get_insights` API
+- Uurgemiddelden van `hpHeat` (warmteproductie WP) en `temperatureOutside`
+- Beschikbaar voor de volledige geconfigureerde periode (maanden)
+
+**Fundamenteel probleem voor knikdetectie:**
+Defrosts verlagen het uurgemiddelde in de koude zone. Voorbeeld:
+
+```
+Uur met defrost bij -2°C:
+  45 min × 5.500 W (actief) + 15 min × 0 W (defrost)
+  → uurgemiddelde = 4.125 W
+
+Uur zonder defrost bij +5°C:
+  60 min × 5.500 W (modulerend)
+  → uurgemiddelde = 5.500 W
 ```
 
-## Logging Output
+Dit maakt de koude kant systematisch zwakker dan de warme kant,
+waardoor de grid search het knikpunt te warm inschat (~3 °C).
 
-### Successful Quatt-based detection:
+Poging om dit te verhelpen met een max-envelopfilter (houd ≥ 90 % van
+het binmaximum) mislukte: slechts 160 van de 4.687 uurpunten bleven over,
+waardoor de stabiliteit juist verslechterde (Δ 1,25 °C vs. Δ 0,75 °C).
+
+### HA recorder minuutdata (`df_ha_merged`)
+- Afkomstig van `state_changes_during_period` (ingebouwde HA recorder)
+- Alle statuswijzigingen van het vermogensensor, opgeresampeld naar 1-minuut raster
+- Periode: laatste `DAYS_HISTORY` (standaard 30) dagen
+
+**Voordeel voor knikdetectie:**
+Elke defrost-minuut (vermogen ≈ 0 W) valt individueel onder de `MIN_POWER_FILTER`
+en wordt uitgefilterd, **zonder de omliggende minuten te beïnvloeden**.
+Hierdoor is de koude kant volledig onbeïnvloed door defrosts.
+
+**Nadeel:**
+Beperkt tot de laatste 30 dagen. Bij een lange warme periode zijn er
+mogelijk weinig of geen datapunten onder het knikpunt — in dat geval
+wordt geen geldig knikpunt gevonden en wordt teruggevallen op Quatt-data.
+
+---
+
+## Prioriteitsvolgorde knikdetectie
+
 ```
-INFO: Attempting knee detection with Quatt hourly data...
-DEBUG: Filtered stable hours: 6024 → 612 (removed 5412 unstable)
-INFO: Knee detection (Quatt): -0.15°C, 6500 W (from 612 stable hours)
-```
+1. HA recorder minuutdata (primair)
+   ↓ nauwkeuriger (geen defrost-verdunning)
+   ↓ geeft ~1,75 °C op echte data (stabiel)
+   Als geen geldig knikpunt gevonden ↓
 
-### Fallback to recorder:
-```
-INFO: Attempting knee detection with Quatt hourly data...
-WARNING: Not enough stable hours for knee detection (15 < 20)
-INFO: Falling back to HA recorder data for knee detection...
-INFO: Knee detected (recorder): -0.20°C, 6400 W (from 10 days)
-```
+2. Quatt uurdata (fallback)
+   ↓ langere geschiedenis (maanden)
+   ↓ geeft ~3 °C op echte data (opwaartse bias door defrost-verdunning)
+   Als geen geldig knikpunt gevonden ↓
 
-### Both methods fail:
-```
-INFO: Attempting knee detection with Quatt hourly data...
-WARNING: Quatt-based knee detection failed: <reason>
-INFO: Falling back to HA recorder data for knee detection...
-WARNING: Recorder-based knee detection failed: <reason>
-WARNING: Knee detection failed with both Quatt and recorder data.
-         Using fallback temperature: -0.50°C
-```
-
-## Code Locations
-
-### Modified Files:
-1. **[stooklijn.py](custom_components/quatt_stooklijn/analysis/stooklijn.py)**
-   - Line ~65-125: `_filter_stable_hours()` - New
-   - Line ~128-195: `_perform_knee_detection_quatt()` - New
-   - Line ~260-330: Modified STEP 1 with smart fallback
-
-### Functions Added:
-```python
-def _filter_stable_hours(df, power_col, temp_col):
-    """Remove unstable hours (defrosts, partial operation)"""
-
-def _perform_knee_detection_quatt(df_hourly):
-    """Knee detection using all Quatt hourly data"""
+3. Fallbacktemperatuur: −0,5 °C
 ```
 
-### Functions Modified:
-```python
-def calculate_stooklijn(...):
-    # STEP 1: Now tries Quatt first, falls back to recorder
-```
+---
 
-## Testing Strategy
+## Validatieresultaten (februrari 2026, echte HA-data)
 
-### Unit Tests Needed:
-1. Test `_filter_stable_hours()` with synthetic data
-2. Test `_perform_knee_detection_quatt()` with known knee points
-3. Test fallback logic (Quatt fails → recorder works)
-4. Test both fail → fallback value used
+Tests uitgevoerd met `test_knee_detection.py` op echte HA-server data.
 
-### Integration Test:
-Run analysis on your actual data and verify:
-```bash
-# Should see in logs:
-✅ "Knee detection (Quatt): X°C, Y W (from Z stable hours)"
-✅ Cache statistics showing all days loaded
-✅ Knee temperature reasonable (-5°C to +5°C)
-```
+### Dataset
+- Quatt uurdata: 2025-08-01 → 2026-02-20 (204 dagen, 4.687 uurpunten)
+- Recorder minuutdata: laatste 30 dagen (~15.000 minuten, 12.259 actief ≥ 2.500 W)
 
-## Expected Results
+### Effect van toevoegen van 7 extra warme dagen (2026-02-14 t/m 2026-02-20)
 
-### For Your Setup (251 days available):
+| Methode | Vóór (t/m 13-feb) | Ná (t/m 20-feb) | Δ |
+|---------|-------------------|-----------------|---|
+| `curve_fit` op recorder (oud) | 0,03 °C | — | instabiel |
+| Grid search op Quatt (rolling-std filter) | +3,75 °C | +3,00 °C | 0,75 °C |
+| Grid search op recorder | **+1,75 °C** | **+1,75 °C** | **0 °C ✓** |
 
-**Before (10 days recorder):**
-```
-Knee: -0.15°C (or failed if last 10 days were mild)
-Data points: ~240 hours
-Reliability: ⚠️ Depends on recent weather
-```
+De recorder-gebaseerde knikdetectie is stabiel: het knikpunt verandert niet
+bij het toevoegen van extra warme data.
 
-**After (251 days Quatt):**
-```
-Knee: -0.15°C to +2°C (more accurate)
-Data points: ~600 stable hours
-Reliability: ✅ Full season coverage
-Quality: ✅ Defrosts filtered
-Performance: ✅ Fast (cached)
-```
+### Waarom sprong het knikpunt eerder van 0,2 → 3,0 °C?
 
-## Backward Compatibility
+Twee factoren tegelijk:
+1. **Methode-switch**: bij geen of weinig Quatt-data werd `curve_fit` op recorder
+   gebruikt (onstabiel, gaf 0,03 °C). Zodra voldoende Quatt-data beschikbaar was,
+   schakelde het systeem over op Quatt uurdata met `curve_fit` (~3 °C).
+2. **Optimalisator-gevoeligheid**: `curve_fit` op een stuksgewijs lineair model
+   heeft meerdere lokale minima. Het startpunt (`p0`) bepaalt welk minimum gevonden
+   wordt. Beide zijn nu vervangen door grid search.
 
-✅ **Fully backward compatible**
-- If Quatt data unavailable → uses recorder (old method)
-- If recorder unavailable → uses fallback value
-- No configuration changes needed
-- Works with existing coordinator code
+---
 
-## Benefits Summary
+## Implementatiegeschiedenis
 
-| Aspect | Before | After | Improvement |
-|--------|--------|-------|-------------|
-| Data range | 10 days | 251 days | **25x more** ✅ |
-| Data points | ~240 hrs | ~600 hrs | **2.5x more** ✅ |
-| Temperature coverage | Recent only | Full season | **Much better** ✅ |
-| Defrost filtering | None | Yes | **Cleaner data** ✅ |
-| Partial hour filtering | None | Yes | **Better quality** ✅ |
-| Performance (cached) | N/A | Instant | **No penalty** ✅ |
-| Reliability | ⚠️ Weather dependent | ✅ Robust | **Much better** ✅ |
+### v0.x — `curve_fit` op Quatt uurdata
+- Gebruikt `scipy.optimize.curve_fit` met piecewise lineair model
+- Gevoelig voor startpunt → lokale minima → grote sprongen bij data-wijzigingen
+- Verwijderd: onstabiel
 
-## Next Steps
+### v0.x+1 — Grid search (eerste versie)
+- Vervangt `curve_fit` door exhaustieve grid search (−4 t/m +4 °C, stap 0,25 °C)
+- Fysieke beperking: warme kant moet negatieve helling hebben
+- Quatt uurdata primair, recorder als fallback
+- Resultaat: stabiel maar te hoge waarde (~3 °C) door defrost-dilutie
 
-1. ✅ Code implemented and syntax-checked
-2. ⏭️ Deploy to Home Assistant
-3. ⏭️ Run analysis and check logs
-4. ⏭️ Verify knee temperature makes sense
-5. ⏭️ Compare with old knee detection results
-6. ⏭️ Monitor for any issues
+### Huidig — Grid search met verbeterde beperkingen + recorder primair
 
-## Potential Issues & Solutions
+**Wijzigingen in `_find_knee_by_grid_search()`:**
+1. Extra fysieke beperking: koude-kant helling mag niet meer dan 75 % van de
+   warme-kant helling zijn (verwerpt quasi-rechte lijnen als knik).
+2. MSE genormaliseerd over totaalpunten (niet per segment), zodat een
+   klein koud-segment niet kunstmatig bevoordeeld wordt.
 
-### Issue: "Not enough stable hours"
-**Cause:** Too aggressive filtering
-**Solution:** Adjust stability threshold in `_filter_stable_hours()`:
-```python
-# Current: 20% of mean
-stability_threshold = mean_power * 0.20
+**Wijziging in `calculate_stooklijn()`:**
+- HA recorder minuutdata is nu **primair** voor knikdetectie.
+- Quatt uurdata is **fallback** (wanneer recorder onvoldoende koud-weer-data heeft).
 
-# More lenient: 30% of mean
-stability_threshold = mean_power * 0.30
-```
+---
 
-### Issue: Knee temperature seems wrong
-**Cause:** Curve fitting parameters might need tuning for your system
-**Solution:** Adjust bounds in `_perform_knee_detection_quatt()`:
-```python
-# Current bounds
-lower_b = [-5, 2000, -500, -2000]
-upper_b = [5, 12000, 500, -100]
+## Geteste maar teruggedraaide aanpak: max-envelopfilter
 
-# Adjust based on your WP specs
-```
+**Idee:** vervang de rolling-std filter (spillover bij defrosts) door een filter
+die per 0,5 °C-bin alleen uren ≥ 90 % van het binmaximum behoudt.
 
-### Issue: Always falls back to recorder
-**Cause:** Quatt hourly data missing required columns
-**Solution:** Check that df_hourly has 'hpHeat' and 'temperatureOutside'
+**Probleem:** slechts 160 van 4.687 uurpunten (3,4 %) bleven over. Gevolgen:
+- Te weinig punten voor stabiele regressie.
+- Non-monotoon gedrag: toevoegen van data kan punten uit andere bins verwijderen
+  (omdat het binmaximum omhoog gaat → 90 %-drempel stijgt → eerder geaccepteerde
+  punten vallen er nu uit). Dit maakt de methode juist onstabiel.
+- Stabiliteit verslechterde: Δ 1,25 °C vs. Δ 0,75 °C met de rolling-std filter.
 
-## Configuration
+**Conclusie:** niet productie-ready. Het fundamentele probleem (defrost-dilutie van
+uurgemiddelden) is niet oplosbaar door filtering — de recorder minuutdata is de
+juiste databron voor knikdetectie.
 
-No configuration changes needed! The system automatically:
-- Detects available data sources
-- Chooses best method
-- Falls back gracefully
-- Logs which method was used
+---
 
-## Monitoring
+## Temperatuurbereik grid search: −4 t/m +4 °C
 
-Check logs after running analysis:
-```bash
-# Good: Quatt method worked
-grep "Knee detection (Quatt)" home-assistant.log
+Gebaseerd op Quatt Hybrid specificaties:
+- Bij −7 °C: nominaal 5,6 kW, max 6,7 kW, COP 3,2
+- Bij +7 °C: ~5,1 kW (W45), COP 3,8
 
-# Fallback: Recorder method used
-grep "Falling back to HA recorder" home-assistant.log
+Het knikpunt hangt af van de **warmtevraag van het huis** bij de betreffende
+temperatuur. Voor een Nederlands huis is 0–3 °C een realistisch bereik.
+Uitbreiden naar [−7, +7] is mogelijk maar zelden nodig.
 
-# Problem: Both failed
-grep "Using fallback temperature" home-assistant.log
-```
+---
 
-## Future Enhancements
+## Codeverwijzingen
 
-Possible improvements:
-1. **Adaptive thresholds** - Adjust filtering based on data quality
-2. **Confidence scores** - Report reliability of knee detection
-3. **Multiple methods** - Try several curve-fitting approaches
-4. **Visualization** - Generate plots showing knee detection
-5. **Manual override** - Allow user to set knee temp manually
+| Functie | Bestand | Doel |
+|---------|---------|------|
+| `_find_knee_by_grid_search()` | `analysis/stooklijn.py` | Grid search algoritme |
+| `_filter_stable_hours()` | `analysis/stooklijn.py` | Quatt-data filter (fallback-pad) |
+| `_perform_knee_detection_quatt()` | `analysis/stooklijn.py` | Knikdetectie op Quatt uurdata |
+| `calculate_stooklijn()` STEP 1 | `analysis/stooklijn.py` | Prioriteit recorder → Quatt |
+| `test_knee_detection.py` | projectroot | Validatiescript met echte HA-data |

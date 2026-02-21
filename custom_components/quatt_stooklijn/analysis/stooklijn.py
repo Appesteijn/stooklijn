@@ -12,8 +12,6 @@ from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import curve_fit
-
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.history import state_changes_during_period
 from homeassistant.core import HomeAssistant
@@ -56,11 +54,6 @@ class StooklijnResult:
 
     # Hourly COP data for dashboard
     cop_scatter_data: list[dict] | None = None
-
-
-def _piecewise_linear(x, x0, y0, k1, k2):
-    """Piecewise linear function for knee detection."""
-    return np.where(x < x0, k1 * (x - x0) + y0, k2 * (x - x0) + y0)
 
 
 def _filter_stable_hours(df: pd.DataFrame, power_col: str, temp_col: str) -> pd.DataFrame:
@@ -115,6 +108,84 @@ def _filter_stable_hours(df: pd.DataFrame, power_col: str, temp_col: str) -> pd.
     return df_stable
 
 
+def _find_knee_by_grid_search(
+    x_data: np.ndarray,
+    y_data: np.ndarray,
+    temp_min: float = -4.0,
+    temp_max: float = 4.0,
+    step: float = 0.25,
+    min_points_per_segment: int = 5,
+) -> tuple[float | None, float | None]:
+    """Find knee temperature using exhaustive grid search over candidate splits.
+
+    Evaluates all candidate knee temperatures on a grid and picks the split
+    with the lowest total residual. Unlike curve_fit, this avoids local minima
+    because every candidate is evaluated — not just a path from one starting point.
+
+    Physical constraints enforced:
+    1. Warm-side slope must be negative (power decreases as temp rises above knee).
+    2. Cold-side slope must be substantially flatter than the warm-side slope.
+       A real knee has a near-flat cold side (HP at max capacity) and a steeply
+       falling warm side (HP modulating).  If both sides have similar slopes the
+       data is closer to a straight line than a knee.
+
+    Returns:
+        Tuple of (knee_temp, knee_power), or (None, None) if no valid knee found.
+    """
+    candidates = np.arange(temp_min, temp_max + step / 2, step)
+    best_temp = None
+    best_power = None
+    best_mse = np.inf
+
+    for knee_t in candidates:
+        left_mask = x_data < knee_t
+        right_mask = x_data >= knee_t
+
+        if left_mask.sum() < min_points_per_segment or right_mask.sum() < min_points_per_segment:
+            continue
+
+        x_left, y_left = x_data[left_mask], y_data[left_mask]
+        x_right, y_right = x_data[right_mask], y_data[right_mask]
+
+        try:
+            slope_l, intercept_l = np.polyfit(x_left, y_left, 1)
+            slope_r, intercept_r = np.polyfit(x_right, y_right, 1)
+        except (np.linalg.LinAlgError, ValueError):
+            continue
+
+        # Physical constraint 1: warm-side slope must be negative.
+        if slope_r >= 0:
+            continue
+
+        # Physical constraint 2: cold-side must be substantially flatter than
+        # warm-side.  Reject splits where the cold side is more than 75 % as
+        # steep as the warm side — that pattern is a gradual slope, not a knee.
+        # (Factor 0.75 is permissive enough for noisy minute-level data while
+        # still rejecting near-straight-line splits.)
+        if slope_l < 0 and abs(slope_l) > abs(slope_r) * 0.75:
+            continue
+
+        pred_left = slope_l * x_left + intercept_l
+        pred_right = slope_r * x_right + intercept_r
+
+        # MSE normalised by total points so no segment can dominate by being
+        # artificially tiny (a tiny cold-side segment always fits well; using
+        # per-segment mean would favour putting the knee at the extreme cold end).
+        mse = (
+            np.sum((y_left - pred_left) ** 2) + np.sum((y_right - pred_right) ** 2)
+        ) / (left_mask.sum() + right_mask.sum())
+
+        if mse < best_mse:
+            best_mse = mse
+            best_temp = float(knee_t)
+            power_at_knee = (
+                slope_l * knee_t + intercept_l + slope_r * knee_t + intercept_r
+            ) / 2
+            best_power = float(power_at_knee)
+
+    return best_temp, best_power
+
+
 def _perform_knee_detection_quatt(df_hourly: pd.DataFrame) -> tuple[float | None, float | None]:
     """Perform knee detection using Quatt hourly data.
 
@@ -145,44 +216,38 @@ def _perform_knee_detection_quatt(df_hourly: pd.DataFrame) -> tuple[float | None
     if df_prep.empty:
         return None, None
 
-    # Filter for stable operation hours (removes partial hours and defrosts)
+    # Filter for stable operation hours (removes partial hours and defrosts).
     df_stable = _filter_stable_hours(df_prep, "hpHeat", "temperatureOutside")
 
     if len(df_stable) < 20:  # Need enough data points
         _LOGGER.warning(
-            "Not enough stable hours for knee detection (%d < 20)", len(df_stable)
+            "Not enough envelope hours for knee detection (%d < 20)", len(df_stable)
         )
         return None, None
 
-    # Prepare for curve fitting
     x_data = df_stable["temperatureOutside"].values
     y_data = df_stable["hpHeat"].values
 
-    # Initial parameters for piecewise fit
-    p0 = [1.0, y_data.max(), 0, -400]
-    lower_b = [-5, 2000, -500, -2000]  # Wider temp range
-    upper_b = [5, 12000, 500, -100]     # Higher max power for Duo
+    knee_temp, knee_power = _find_knee_by_grid_search(x_data, y_data)
 
-    try:
-        popt, _ = curve_fit(
-            _piecewise_linear, x_data, y_data, p0=p0, bounds=(lower_b, upper_b)
-        )
-
-        knee_temp = float(popt[0])
-        knee_power = float(popt[1])
-
-        _LOGGER.info(
-            "Knee detection (Quatt): %.2f°C, %d W (from %d stable hours)",
-            knee_temp,
-            knee_power,
+    if knee_temp is None:
+        _LOGGER.warning(
+            "Grid search knee detection found no valid knee in range [-4, +4]°C "
+            "(%d stable hours, temp range %.1f–%.1f°C)",
             len(df_stable),
+            x_data.min(),
+            x_data.max(),
         )
-
-        return knee_temp, knee_power
-
-    except Exception as e:
-        _LOGGER.warning("Quatt-based knee detection failed: %s", e)
         return None, None
+
+    _LOGGER.info(
+        "Knee detection (Quatt): %.2f°C, %d W (from %d stable hours)",
+        knee_temp,
+        knee_power,
+        len(df_stable),
+    )
+
+    return knee_temp, knee_power
 
 
 async def async_fetch_live_history(
@@ -284,23 +349,28 @@ def calculate_stooklijn(
     # =========================================================
     # STEP 1: Knee detection (piecewise linear fit)
     # =========================================================
-    # Try Quatt hourly data first (preferred: longer history, better filtering)
-    # Fall back to HA recorder data if Quatt data is unavailable
+    # Priority: HA recorder minute-level data first, Quatt hourly as fallback.
+    #
+    # Why recorder is preferred:
+    #   Quatt hourly averages mix active HP operation with defrost cycles within
+    #   the same hour.  At cold temperatures a 15-minute defrost per hour lowers
+    #   the average by ~25 %, making the cold-side data look systematically
+    #   weaker than the warm side.  This biases the detected knee toward warmer
+    #   temperatures (~3 °C instead of ~1.75 °C on real data).
+    #
+    #   Recorder minute-level data has no such bias: each minute at defrost power
+    #   (< MIN_POWER_FILTER) is individually excluded, leaving only true high-power
+    #   minutes regardless of temperature.
+    #
+    # Why Quatt is the fallback:
+    #   The recorder only covers the last DAYS_HISTORY days.  During a mild spell
+    #   (all days > 4 °C) there may be no data below the knee and detection fails.
+    #   Quatt data spans months and always covers at least one cold period.
     knee_detected = False
 
-    if df_hourly is not None and not df_hourly.empty:
-        _LOGGER.info("Attempting knee detection with Quatt hourly data...")
-        knee_temp, knee_power = _perform_knee_detection_quatt(df_hourly)
-
-        if knee_temp is not None:
-            dynamic_min_temp = knee_temp
-            result.knee_temperature = knee_temp
-            result.knee_power = knee_power
-            knee_detected = True
-
-    # Fallback to HA recorder data if Quatt knee detection failed
-    if not knee_detected and df_ha_merged is not None and not df_ha_merged.empty:
-        _LOGGER.info("Falling back to HA recorder data for knee detection...")
+    # --- Primary: HA recorder minute-level data ---
+    if df_ha_merged is not None and not df_ha_merged.empty:
+        _LOGGER.info("Attempting knee detection with recorder minute-level data...")
         valid_mask = df_ha_merged["power"] >= MIN_POWER_FILTER
         df_fit = df_ha_merged[valid_mask].copy()
 
@@ -308,17 +378,12 @@ def calculate_stooklijn(
             x_data = df_fit["temp"].values
             y_data = df_fit["power"].values
 
-            p0 = [1.0, y_data.max(), 0, -400]
-            lower_b = [-3, 3000, -500, -2000]
-            upper_b = [4, 9000, 500, -100]
+            knee_temp, knee_power = _find_knee_by_grid_search(x_data, y_data)
 
-            try:
-                popt, _ = curve_fit(
-                    _piecewise_linear, x_data, y_data, p0=p0, bounds=(lower_b, upper_b)
-                )
-                dynamic_min_temp = popt[0]
-                result.knee_temperature = float(popt[0])
-                result.knee_power = float(popt[1])
+            if knee_temp is not None:
+                dynamic_min_temp = knee_temp
+                result.knee_temperature = knee_temp
+                result.knee_power = knee_power
 
                 _LOGGER.info(
                     "Knee detected (recorder): %.2f°C, %d W (from %d days)",
@@ -327,12 +392,33 @@ def calculate_stooklijn(
                     DAYS_HISTORY,
                 )
                 knee_detected = True
-            except Exception as e:
-                _LOGGER.warning("Recorder-based knee detection failed: %s", e)
+            else:
+                _LOGGER.info(
+                    "Recorder knee detection found no valid knee "
+                    "(temp range %.1f–%.1f°C, %d active points) — "
+                    "will try Quatt hourly data",
+                    x_data.min(),
+                    x_data.max(),
+                    len(df_fit),
+                )
+
+    # --- Fallback: Quatt hourly data (longer history, but defrost-diluted) ---
+    if not knee_detected and df_hourly is not None and not df_hourly.empty:
+        _LOGGER.info(
+            "Falling back to Quatt hourly data for knee detection "
+            "(recorder data insufficient)..."
+        )
+        knee_temp, knee_power = _perform_knee_detection_quatt(df_hourly)
+
+        if knee_temp is not None:
+            dynamic_min_temp = knee_temp
+            result.knee_temperature = knee_temp
+            result.knee_power = knee_power
+            knee_detected = True
 
     if not knee_detected:
         _LOGGER.warning(
-            "Knee detection failed with both Quatt and recorder data. "
+            "Knee detection failed with both recorder and Quatt data. "
             "Using fallback temperature: %.2f°C",
             dynamic_min_temp,
         )
