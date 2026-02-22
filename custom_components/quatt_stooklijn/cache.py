@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
+import pandas as pd
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
@@ -13,6 +14,8 @@ _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
 STORAGE_KEY = "quatt_stooklijn_insights_cache"
+KNEE_STORAGE_KEY = "quatt_stooklijn_knee_data"
+KNEE_YEARS_TO_KEEP = 3
 
 
 class QuattInsightsCache:
@@ -125,3 +128,102 @@ class QuattInsightsCache:
             "oldest_date": dates[0] if dates else None,
             "newest_date": dates[-1] if dates else None,
         }
+
+
+class KneeDataStore:
+    """Persistent store for knee detection (temp, power) data points.
+
+    Saves hourly-resampled, power-filtered, cold-weather data points from the
+    HA recorder per day.  Unlike the recorder (last 30 days) this store grows
+    over time, giving the grid-search knee detection access to cold-weather data
+    from previous winters.
+
+    Storage format (HA .storage JSON):
+        {"days": {"2025-12-01": [[temp, power], ...], "2025-12-02": [...], ...}}
+
+    Each [temp, power] pair is a 1-hour average: temp rounded to 1 decimal,
+    power rounded to the nearest Watt.  Only temperatures below 10 °C are stored
+    (warmer hours are irrelevant for knee detection).  Entries older than
+    KNEE_YEARS_TO_KEEP years are purged automatically on load.
+    """
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Initialise the store (does not load from disk yet)."""
+        self._store = Store(hass, STORAGE_VERSION, KNEE_STORAGE_KEY)
+        self._days: dict[str, list[list[float]]] = {}
+        self._loaded = False
+
+    async def async_load(self) -> None:
+        """Load data from HA storage and purge old entries."""
+        if self._loaded:
+            return
+
+        raw = await self._store.async_load()
+        if raw:
+            self._days = raw.get("days", {})
+            total_pts = sum(len(v) for v in self._days.values())
+            _LOGGER.info(
+                "Knee data store loaded: %d days, %d hourly points",
+                len(self._days),
+                total_pts,
+            )
+        else:
+            self._days = {}
+            _LOGGER.info("Knee data store: no existing data, starting fresh")
+
+        await self._async_cleanup()
+        self._loaded = True
+
+    async def async_save(self) -> None:
+        """Persist current data to HA storage."""
+        await self._store.async_save({"days": self._days})
+        _LOGGER.debug(
+            "Knee data store saved: %d days, %d hourly points",
+            len(self._days),
+            sum(len(v) for v in self._days.values()),
+        )
+
+    def merge_days(self, new_days: dict[str, list[list[float]]]) -> int:
+        """Merge new daily batches (skip dates already in store).
+
+        Returns the number of new days added.
+        """
+        added = 0
+        for date_str, points in new_days.items():
+            if date_str not in self._days and points:
+                self._days[date_str] = points
+                added += 1
+        return added
+
+    def get_as_dataframe(self) -> pd.DataFrame | None:
+        """Return all stored points as a DataFrame with columns [temp, power]."""
+        all_points = [pt for pts in self._days.values() for pt in pts]
+        if not all_points:
+            return None
+        return pd.DataFrame(all_points, columns=["temp", "power"])
+
+    def get_stats(self) -> dict[str, Any]:
+        """Return summary statistics for logging."""
+        dates = sorted(self._days.keys())
+        return {
+            "total_days": len(dates),
+            "total_points": sum(len(v) for v in self._days.values()),
+            "oldest_date": dates[0] if dates else None,
+            "newest_date": dates[-1] if dates else None,
+        }
+
+    async def _async_cleanup(self) -> None:
+        """Remove entries older than KNEE_YEARS_TO_KEEP years."""
+        cutoff = (
+            datetime.now() - timedelta(days=365 * KNEE_YEARS_TO_KEEP)
+        ).strftime("%Y-%m-%d")
+        old = [d for d in self._days if d < cutoff]
+        for d in old:
+            del self._days[d]
+        if old:
+            _LOGGER.info(
+                "Knee data store: purged %d days older than %d years",
+                len(old),
+                KNEE_YEARS_TO_KEEP,
+            )
+            await self.async_save()

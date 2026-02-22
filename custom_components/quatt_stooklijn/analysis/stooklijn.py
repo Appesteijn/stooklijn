@@ -250,6 +250,55 @@ def _perform_knee_detection_quatt(df_hourly: pd.DataFrame) -> tuple[float | None
     return knee_temp, knee_power
 
 
+def extract_knee_points_from_recorder(
+    df_ha_merged: pd.DataFrame,
+    min_power: float = MIN_POWER_FILTER,
+    max_temp: float = 10.0,
+) -> dict[str, list[list[float]]]:
+    """Extract hourly-resampled filtered points from recorder data, grouped by date.
+
+    Filters to active HP minutes (power >= min_power) and cold temperatures
+    (temp < max_temp), then resamples to 1-hour averages.  This reduces
+    storage from ~500 raw minutes to ~8 hourly values per day while keeping
+    enough resolution for knee detection.
+
+    Only complete days are returned (today is excluded because the day is still
+    in progress and the hourly average may be unrepresentative).
+
+    Returns:
+        Dict mapping YYYY-MM-DD → list of [temp, power] pairs (hourly averages).
+    """
+    if df_ha_merged is None or df_ha_merged.empty:
+        return {}
+
+    mask = (df_ha_merged["power"] >= min_power) & (df_ha_merged["temp"] < max_temp)
+    active = df_ha_merged[mask].copy()
+
+    if active.empty:
+        return {}
+
+    if not isinstance(active.index, pd.DatetimeIndex):
+        active.index = pd.to_datetime(active.index)
+
+    hourly = active[["temp", "power"]].resample("1h").mean().dropna()
+    if hourly.empty:
+        return {}
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    result: dict[str, list[list[float]]] = {}
+    for ts, row in hourly.iterrows():
+        date_str = ts.strftime("%Y-%m-%d")
+        if date_str >= today_str:
+            continue
+        if date_str not in result:
+            result[date_str] = []
+        result[date_str].append(
+            [round(float(row["temp"]), 1), round(float(row["power"]), 0)]
+        )
+
+    return result
+
+
 async def async_fetch_live_history(
     hass: HomeAssistant,
     temp_entities: list[str],
@@ -335,6 +384,7 @@ def calculate_stooklijn(
     df_ha_merged: pd.DataFrame | None,
     df_hourly: pd.DataFrame | None,
     df_daily: pd.DataFrame | None,
+    df_knee_history: pd.DataFrame | None = None,
 ) -> StooklijnResult:
     """Run the full stooklijn analysis.
 
@@ -342,6 +392,9 @@ def calculate_stooklijn(
         df_ha_merged: Live history data (temp + power), for knee detection
         df_hourly: Quatt insights hourly data, for envelope analysis
         df_daily: Quatt insights daily data, for optimal stooklijn
+        df_knee_history: Historical knee data from KneeDataStore (optional).
+            When provided, combined with df_ha_merged so cold-weather data
+            from previous winters strengthens the knee detection.
     """
     result = StooklijnResult()
     dynamic_min_temp = -0.5  # fallback
@@ -368,11 +421,24 @@ def calculate_stooklijn(
     #   Quatt data spans months and always covers at least one cold period.
     knee_detected = False
 
-    # --- Primary: HA recorder minute-level data ---
+    # --- Primary: HA recorder minute-level data (+ historical store) ---
     if df_ha_merged is not None and not df_ha_merged.empty:
         _LOGGER.info("Attempting knee detection with recorder minute-level data...")
         valid_mask = df_ha_merged["power"] >= MIN_POWER_FILTER
-        df_fit = df_ha_merged[valid_mask].copy()
+        df_fit_current = df_ha_merged[valid_mask][["temp", "power"]].copy()
+
+        # Merge with historical knee data from previous analyses so that
+        # cold-weather data from earlier winters is included even when the
+        # recent 30-day window happens to be mild.
+        if df_knee_history is not None and not df_knee_history.empty:
+            df_fit = pd.concat([df_fit_current, df_knee_history], ignore_index=True)
+            _LOGGER.info(
+                "Knee detection: %d current + %d historical points",
+                len(df_fit_current),
+                len(df_knee_history),
+            )
+        else:
+            df_fit = df_fit_current
 
         if not df_fit.empty and len(df_fit) > 10:
             x_data = df_fit["temp"].values
@@ -385,11 +451,17 @@ def calculate_stooklijn(
                 result.knee_temperature = knee_temp
                 result.knee_power = knee_power
 
+                source = (
+                    "recorder+history"
+                    if df_knee_history is not None and not df_knee_history.empty
+                    else "recorder"
+                )
                 _LOGGER.info(
-                    "Knee detected (recorder): %.2f°C, %d W (from %d days)",
+                    "Knee detected (%s): %.2f°C, %d W (%d points total)",
+                    source,
                     result.knee_temperature,
                     result.knee_power,
-                    DAYS_HISTORY,
+                    len(df_fit),
                 )
                 knee_detected = True
             else:

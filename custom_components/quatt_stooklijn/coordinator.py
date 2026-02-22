@@ -18,7 +18,9 @@ from .analysis.stooklijn import (
     StooklijnResult,
     async_fetch_live_history,
     calculate_stooklijn,
+    extract_knee_points_from_recorder,
 )
+from .cache import KneeDataStore
 from .const import (
     CONF_ACTUAL_STOOKLIJN_POWER1,
     CONF_ACTUAL_STOOKLIJN_POWER2,
@@ -89,6 +91,7 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             update_interval=None,  # On-demand only
         )
         self.config = config
+        self._knee_store = KneeDataStore(hass)
         slope, intercept = _calc_stooklijn_from_points(config)
         self.data = QuattStooklijnData(
             actual_stooklijn_slope=slope,
@@ -147,6 +150,29 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             config[CONF_POWER_ENTITY],
         )
 
+        # Step 3b: Update persistent knee data store
+        # Extract today's active, cold-weather hourly points from the recorder
+        # and merge into the rolling multi-year store so future analyses benefit
+        # from cold-weather data even when the 30-day recorder window is mild.
+        await self._knee_store.async_load()
+        if df_ha_merged is not None and not df_ha_merged.empty:
+            new_days = extract_knee_points_from_recorder(df_ha_merged)
+            added = self._knee_store.merge_days(new_days)
+            if added > 0:
+                _LOGGER.info("Knee data store: added %d new days", added)
+                await self._knee_store.async_save()
+            else:
+                _LOGGER.debug("Knee data store: no new days to add")
+
+        stats = self._knee_store.get_stats()
+        _LOGGER.info(
+            "Knee data store: %d days, %d hourly points (oldest: %s)",
+            stats["total_days"],
+            stats["total_points"],
+            stats["oldest_date"],
+        )
+        df_knee_history = self._knee_store.get_as_dataframe()
+
         # Step 4: Run stooklijn analysis (CPU-heavy, run in executor)
         _LOGGER.info("Running stooklijn calculations...")
         stooklijn_result = await self.hass.async_add_executor_job(
@@ -154,6 +180,7 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             df_ha_merged,
             df_hourly if not df_hourly.empty else None,
             df_daily if not df_daily.empty else None,
+            df_knee_history,
         )
 
         # Step 5: Heat loss analysis
