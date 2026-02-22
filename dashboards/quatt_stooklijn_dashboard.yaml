@@ -75,7 +75,7 @@ views:
             columns: 2
             cards:
               - type: entity
-                entity: sensor.quatt_stooklijn_recommended_supply_temp
+                entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
                 name: Aanbevolen Aanvoer
                 icon: mdi:thermometer-water
               - type: entity
@@ -87,7 +87,7 @@ views:
             title: Aanvoertemperatuur — Aanbevolen vs Quatt
             hours_to_show: 24
             entities:
-              - entity: sensor.quatt_stooklijn_recommended_supply_temp
+              - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
                 name: Aanbevolen
               - entity: sensor.heatpump_thermostat_control_setpoint
                 name: Quatt setpoint
