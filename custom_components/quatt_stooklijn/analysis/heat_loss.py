@@ -58,10 +58,27 @@ def calculate_heat_loss(
     if len(heating_data) < 5:
         return result
 
-    x = heating_data["avg_temperatureOutside"].values
-    y = heating_data["totalHeatPerHour"].values
+    # First-pass regression to identify outliers (e.g. test runs with unusually
+    # high thermostat settings that create anomalous heat demand points)
+    x_all = heating_data["avg_temperatureOutside"].values
+    y_all = heating_data["totalHeatPerHour"].values
 
-    # Linear regression
+    slope_rough, intercept_rough = np.polyfit(x_all, y_all, 1)
+    residuals = y_all - (slope_rough * x_all + intercept_rough)
+    std = np.std(residuals)
+    if std > 0:
+        inlier_mask = np.abs(residuals) < 2.5 * std
+    else:
+        inlier_mask = np.ones(len(x_all), dtype=bool)
+
+    regression_data = heating_data[inlier_mask]
+    x = regression_data["avg_temperatureOutside"].values
+    y = regression_data["totalHeatPerHour"].values
+
+    if len(x) < 5:
+        return result
+
+    # Final regression on filtered data
     slope, intercept = np.polyfit(x, y, 1)
 
     # R-squared
@@ -109,13 +126,13 @@ def calculate_heat_loss(
             "cop": cop_value
         }
 
-    # Scatter data for dashboard (only heating days, same filter as regression)
+    # Scatter data for dashboard (outliers excluded)
     result.scatter_data = [
         {
             "temp": round(float(row["avg_temperatureOutside"]), 1),
             "heat": round(float(row["totalHeatPerHour"]), 0),
         }
-        for _, row in heating_data.iterrows()
+        for _, row in regression_data.iterrows()
     ]
 
     return result
