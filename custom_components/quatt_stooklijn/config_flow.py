@@ -14,6 +14,7 @@ from .const import (
     CONF_ACTUAL_STOOKLIJN_TEMP1,
     CONF_ACTUAL_STOOKLIJN_TEMP2,
     CONF_BOILER_EFFICIENCY,
+    CONF_FLOW_ENTITY,
     CONF_GAS_ENABLED,
     CONF_GAS_ENTITY,
     CONF_GAS_CALORIFIC_VALUE,
@@ -23,11 +24,14 @@ from .const import (
     CONF_POWER_ENTITY,
     CONF_QUATT_END_DATE,
     CONF_QUATT_START_DATE,
+    CONF_RETURN_TEMP_ENTITY,
     CONF_TEMP_ENTITIES,
     DEFAULT_BOILER_EFFICIENCY,
+    DEFAULT_FLOW_ENTITY,
     DEFAULT_GAS_CALORIFIC_VALUE,
     DEFAULT_HOT_WATER_TEMP_THRESHOLD,
     DEFAULT_POWER_ENTITY,
+    DEFAULT_RETURN_TEMP_ENTITY,
     DEFAULT_TEMP_ENTITIES,
     DOMAIN,
 )
@@ -198,6 +202,14 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_ACTUAL_STOOKLIJN_POWER1, default=""): str,
                 vol.Optional(CONF_ACTUAL_STOOKLIJN_TEMP2, default=""): str,
                 vol.Optional(CONF_ACTUAL_STOOKLIJN_POWER2, default=""): str,
+                vol.Optional(
+                    CONF_FLOW_ENTITY,
+                    default=DEFAULT_FLOW_ENTITY,
+                ): str,
+                vol.Optional(
+                    CONF_RETURN_TEMP_ENTITY,
+                    default=DEFAULT_RETURN_TEMP_ENTITY,
+                ): str,
             }
         )
 
@@ -266,6 +278,14 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(
                         CONF_ACTUAL_STOOKLIJN_POWER2,
                         default=_float_default(CONF_ACTUAL_STOOKLIJN_POWER2),
+                    ): str,
+                    vol.Optional(
+                        CONF_FLOW_ENTITY,
+                        default=data.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY),
+                    ): str,
+                    vol.Optional(
+                        CONF_RETURN_TEMP_ENTITY,
+                        default=data.get(CONF_RETURN_TEMP_ENTITY, DEFAULT_RETURN_TEMP_ENTITY),
                     ): str,
                 }
             ),

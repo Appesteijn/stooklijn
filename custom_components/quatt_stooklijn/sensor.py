@@ -15,9 +15,17 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import (
+    CONF_FLOW_ENTITY,
+    CONF_RETURN_TEMP_ENTITY,
+    CONF_TEMP_ENTITIES,
+    DEFAULT_FLOW_ENTITY,
+    DEFAULT_RETURN_TEMP_ENTITY,
+    DOMAIN,
+)
 from .coordinator import QuattStooklijnCoordinator, QuattStooklijnData
 
 
@@ -216,6 +224,7 @@ async def async_setup_entry(
         QuattStooklijnSensor(coordinator, description, entry)
         for description in SENSOR_DESCRIPTIONS
     ]
+    entities.append(QuattSupplyTempSensor(coordinator, entry))
 
     async_add_entities(entities)
 
@@ -275,3 +284,130 @@ class QuattStooklijnSensor(
         if self.entity_description.attr_fn is None:
             return None
         return self.entity_description.attr_fn(self.coordinator.data)
+
+
+class QuattSupplyTempSensor(
+    CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity
+):
+    """Live sensor: aanbevolen aanvoertemperatuur op basis van actuele buitentemperatuur.
+
+    Formule: T_aanvoer = T_retour + max(0, slope * T_buiten + intercept) / (1.16 * debiet_lph)
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Aanbevolen Aanvoertemperatuur"
+    _attr_native_unit_of_measurement = "°C"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:thermometer-water"
+
+    def __init__(
+        self,
+        coordinator: QuattStooklijnCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_recommended_supply_temp"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "Quatt Warmteanalyse",
+            "manufacturer": "Quatt",
+            "model": "Warmteanalyse",
+        }
+
+    @property
+    def _outdoor_entity(self) -> str:
+        temp_entities = self._entry.data.get(CONF_TEMP_ENTITIES, [])
+        return temp_entities[0] if temp_entities else "sensor.heatpump_hp1_temperature_outside"
+
+    @property
+    def _flow_entity(self) -> str:
+        return self._entry.data.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY)
+
+    @property
+    def _return_temp_entity(self) -> str:
+        return self._entry.data.get(CONF_RETURN_TEMP_ENTITY, DEFAULT_RETURN_TEMP_ENTITY)
+
+    async def async_added_to_hass(self) -> None:
+        """Register state listeners for live input sensors."""
+        await super().async_added_to_hass()
+
+        entities_to_track = [
+            self._outdoor_entity,
+            self._flow_entity,
+            self._return_temp_entity,
+        ]
+
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                entities_to_track,
+                self._handle_state_change,
+            )
+        )
+
+    async def _handle_state_change(self, event) -> None:
+        """Recompute when any input sensor changes."""
+        self.async_write_ha_state()
+
+    def _get_float_state(self, entity_id: str) -> float | None:
+        """Read a float value from a HA entity state."""
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable", "None", ""):
+            return None
+        try:
+            return float(state.state)
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def native_value(self) -> float | None:
+        """Calculate recommended supply temperature."""
+        if self.coordinator.data is None:
+            return None
+
+        heat_loss = self.coordinator.data.heat_loss_hp
+        if heat_loss.slope is None or heat_loss.intercept is None:
+            return None
+
+        t_outdoor = self._get_float_state(self._outdoor_entity)
+        t_return = self._get_float_state(self._return_temp_entity)
+        flow_lph = self._get_float_state(self._flow_entity)
+
+        if t_outdoor is None or t_return is None or flow_lph is None or flow_lph <= 0:
+            return None
+
+        heat_demand_w = max(0.0, heat_loss.slope * t_outdoor + heat_loss.intercept)
+        t_supply = t_return + heat_demand_w / (1.16 * flow_lph)
+        return round(t_supply, 1)
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        """Expose formula inputs for transparency."""
+        t_outdoor = self._get_float_state(self._outdoor_entity)
+        t_return = self._get_float_state(self._return_temp_entity)
+        flow_lph = self._get_float_state(self._flow_entity)
+
+        heat_demand_w = None
+        if (
+            self.coordinator.data is not None
+            and self.coordinator.data.heat_loss_hp.slope is not None
+            and t_outdoor is not None
+        ):
+            heat_demand_w = round(
+                max(
+                    0.0,
+                    self.coordinator.data.heat_loss_hp.slope * t_outdoor
+                    + self.coordinator.data.heat_loss_hp.intercept,
+                ),
+                0,
+            )
+
+        return {
+            "outdoor_temp": t_outdoor,
+            "return_temp": t_return,
+            "flow_lph": flow_lph,
+            "heat_demand_w": heat_demand_w,
+        }

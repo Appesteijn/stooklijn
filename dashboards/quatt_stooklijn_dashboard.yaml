@@ -70,6 +70,30 @@ views:
                 name: Knikpunt
                 icon: mdi:thermometer-alert
             grid_options: *ref_0
+          - square: false
+            type: grid
+            columns: 2
+            cards:
+              - type: entity
+                entity: sensor.quatt_stooklijn_recommended_supply_temp
+                name: Aanbevolen Aanvoer
+                icon: mdi:thermometer-water
+              - type: entity
+                entity: sensor.heatpump_thermostat_control_setpoint
+                name: Quatt Setpoint
+                icon: mdi:thermometer-chevron-up
+            grid_options: *ref_0
+          - type: history-graph
+            title: Aanvoertemperatuur — Aanbevolen vs Quatt
+            hours_to_show: 24
+            entities:
+              - entity: sensor.quatt_stooklijn_recommended_supply_temp
+                name: Aanbevolen
+              - entity: sensor.heatpump_thermostat_control_setpoint
+                name: Quatt setpoint
+            grid_options:
+              columns: 24
+              rows: auto
       - type: grid
         column_span: 4
         cards:

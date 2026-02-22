@@ -24,6 +24,13 @@ DEFAULT_GAS_CALORIFIC_VALUE = 9.77  # kWh/m³ (Dutch gas)
 DEFAULT_BOILER_EFFICIENCY = 0.90  # 90%
 DEFAULT_HOT_WATER_TEMP_THRESHOLD = 18.0  # °C
 
+# Supply temperature sensor config
+CONF_FLOW_ENTITY = "flow_entity"
+CONF_RETURN_TEMP_ENTITY = "return_temp_entity"
+
+DEFAULT_FLOW_ENTITY = "sensor.heatpump_flowmeter_flowrate"
+DEFAULT_RETURN_TEMP_ENTITY = "sensor.heatpump_hp1_temperature_water_in"
+
 # Default temperature entities (in priority order)
 DEFAULT_TEMP_ENTITIES = [
     "sensor.heatpump_hp1_temperature_outside",
