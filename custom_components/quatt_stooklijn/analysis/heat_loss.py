@@ -126,13 +126,13 @@ def calculate_heat_loss(
             "cop": cop_value
         }
 
-    # Scatter data for dashboard (outliers excluded)
+    # Scatter data for dashboard (all valid points, so outliers are visible)
     result.scatter_data = [
         {
             "temp": round(float(row["avg_temperatureOutside"]), 1),
             "heat": round(float(row["totalHeatPerHour"]), 0),
         }
-        for _, row in regression_data.iterrows()
+        for _, row in plot_data.iterrows()
     ]
 
     return result
