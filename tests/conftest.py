@@ -33,6 +33,7 @@ def _stub_ha():
     _ensure_module("homeassistant.helpers")
     _ensure_module("homeassistant.helpers.update_coordinator")
     _ensure_module("homeassistant.helpers.entity_platform")
+    _ensure_module("homeassistant.helpers.event")
     _ensure_module("homeassistant.helpers.storage")
     _ensure_module("homeassistant.components")
     _ensure_module("homeassistant.components.sensor")
@@ -102,6 +103,10 @@ def _stub_ha():
     # Entity platform
     ep = sys.modules["homeassistant.helpers.entity_platform"]
     ep.AddEntitiesCallback = MagicMock
+
+    # Event helpers
+    event_mod = sys.modules["homeassistant.helpers.event"]
+    event_mod.async_track_state_change_event = MagicMock()
 
     # Recorder stubs
     recorder = sys.modules["homeassistant.components.recorder"]
