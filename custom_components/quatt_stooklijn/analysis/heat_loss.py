@@ -7,6 +7,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from ..const import MIN_HEATING_WATTS, OUTLIER_STD_THRESHOLD
+
 
 @dataclass
 class HeatLossResult:
@@ -25,7 +27,6 @@ class HeatLossResult:
     heat_at_temps: dict[int, dict] | None = None
 
 
-_MIN_HEATING_WATTS = 200  # Minimum W to count as a heating day
 
 
 def calculate_heat_loss(
@@ -53,7 +54,7 @@ def calculate_heat_loss(
         return result
 
     # Filter: only days with meaningful heating demand for regression
-    heating_data = plot_data[plot_data["totalHeatPerHour"] >= _MIN_HEATING_WATTS]
+    heating_data = plot_data[plot_data["totalHeatPerHour"] >= MIN_HEATING_WATTS]
 
     if len(heating_data) < 5:
         return result
@@ -67,7 +68,7 @@ def calculate_heat_loss(
     residuals = y_all - (slope_rough * x_all + intercept_rough)
     std = np.std(residuals)
     if std > 0:
-        inlier_mask = np.abs(residuals) < 2.5 * std
+        inlier_mask = np.abs(residuals) < OUTLIER_STD_THRESHOLD * std
     else:
         inlier_mask = np.ones(len(x_all), dtype=bool)
 

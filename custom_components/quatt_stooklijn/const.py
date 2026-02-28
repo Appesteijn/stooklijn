@@ -49,11 +49,11 @@ API_FETCH_DAYS = 30
 
 # Analysis parameters
 MIN_POWER_FILTER = 2500  # W - minimum power to consider heat pump active
-STD_DEV_THRESHOLD = 2.0  # Z-score threshold for outlier removal
-DEFROST_THRESHOLD = 0  # °C - below this, defrost cycles may occur
+OUTLIER_STD_THRESHOLD = 2.5  # Z-score threshold for outlier removal
 BIN_SIZE = 0.5  # °C - temperature bin width
 KEEP_THRESHOLD = 0.90  # Keep values >= 90% of max in each bin
-DAYS_HISTORY = 10  # Days of live history for stooklijn analysis
+DAYS_HISTORY = 30  # Days of live history for stooklijn analysis
+MIN_HEATING_WATTS = 200  # Minimum W/h to count as a heating day
 
 # Service names
 SERVICE_RUN_ANALYSIS = "run_analysis"

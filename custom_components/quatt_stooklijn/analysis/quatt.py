@@ -258,6 +258,24 @@ async def async_fetch_quatt_insights(
     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
 
+    # === First-run guard: limit initial API calls ===
+    # On first run (empty cache), fetching months of daily data would make one
+    # API call per day (e.g. 251 calls for 251-day range).  Cap the API window
+    # to the last API_FETCH_DAYS so the first run makes at most 30 calls.
+    # The cache grows organically on subsequent runs; recorder statistics cover
+    # the full configured period regardless.
+    cache_stats = cache.get_stats()
+    if cache_stats["total_days"] == 0:
+        earliest_allowed = end_dt - timedelta(days=API_FETCH_DAYS - 1)
+        if start_dt < earliest_allowed:
+            _LOGGER.info(
+                "First run (empty cache): limiting API fetch to last %d days "
+                "(configured range starts %s — full history available via recorder)",
+                API_FETCH_DAYS,
+                start_date,
+            )
+            start_dt = earliest_allowed
+
     # === Step 1: Recorder statistics for full history ===
     _LOGGER.info("Fetching recorder statistics for %s to %s...", start_date, end_date)
     df_daily_recorder = await _async_fetch_recorder_daily(
@@ -358,11 +376,10 @@ async def async_fetch_quatt_insights(
             "averageCOP" not in df_daily_api.columns
             or df_daily_api["averageCOP"].isna().all()
         ):
-            df_daily_api["averageCOP"] = (
-                df_daily_api["totalHpHeat"] / df_daily_api["totalHpElectric"]
-            )
+            electric = df_daily_api["totalHpElectric"].replace(0, float("nan"))
+            df_daily_api["averageCOP"] = df_daily_api["totalHpHeat"] / electric
             df_daily_api["averageCOP"] = df_daily_api["averageCOP"].replace(
-                [float("inf"), -float("inf")], 0
+                [float("inf"), -float("inf")], float("nan")
             )
 
     # === Step 6: Merge — recorder as base, API overwrites recent days ===

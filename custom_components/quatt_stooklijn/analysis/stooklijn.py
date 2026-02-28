@@ -16,14 +16,16 @@ from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.history import state_changes_during_period
 from homeassistant.core import HomeAssistant
 
-_LOGGER = logging.getLogger(__name__)
+from ..const import (
+    BIN_SIZE,
+    DAYS_HISTORY,
+    KEEP_THRESHOLD,
+    MIN_HEATING_WATTS,
+    MIN_POWER_FILTER,
+    OUTLIER_STD_THRESHOLD,
+)
 
-# Analysis constants
-MIN_POWER_FILTER = 2500  # W
-DEFROST_THRESHOLD = 0  # W
-BIN_SIZE = 0.5  # °C
-KEEP_THRESHOLD = 0.90  # 90% of max
-DAYS_HISTORY = 30
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -542,7 +544,7 @@ def calculate_stooklijn(
                 resid = y - (m_rough * x + b_rough)
                 std = np.std(resid)
                 if std > 0:
-                    mask = np.abs(resid) < (2.5 * std)
+                    mask = np.abs(resid) < (OUTLIER_STD_THRESHOLD * std)
                     df_clean = df_filtered[mask].copy()
                 else:
                     df_clean = df_filtered.copy()
@@ -576,8 +578,6 @@ def calculate_stooklijn(
     # =========================================================
     # STEP 3: Optimal stooklijn from daily usage pattern
     # =========================================================
-    _MIN_HEATING_W = 200  # Minimum W/h to count as a heating day
-
     if df_daily is not None and not df_daily.empty:
         cols_needed = ["avg_temperatureOutside", "totalHeatPerHour"]
         if all(c in df_daily.columns for c in cols_needed):
@@ -587,12 +587,31 @@ def calculate_stooklijn(
 
             # Filter out non-heating days (summer) for regression
             heating_data = plot_data[
-                plot_data["totalHeatPerHour"] >= _MIN_HEATING_W
+                plot_data["totalHeatPerHour"] >= MIN_HEATING_WATTS
             ]
 
             if len(heating_data) > 5:
-                x = heating_data["avg_temperatureOutside"].values
-                y = heating_data["totalHeatPerHour"].values
+                x_all = heating_data["avg_temperatureOutside"].values
+                y_all = heating_data["totalHeatPerHour"].values
+
+                # Two-pass outlier removal (same approach as heat_loss.py):
+                # first-pass regression identifies anomalous days (e.g. test
+                # runs at unusual setpoints) so the final fit is not skewed.
+                # Scatter data still shows all valid heating days (not just inliers).
+                slope_rough, intercept_rough = np.polyfit(x_all, y_all, 1)
+                residuals = y_all - (slope_rough * x_all + intercept_rough)
+                std = np.std(residuals)
+                if std > 0:
+                    inlier_mask = np.abs(residuals) < OUTLIER_STD_THRESHOLD * std
+                else:
+                    inlier_mask = np.ones(len(x_all), dtype=bool)
+
+                regression_data = heating_data[inlier_mask]
+                if len(regression_data) < 5:
+                    regression_data = heating_data  # fall back to all data
+
+                x = regression_data["avg_temperatureOutside"].values
+                y = regression_data["totalHeatPerHour"].values
                 slope, intercept = np.polyfit(x, y, 1)
 
                 y_pred = slope * x + intercept
@@ -635,7 +654,7 @@ def calculate_stooklijn(
             # Filter: only days with meaningful COP (heating days)
             cop_data = cop_data[cop_data["averageCOP"] > 0]
             if "totalHeatPerHour" in df_daily.columns:
-                valid_idx = df_daily["totalHeatPerHour"] >= _MIN_HEATING_W
+                valid_idx = df_daily["totalHeatPerHour"] >= MIN_HEATING_WATTS
                 cop_data = cop_data[cop_data.index.isin(df_daily[valid_idx].index)]
             result.cop_scatter_data = [
                 {

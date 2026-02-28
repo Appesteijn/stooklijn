@@ -220,8 +220,8 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             average_cop=average_cop,
             last_analysis=datetime.now(timezone.utc),
             analysis_status="completed",
-            actual_stooklijn_slope=_calc_stooklijn_from_points(config)[0],
-            actual_stooklijn_intercept=_calc_stooklijn_from_points(config)[1],
+            actual_stooklijn_slope=self.data.actual_stooklijn_slope,
+            actual_stooklijn_intercept=self.data.actual_stooklijn_intercept,
         )
 
         _LOGGER.info("Quatt Stooklijn analysis completed")
