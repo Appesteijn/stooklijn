@@ -379,7 +379,7 @@ class QuattEstimatedCopSensor(
     def extra_state_attributes(self) -> dict | None:
         """Expose inputs for transparency."""
         t_outdoor = self._get_float_state(self._outdoor_entity)
-        cop_data = self.coordinator.data.stooklijn.cop_scatter_data if self.coordinator.data else []
+        cop_data = (self.coordinator.data.stooklijn.cop_scatter_data if self.coordinator.data else None) or []
         return {
             "outdoor_temp": t_outdoor,
             "data_points": len(cop_data),
