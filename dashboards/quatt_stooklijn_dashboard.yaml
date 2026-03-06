@@ -359,6 +359,7 @@ views:
             layout:
               height: 350
               xaxis:
+                type: linear
                 title: Buitentemperatuur (°C)
                 ticksuffix: "°C"
               yaxis:
@@ -444,6 +445,7 @@ views:
             layout:
               height: 350
               xaxis:
+                type: linear
                 title: Buitentemperatuur (°C)
                 ticksuffix: "°C"
               yaxis:
