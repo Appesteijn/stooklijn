@@ -51,7 +51,7 @@ views:
               rows: auto
           - square: false
             type: grid
-            columns: 2
+            columns: 3
             cards:
               - type: entity
                 entity: sensor.quatt_stooklijn_average_cop
@@ -69,11 +69,6 @@ views:
                 entity: sensor.quatt_stooklijn_knee_temperature
                 name: Knikpunt
                 icon: mdi:thermometer-alert
-            grid_options: *ref_0
-          - square: false
-            type: grid
-            columns: 2
-            cards:
               - type: entity
                 entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
                 name: Aanbevolen Aanvoer
