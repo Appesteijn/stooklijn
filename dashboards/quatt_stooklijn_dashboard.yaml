@@ -96,10 +96,6 @@ views:
 
               {% set act_intercept = state_attr('sensor.quatt_stooklijn_actual_stooklijn_setting', 'intercept') | float(0) %}
 
-              {% set est_slope = states('sensor.quatt_stooklijn_quatt_stooklijn_slope') | float(0) %}
-
-              {% set est_intercept = state_attr('sensor.quatt_stooklijn_quatt_stooklijn_slope', 'intercept') | float(0) %}
-
               {% if hlc_slope == 0 or hlc_intercept == 0 %}
 
               *Voer eerst een analyse uit.*
@@ -112,17 +108,9 @@ views:
 
               {% set quatt_source = "geconfigureerde instelling" %}
 
-              {% elif est_slope != 0 %}
-
-              {% set quatt_slope = est_slope %}
-
-              {% set quatt_intercept = est_intercept %}
-
-              {% set quatt_source = "schatting op basis van meting" %}
-
               {% else %}
 
-              ℹ️ Nog onvoldoende data om een advies te geven.
+              ℹ️ Voer je huidige Quatt-instelling in via de configuratie om een advies te krijgen.
 
               {% endif %}
 
