@@ -99,17 +99,17 @@ views:
           - type: markdown
             title: Stooklijn aanpassen?
             content: >
-              {% set slope = states('sensor.quatt_stooklijn_quatt_stooklijn_slope') | float(0) %}
+              {% set hlc_slope = state_attr('sensor.quatt_stooklijn_heat_loss_coefficient', 'slope') | float(0) %}
+
+              {% set hlc_intercept = state_attr('sensor.quatt_stooklijn_heat_loss_coefficient', 'intercept') | float(0) %}
 
               {% set balance = states('sensor.quatt_stooklijn_balance_point_temperature') | float(0) %}
 
-              {% if slope != 0 and balance != 0 %}
+              {% if hlc_slope != 0 and hlc_intercept != 0 %}
 
-              {% set intercept = -slope * balance %}
+              {% set p_min5 = (hlc_slope * (-5) + hlc_intercept) | round(0) | int %}
 
-              {% set p_min5 = (slope * (-5) + intercept) | round(0) | int %}
-
-              {% set p_plus10 = (slope * 10 + intercept) | round(0) | int %}
+              {% set p_plus10 = (hlc_slope * 10 + hlc_intercept) | round(0) | int %}
 
               **Aanbevolen punten voor Quatt-configuratie** (gebaseerd op jouw data):
 
@@ -136,7 +136,6 @@ views:
 
               ⚠️ **Aanpassing aanbevolen** — De huidige Quatt-balanstemperatuur ({{ act_balance }}°C)
               wijkt {{ diff }}°C af van de balanstemperatuur van je huis ({{ balance | round(1) }}°C).
-              De paarse stippellijn toont de aanbevolen instelling.
 
               {% else %}
 
