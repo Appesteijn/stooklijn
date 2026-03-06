@@ -323,6 +323,12 @@ views:
                   labels:
                     formatter: |
                       EVAL:function(val) { return Math.round(val); }
+              stroke:
+                dashArray:
+                  - 0
+                  - 0
+                  - 6
+                  - 0
               legend:
                 show: true
                 position: top
@@ -377,7 +383,6 @@ views:
                 type: line
                 color: "#9C27B0"
                 stroke_width: 2
-                stroke_dasharray: 6
                 data_generator: |
                   var d = new Date(); d.setHours(0,0,0,0);
                   var B = d.getTime(), H = 3600000;
