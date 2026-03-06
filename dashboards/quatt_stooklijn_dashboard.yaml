@@ -91,6 +91,8 @@ views:
                 name: Aanbevolen
               - entity: sensor.heatpump_thermostat_control_setpoint
                 name: Quatt setpoint
+              - entity: sensor.heatpump_flowmeter_temperature
+                name: Werkelijk (flowmeter)
             grid_options:
               columns: 24
               rows: auto
