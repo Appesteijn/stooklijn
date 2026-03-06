@@ -83,19 +83,6 @@ views:
                 name: Quatt Setpoint
                 icon: mdi:thermometer-chevron-up
             grid_options: *ref_0
-          - type: history-graph
-            title: Aanvoertemperatuur — Aanbevolen vs Quatt
-            hours_to_show: 24
-            entities:
-              - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-                name: Aanbevolen
-              - entity: sensor.heatpump_thermostat_control_setpoint
-                name: Quatt setpoint
-              - entity: sensor.heatpump_flowmeter_temperature
-                name: Werkelijk (flowmeter)
-            grid_options:
-              columns: 24
-              rows: auto
           - type: markdown
             title: Stooklijn aanpassen?
             content: >
@@ -195,8 +182,21 @@ views:
 
               {% endif %}
             grid_options:
-              columns: 24
-              rows: auto
+              columns: 8
+              rows: 6
+          - type: history-graph
+            title: Aanvoertemperatuur — Aanbevolen vs Quatt
+            hours_to_show: 24
+            entities:
+              - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
+                name: Aanbevolen
+              - entity: sensor.heatpump_thermostat_control_setpoint
+                name: Quatt setpoint
+              - entity: sensor.heatpump_flowmeter_temperature
+                name: Werkelijk (flowmeter)
+            grid_options:
+              columns: 16
+              rows: 6
       - type: grid
         column_span: 4
         cards:
