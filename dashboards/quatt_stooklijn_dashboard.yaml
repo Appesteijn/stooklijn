@@ -109,21 +109,45 @@ views:
 
               {% set act_intercept = state_attr('sensor.quatt_stooklijn_actual_stooklijn_setting', 'intercept') | float(0) %}
 
+              {% set est_slope = states('sensor.quatt_stooklijn_quatt_stooklijn_slope') | float(0) %}
+
+              {% set est_intercept = state_attr('sensor.quatt_stooklijn_quatt_stooklijn_slope', 'intercept') | float(0) %}
+
               {% if hlc_slope == 0 or hlc_intercept == 0 %}
 
               *Voer eerst een analyse uit.*
 
-              {% elif act_slope == 0 %}
+              {% elif act_slope != 0 %}
 
-              ℹ️ Voer je huidige Quatt-instelling in via de configuratie om een advies te krijgen.
+              {% set quatt_slope = act_slope %}
+
+              {% set quatt_intercept = act_intercept %}
+
+              {% set quatt_source = "geconfigureerde instelling" %}
+
+              {% elif est_slope != 0 %}
+
+              {% set quatt_slope = est_slope %}
+
+              {% set quatt_intercept = est_intercept %}
+
+              {% set quatt_source = "schatting op basis van meting" %}
 
               {% else %}
 
-              {% set quatt_balance = (-act_intercept / act_slope) | round(1) %}
+              ℹ️ Nog onvoldoende data om een advies te geven.
+
+              {% endif %}
+
+              {% if quatt_slope is defined %}
+
+              {% set quatt_balance = (-quatt_intercept / quatt_slope) | round(1) %}
 
               {% set diff = (quatt_balance - house_balance) | round(1) %}
 
               {% set diff_abs = diff | abs %}
+
+              *(Gebaseerd op {{ quatt_source }})*
 
               {% if diff_abs <= 2 %}
 
@@ -139,7 +163,7 @@ views:
               meer nodig boven {{ house_balance | round(1) }}°C. Bij zachte temperaturen (boven
               {{ house_balance | round(0) | int }}°C) draait de warmtepomp dus onnodig door.
 
-              {% set waste_w = (act_slope * house_balance + act_intercept) | round(0) | int %}
+              {% set waste_w = (quatt_slope * house_balance + quatt_intercept) | round(0) | int %}
 
               Bij {{ house_balance | round(1) }}°C levert de warmtepomp nog **{{ waste_w }} W**
               terwijl de warmtevraag al 0 is. Dit verhoogt het elektriciteitsverbruik zonder
