@@ -58,6 +58,10 @@ views:
                 name: Gemiddelde COP
                 icon: mdi:gauge
               - type: entity
+                entity: sensor.quatt_warmteanalyse_geschatte_actuele_cop
+                name: Actuele COP (schatting)
+                icon: mdi:gauge-low
+              - type: entity
                 entity: sensor.quatt_stooklijn_heat_loss_coefficient
                 name: Warmteverlies
                 icon: mdi:home-thermometer
@@ -92,6 +96,8 @@ views:
               {% set act_intercept = state_attr('sensor.quatt_stooklijn_actual_stooklijn_setting', 'intercept') | float(0) %}
 
               {% set est_balance_daily = state_attr('sensor.quatt_stooklijn_quatt_stooklijn_slope', 'balance_temp_daily') | float(0) %}
+
+              {% set slope_ratio = state_attr('sensor.quatt_stooklijn_optimal_stooklijn_slope', 'quatt_slope_ratio') | float(0) %}
 
               {% if hlc_slope == 0 or hlc_intercept == 0 %}
 
@@ -153,6 +159,16 @@ views:
 
               **Advies:** vraag Quatt de balanstemperatuur te verlagen naar ~{{ house_balance | round(0) | int }}°C.
               Gebruik de waarden in de tabel *Warmtevraag bij verschillende temperaturen* als referentie.
+
+              {% if slope_ratio > 0 and slope_ratio > 1.15 %}
+
+              *Let op: de helling van Quatt's stooklijn is {{ ((slope_ratio - 1) * 100) | round(0) | int }}% steiler dan optimaal — bij mild weer produceert de warmtepomp meer warmte dan nodig.*
+
+              {% elif slope_ratio > 0 and slope_ratio < 0.85 %}
+
+              *Let op: de helling van Quatt's stooklijn is {{ ((1 - slope_ratio) * 100) | round(0) | int }}% vlakker dan optimaal — bij strenge kou kan de warmtepomp te weinig leveren.*
+
+              {% endif %}
 
               {% else %}
 

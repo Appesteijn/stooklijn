@@ -89,6 +89,11 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
             "r2": d.stooklijn.r2_optimal,
             "balance_temp": d.stooklijn.balance_temp_optimal,
             "scatter_data": d.stooklijn.scatter_data,
+            "quatt_slope_ratio": (
+                round(d.stooklijn.slope_api_daily / d.stooklijn.slope_optimal, 2)
+                if d.stooklijn.slope_api_daily and d.stooklijn.slope_optimal
+                else None
+            ),
         }
         if d.stooklijn.slope_optimal
         else None,
@@ -229,6 +234,7 @@ async def async_setup_entry(
         for description in SENSOR_DESCRIPTIONS
     ]
     entities.append(QuattSupplyTempSensor(coordinator, entry))
+    entities.append(QuattEstimatedCopSensor(coordinator, entry))
 
     async_add_entities(entities)
 
@@ -288,6 +294,96 @@ class QuattStooklijnSensor(
         if self.entity_description.attr_fn is None:
             return None
         return self.entity_description.attr_fn(self.coordinator.data)
+
+
+class QuattEstimatedCopSensor(
+    CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity
+):
+    """Live sensor: estimated COP at current outdoor temperature.
+
+    Interpolates from the historically measured COP scatter data.
+    Updates whenever the outdoor temperature sensor changes.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Geschatte Actuele COP"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:gauge-low"
+
+    def __init__(
+        self,
+        coordinator: QuattStooklijnCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_estimated_cop"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "Quatt Warmteanalyse",
+            "manufacturer": "Quatt",
+            "model": "Warmteanalyse",
+        }
+
+    @property
+    def _outdoor_entity(self) -> str:
+        temp_entities = self._entry.data.get(CONF_TEMP_ENTITIES, [])
+        return temp_entities[0] if temp_entities else "sensor.heatpump_hp1_temperature_outside"
+
+    async def async_added_to_hass(self) -> None:
+        """Register state listener for outdoor temperature."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                [self._outdoor_entity],
+                self._handle_state_change,
+            )
+        )
+
+    async def _handle_state_change(self, event) -> None:
+        """Recompute when outdoor temperature changes."""
+        self.async_write_ha_state()
+
+    def _get_float_state(self, entity_id: str) -> float | None:
+        """Read a float value from a HA entity state."""
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable", "None", ""):
+            return None
+        try:
+            return float(state.state)
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def native_value(self) -> float | None:
+        """Interpolate COP from scatter data at current outdoor temperature."""
+        if self.coordinator.data is None:
+            return None
+        cop_data = self.coordinator.data.stooklijn.cop_scatter_data
+        if not cop_data or len(cop_data) < 2:
+            return None
+        t_outdoor = self._get_float_state(self._outdoor_entity)
+        if t_outdoor is None:
+            return None
+
+        import numpy as np  # noqa: PLC0415
+
+        cop_sorted = sorted(cop_data, key=lambda p: p["temp"])
+        temps = [p["temp"] for p in cop_sorted]
+        cops = [p["cop"] for p in cop_sorted]
+        return round(float(np.interp(t_outdoor, temps, cops)), 2)
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        """Expose inputs for transparency."""
+        t_outdoor = self._get_float_state(self._outdoor_entity)
+        cop_data = self.coordinator.data.stooklijn.cop_scatter_data if self.coordinator.data else []
+        return {
+            "outdoor_temp": t_outdoor,
+            "data_points": len(cop_data),
+        }
 
 
 class QuattSupplyTempSensor(
