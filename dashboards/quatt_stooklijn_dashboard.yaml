@@ -91,6 +91,8 @@ views:
 
               {% set act_intercept = state_attr('sensor.quatt_stooklijn_actual_stooklijn_setting', 'intercept') | float(0) %}
 
+              {% set est_balance_daily = state_attr('sensor.quatt_stooklijn_quatt_stooklijn_slope', 'balance_temp_daily') | float(0) %}
+
               {% if hlc_slope == 0 or hlc_intercept == 0 %}
 
               *Voer eerst een analyse uit.*
@@ -103,15 +105,21 @@ views:
 
               {% set quatt_source = "geconfigureerde instelling" %}
 
+              {% set quatt_balance = (-quatt_intercept / quatt_slope) | round(1) %}
+
+              {% elif est_balance_daily != 0 %}
+
+              {% set quatt_balance = est_balance_daily | round(1) %}
+
+              {% set quatt_source = "schatting op basis van dagelijkse data" %}
+
               {% else %}
 
               ℹ️ Voer je huidige Quatt-instelling in via de configuratie om een advies te krijgen.
 
               {% endif %}
 
-              {% if quatt_slope is defined %}
-
-              {% set quatt_balance = (-quatt_intercept / quatt_slope) | round(1) %}
+              {% if quatt_balance is defined %}
 
               {% set diff = (quatt_balance - house_balance) | round(1) %}
 
@@ -133,12 +141,15 @@ views:
               meer nodig boven {{ house_balance | round(1) }}°C. Bij zachte temperaturen (boven
               {{ house_balance | round(0) | int }}°C) draait de warmtepomp dus onnodig door.
 
+              {% if quatt_slope is defined %}
+
               {% set waste_w = (quatt_slope * house_balance + quatt_intercept) | round(0) | int %}
 
               Bij {{ house_balance | round(1) }}°C levert de warmtepomp nog **{{ waste_w }} W**
               terwijl de warmtevraag al 0 is. Dit verhoogt het elektriciteitsverbruik zonder
               extra warmtecomfort.
 
+              {% endif %}
 
               **Advies:** vraag Quatt de balanstemperatuur te verlagen naar ~{{ house_balance | round(0) | int }}°C.
               Gebruik de waarden in de tabel *Warmtevraag bij verschillende temperaturen* als referentie.

@@ -36,9 +36,14 @@ class StooklijnResult:
     knee_temperature: float | None = None
     knee_power: float | None = None
 
-    # API-based stooklijn (right of knee)
+    # API-based stooklijn (right of knee, from recorder minute data)
     slope_api: float | None = None
     intercept_api: float | None = None
+
+    # Daily-based stooklijn (warm side, from daily API data — like notebook)
+    slope_api_daily: float | None = None
+    intercept_api_daily: float | None = None
+    balance_temp_api_daily: float | None = None
 
     # Local stooklijn (left of knee, freezing performance)
     slope_local: float | None = None
@@ -561,6 +566,31 @@ def calculate_stooklijn(
                 len(x_fit),
                 len(x_all),
             )
+
+    # Compute daily-based warm-side regression (temp >= knee, totalHeatPerHour >= threshold).
+    # This mirrors the notebook approach and gives a realistic Quatt balance temperature
+    # (vs the minute-based slope_api which over-extrapolates to ~26°C).
+    if df_daily is not None and not df_daily.empty:
+        cols_needed = ["avg_temperatureOutside", "totalHeatPerHour"]
+        if all(c in df_daily.columns for c in cols_needed):
+            df_warm = df_daily[
+                (df_daily["avg_temperatureOutside"] >= dynamic_min_temp)
+                & (df_daily["totalHeatPerHour"] >= MIN_HEATING_WATTS)
+            ][cols_needed].dropna()
+            if len(df_warm) > 1:
+                x_d = df_warm["avg_temperatureOutside"].values
+                y_d = df_warm["totalHeatPerHour"].values
+                slope_d, intercept_d = np.polyfit(x_d, y_d, 1)
+                result.slope_api_daily = float(slope_d)
+                result.intercept_api_daily = float(intercept_d)
+                if slope_d != 0:
+                    result.balance_temp_api_daily = float(-intercept_d / slope_d)
+                    _LOGGER.info(
+                        "Daily-based stooklijn: slope=%.1f W/°C, zero at %.1f°C (%d days)",
+                        slope_d,
+                        result.balance_temp_api_daily,
+                        len(df_warm),
+                    )
 
     # =========================================================
     # STEP 2: Max-envelope analysis (freezing performance)

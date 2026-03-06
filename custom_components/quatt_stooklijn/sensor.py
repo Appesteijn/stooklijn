@@ -104,6 +104,7 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
         ),
         attr_fn=lambda d: {
             "intercept": d.stooklijn.intercept_api,
+            "balance_temp_daily": d.stooklijn.balance_temp_api_daily,
         }
         if d.stooklijn.slope_api
         else None,
