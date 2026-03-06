@@ -130,12 +130,48 @@ class TestCalculateHeatLoss:
         assert isinstance(first["temp"], float)
         assert isinstance(first["heat"], float)
 
-    def test_scatter_includes_all_valid_points(self, daily_heating_df):
-        """Scatter data should include all valid points (not just those >= 200W)."""
+    def test_scatter_only_includes_heating_days(self, daily_heating_df):
+        """Scatter data should only include days with meaningful heating demand."""
         result = calculate_heat_loss(daily_heating_df)
 
-        # scatter_data comes from plot_data (all valid, non-inf, non-NaN rows)
+        # All rows in daily_heating_df are above MIN_HEATING_WATTS
         assert len(result.scatter_data) == len(daily_heating_df)
+        for point in result.scatter_data:
+            assert point["heat"] > 0
+
+    def test_scatter_excludes_non_heating_days(self):
+        """Summer days (low/zero heat demand) must not appear in the scatter.
+
+        Regression test for: scatter was built from plot_data (all valid rows)
+        instead of heating_data (>= MIN_HEATING_WATTS), causing 0W dots at
+        warm temperatures to appear in the dashboard chart.
+        """
+        from custom_components.quatt_stooklijn.const import MIN_HEATING_WATTS
+
+        # 15 winter heating days + 10 summer days with near-zero heat demand
+        winter_temps = np.linspace(-5, 10, 15)
+        winter_heat = -200 * winter_temps + 4000  # 2000–6000 W
+
+        summer_temps = np.linspace(15, 25, 10)
+        summer_heat = np.zeros(10)  # no heating in summer
+
+        temps = np.concatenate([winter_temps, summer_temps])
+        heat = np.concatenate([winter_heat, summer_heat])
+
+        df = pd.DataFrame({"avg_temperatureOutside": temps, "totalHeatPerHour": heat})
+        df.index = pd.date_range("2024-01-01", periods=len(df), freq="D")
+
+        result = calculate_heat_loss(df)
+
+        assert result.scatter_data is not None
+        # No scatter point should be a non-heating day
+        for point in result.scatter_data:
+            assert point["heat"] >= MIN_HEATING_WATTS, (
+                f"Summer day with {point['heat']}W at {point['temp']}°C "
+                "should not appear in scatter"
+            )
+        # Only the 15 winter days should be in the scatter
+        assert len(result.scatter_data) == 15
 
     def test_source_name_does_not_affect_result(self, daily_heating_df):
         """Source name is only a label; result should be identical."""
