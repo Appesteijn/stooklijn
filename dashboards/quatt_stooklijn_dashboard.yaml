@@ -373,99 +373,41 @@ views:
               rows: auto
 
           # ── Grafiek 2: Aanvoertemperatuur — Werkelijk vs Aanbevolen ──────────
-          - type: custom:apexcharts-card
-            header:
-              show: true
-              title: Aanvoertemperatuur — Werkelijk vs Aanbevolen (laatste 14 dagen)
-            graph_span: 14d
-            apex_config:
-              chart:
-                height: 350
-                type: line
-              stroke:
-                width:
-                  - 1
-                  - 2
-                  - 1
-              yaxis:
-                - id: supply
-                  title:
-                    text: Aanvoertemperatuur (°C)
-                  labels:
-                    formatter: "function(val) { return Math.round(val) + '°C'; }"
-                - id: outside
-                  opposite: true
-                  title:
-                    text: Buitentemperatuur (°C)
-                  labels:
-                    formatter: "function(val) { return Math.round(val) + '°C'; }"
-              legend:
-                position: bottom
-                horizontalAlign: left
-            series:
+          - type: custom:mini-graph-card
+            name: Aanvoertemperatuur — Werkelijk vs Aanbevolen
+            hours_to_show: 336
+            points_per_hour: 1
+            line_width: 1.5
+            entities:
               - entity: sensor.heatpump_flowmeter_temperature
                 name: Werkelijke aanvoertemp
                 color: '#64B5F6'
-                yaxis_id: supply
               - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
                 name: Aanbevolen aanvoertemp
                 color: '#4CAF50'
-                yaxis_id: supply
               - entity: sensor.heatpump_hp1_temperature_outside
                 name: Buitentemperatuur
                 color: '#90A4AE'
-                yaxis_id: outside
             grid_options:
               columns: 24
               rows: auto
 
           # ── Grafiek 3: Comfort & Klimaat ────────────────────────────────────
-          - type: custom:apexcharts-card
-            header:
-              show: true
-              title: Comfort & Klimaat (laatste 7 dagen)
-            graph_span: 7d
-            apex_config:
-              chart:
-                height: 350
-                type: line
-              stroke:
-                dashArray:
-                  - 0
-                  - 4
-                  - 0
-                width:
-                  - 2
-                  - 2
-                  - 1
-              yaxis:
-                - id: room
-                  title:
-                    text: Temperatuur (°C)
-                  labels:
-                    formatter: "function(val) { return val.toFixed(1) + '°C'; }"
-                - id: outside
-                  opposite: true
-                  title:
-                    text: Buitentemperatuur (°C)
-                  labels:
-                    formatter: "function(val) { return Math.round(val) + '°C'; }"
-              legend:
-                position: bottom
-                horizontalAlign: left
-            series:
+          - type: custom:mini-graph-card
+            name: Comfort & Klimaat (laatste 7 dagen)
+            hours_to_show: 168
+            points_per_hour: 2
+            line_width: 2
+            entities:
               - entity: sensor.heatpump_thermostat_room_temperature
                 name: Kamertemperatuur
                 color: '#2196F3'
-                yaxis_id: room
               - entity: sensor.heatpump_thermostat_room_setpoint
                 name: Setpoint
                 color: '#F44336'
-                yaxis_id: room
               - entity: sensor.thermostat_temperature_outside
                 name: Buitentemperatuur
                 color: '#90A4AE'
-                yaxis_id: outside
             grid_options:
               columns: 24
               rows: auto
