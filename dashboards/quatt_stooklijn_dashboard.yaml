@@ -306,6 +306,8 @@ views:
                 min: 0
                 title:
                   text: Vermogen (W)
+                labels:
+                  formatter: "function(val) { return Math.round(val) + ' W'; }"
               legend:
                 position: bottom
                 horizontalAlign: left
@@ -442,10 +444,14 @@ views:
                 - id: supply
                   title:
                     text: Aanvoertemperatuur (°C)
+                  labels:
+                    formatter: "function(val) { return Math.round(val) + '°C'; }"
                 - id: outside
                   opposite: true
                   title:
                     text: Buitentemperatuur (°C)
+                  labels:
+                    formatter: "function(val) { return Math.round(val) + '°C'; }"
               legend:
                 position: bottom
                 horizontalAlign: left
@@ -489,10 +495,14 @@ views:
                 - id: room
                   title:
                     text: Temperatuur (°C)
+                  labels:
+                    formatter: "function(val) { return val.toFixed(1) + '°C'; }"
                 - id: outside
                   opposite: true
                   title:
                     text: Buitentemperatuur (°C)
+                  labels:
+                    formatter: "function(val) { return Math.round(val) + '°C'; }"
               legend:
                 position: bottom
                 horizontalAlign: left
@@ -533,6 +543,8 @@ views:
                 min: 0
                 title:
                   text: COP
+                labels:
+                  formatter: "function(val) { return val.toFixed(1); }"
               legend:
                 position: bottom
                 horizontalAlign: left
