@@ -420,12 +420,6 @@ views:
                   labels:
                     formatter: |
                       EVAL:function(val) { return Math.round(val); }
-              stroke:
-                dashArray:
-                  - 0
-                  - 0
-                  - 6
-                  - 0
               legend:
                 show: true
                 position: top
@@ -465,31 +459,11 @@ views:
                 data_generator: |
                   var d = new Date(); d.setHours(0,0,0,0);
                   var B = d.getTime(), H = 3600000;
-                  const slope = parseFloat(entity.state);
-                  const intercept = entity.attributes.intercept;
-                  if (!slope || !intercept) return [];
+                  const attr = entity.attributes;
+                  const slope = attr.slope_daily;
+                  const intercept = attr.intercept_daily;
+                  if (!slope || intercept == null) return [];
                   const maxT = slope !== 0 ? Math.min(-intercept / slope + 1, 20) : 20;
-                  const points = [];
-                  for (let t = -10; t <= maxT; t += 1) {
-                    const y = slope * t + intercept;
-                    if (y > 0) points.push([B + (t + 10) * H, y]);
-                  }
-                  return points;
-              - entity: sensor.quatt_stooklijn_quatt_stooklijn_slope
-                name: Aanbevolen instelling
-                type: line
-                color: "#9C27B0"
-                stroke_width: 2
-                data_generator: |
-                  var d = new Date(); d.setHours(0,0,0,0);
-                  var B = d.getTime(), H = 3600000;
-                  const slope = parseFloat(entity.state);
-                  const balanceEntity = hass.states['sensor.quatt_stooklijn_balance_point_temperature'];
-                  if (!slope || !balanceEntity) return [];
-                  const balanceTemp = parseFloat(balanceEntity.state);
-                  if (isNaN(balanceTemp)) return [];
-                  const intercept = -slope * balanceTemp;
-                  const maxT = Math.min(balanceTemp + 1, 20);
                   const points = [];
                   for (let t = -10; t <= maxT; t += 1) {
                     const y = slope * t + intercept;
@@ -584,7 +558,7 @@ views:
                   if (!attr) return [];
                   return attr.map(p => [B + (p.temp + 10) * H, p.heat]);
               - entity: sensor.quatt_stooklijn_optimal_stooklijn_slope
-                name: Warmtevraag trendlijn
+                name: Optimale stooklijn
                 type: line
                 color: "#F44336"
                 data_generator: |
@@ -607,9 +581,10 @@ views:
                 data_generator: |
                   var d = new Date(); d.setHours(0,0,0,0);
                   var B = d.getTime(), H = 3600000;
-                  const slope = parseFloat(entity.state);
-                  const intercept = entity.attributes.intercept;
-                  if (!slope || !intercept) return [];
+                  const attr = entity.attributes;
+                  const slope = attr.slope_daily;
+                  const intercept = attr.intercept_daily;
+                  if (!slope || intercept == null) return [];
                   const maxT = slope !== 0 ? Math.min(-intercept / slope + 1, 20) : 20;
                   const points = [];
                   for (let t = -10; t <= maxT; t += 1) {
