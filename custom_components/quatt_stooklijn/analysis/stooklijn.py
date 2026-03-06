@@ -508,20 +508,58 @@ def calculate_stooklijn(
         valid_mask = df_ha_merged["power"] >= MIN_POWER_FILTER
         df_fit = df_ha_merged[valid_mask].copy()
 
-        df_right = df_fit[df_fit["temp"] >= dynamic_min_temp]
+        df_right = df_fit[df_fit["temp"] >= dynamic_min_temp][["temp", "power"]]
+
+        # Augment the warm-side data with cold-weather points from the
+        # KneeDataStore (hourly averages, up to 3 years back).  When the
+        # 30-day live window covers only mild weather the regression would
+        # otherwise have no cold anchor, causing the slope to collapse.
+        # The store already filters to power >= MIN_POWER_FILTER and
+        # temp < 10°C so only genuine active-HP, cold-weather hours are added.
+        if df_knee_history is not None and not df_knee_history.empty:
+            knee_hist_right = df_knee_history[
+                df_knee_history["temp"] >= dynamic_min_temp
+            ][["temp", "power"]]
+            if not knee_hist_right.empty:
+                df_right = pd.concat(
+                    [df_right, knee_hist_right], ignore_index=True
+                )
+                _LOGGER.info(
+                    "Warm-side regression: augmented with %d historical "
+                    "cold-weather points from KneeDataStore",
+                    len(knee_hist_right),
+                )
+
         if len(df_right) > 1:
-            slope, intercept = np.polyfit(
-                df_right["temp"].values, df_right["power"].values, 1
-            )
+            x_all = df_right["temp"].values
+            y_all = df_right["power"].values
+
+            # Two-pass outlier removal: first-pass fit identifies anomalous
+            # minutes (e.g. defrost bleed-through, setpoint spikes) so the
+            # final slope is not skewed by a handful of unusual data points.
+            slope_rough, intercept_rough = np.polyfit(x_all, y_all, 1)
+            residuals = y_all - (slope_rough * x_all + intercept_rough)
+            std = np.std(residuals)
+            if std > 0:
+                inlier_mask = np.abs(residuals) < OUTLIER_STD_THRESHOLD * std
+                x_fit = x_all[inlier_mask]
+                y_fit = y_all[inlier_mask]
+                if len(x_fit) < 5:
+                    x_fit, y_fit = x_all, y_all  # fall back to all data
+            else:
+                x_fit, y_fit = x_all, y_all
+
+            slope, intercept = np.polyfit(x_fit, y_fit, 1)
             result.slope_api = float(slope)
             result.intercept_api = float(intercept)
             _LOGGER.info(
                 "Quatt stooklijn estimated from recorder: slope=%.1f W/°C, "
-                "intercept=%.0f W, zero at %.1f°C (%d data points)",
+                "intercept=%.0f W, zero at %.1f°C (%d/%d data points after outlier removal)",
                 slope,
                 intercept,
                 -intercept / slope if slope != 0 else float("inf"),
-                len(df_right),
+                len(x_fit),
+                len(x_all),
             )
 
     # =========================================================

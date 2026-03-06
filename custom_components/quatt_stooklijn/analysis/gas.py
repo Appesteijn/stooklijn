@@ -40,8 +40,13 @@ async def async_fetch_gas_data(
     """
     from homeassistant.util import dt as dt_util
 
-    start_dt = dt_util.parse_datetime(f"{start_date}T00:00:00+00:00")
-    end_dt = dt_util.parse_datetime(f"{end_date}T23:59:59+00:00")
+    tz = dt_util.get_time_zone(hass.config.time_zone)
+    start_dt = dt_util.as_utc(
+        datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=tz)
+    )
+    end_dt = dt_util.as_utc(
+        datetime.strptime(f"{end_date} 23:59:59", "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
+    )
 
     # Fetch history from recorder
     def _fetch():
