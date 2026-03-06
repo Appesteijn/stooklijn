@@ -287,140 +287,87 @@ views:
               rows: auto
 
           # ── Grafiek 1: Huis thermisch profiel ──────────────────────────────
-          - type: custom:apexcharts-card
-            header:
-              show: true
-              title: Huis thermisch profiel
-            graph_span: 6h
-            apex_config:
-              chart:
-                height: 350
-                type: line
-              xaxis:
-                type: datetime
-                labels:
-                  formatter: "function(val) { const wMs=6*3600*1000; return Math.round((val-Date.now()+wMs)/wMs*37-15)+'°C'; }"
-                title:
-                  text: Buitentemperatuur (°C)
-              yaxis:
-                min: 0
-                title:
-                  text: Vermogen (W)
-                labels:
-                  formatter: "function(val) { return Math.round(val) + ' W'; }"
-              legend:
-                position: bottom
-                horizontalAlign: left
-            series:
+          - type: custom:plotly-graph
+            title: Huis thermisch profiel
+            hours_to_show: 8
+            entities:
               - entity: sensor.quatt_stooklijn_optimal_stooklijn_slope
                 name: Dagelijkse warmtevraag
-                color: '#66BB6A'
-                stroke_width: 1
-                data_generator: |
-                  const now = Date.now(), wMs = 6*3600*1000;
-                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
-                  const d = entity.attributes.scatter_data;
-                  if (!d || !d.length) return [];
-                  return d.filter(p => p.heat > 0)
-                          .sort((a, b) => a.temp - b.temp)
-                          .map(p => [ts(p.temp), p.heat]);
+                fn: |-
+                  ({ meta }) => {
+                    const d = (meta.attributes.scatter_data || []).filter(p => p.heat > 0);
+                    return [{ x: d.map(p => p.temp), y: d.map(p => p.heat), mode: 'markers', type: 'scatter', marker: { size: 4, color: '#66BB6A' } }];
+                  }
               - entity: sensor.quatt_stooklijn_optimal_stooklijn_slope
                 name: Optimale stooklijn
-                type: line
-                color: '#4CAF50'
-                data_generator: |
-                  const now = Date.now(), wMs = 6*3600*1000;
-                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
-                  const slope = parseFloat(entity.state);
-                  const intercept = entity.attributes.intercept;
-                  if (isNaN(slope) || intercept == null) return [];
-                  const pts = [];
-                  const maxT = slope !== 0 ? Math.min(-intercept / slope + 1, 20) : 20;
-                  for (let t = -10; t <= maxT; t += 0.5) {
-                    const v = slope * t + intercept;
-                    if (v > 0) pts.push([ts(t), Math.round(v)]);
+                fn: |-
+                  ({ meta }) => {
+                    const s = parseFloat(meta.state), ic = meta.attributes.intercept;
+                    if (isNaN(s) || ic == null) return [{ x: [], y: [] }];
+                    const x = [], y = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
+                    for (let t = -10; t <= maxT; t += 0.5) { const v = s*t+ic; if (v>0) { x.push(t); y.push(Math.round(v)); } }
+                    return [{ x, y, mode: 'lines', type: 'scatter', line: { color: '#4CAF50', width: 2 } }];
                   }
-                  return pts;
               - entity: sensor.quatt_stooklijn_quatt_stooklijn_slope
                 name: Quatt stooklijn (geschat)
-                type: line
-                color: '#FFC107'
-                data_generator: |
-                  const now = Date.now(), wMs = 6*3600*1000;
-                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
-                  const slope = entity.attributes.slope_daily;
-                  const intercept = entity.attributes.intercept_daily;
-                  if (!slope || intercept == null) return [];
-                  const pts = [];
-                  const maxT = slope !== 0 ? Math.min(-intercept / slope + 1, 20) : 20;
-                  for (let t = -10; t <= maxT; t += 0.5) {
-                    const v = slope * t + intercept;
-                    if (v > 0) pts.push([ts(t), Math.round(v)]);
+                fn: |-
+                  ({ meta }) => {
+                    const s = meta.attributes.slope_daily, ic = meta.attributes.intercept_daily;
+                    if (!s || ic == null) return [{ x: [], y: [] }];
+                    const x = [], y = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
+                    for (let t = -10; t <= maxT; t += 0.5) { const v = s*t+ic; if (v>0) { x.push(t); y.push(Math.round(v)); } }
+                    return [{ x, y, mode: 'lines', type: 'scatter', line: { color: '#FFC107', width: 2 } }];
                   }
-                  return pts;
               - entity: sensor.quatt_stooklijn_actual_stooklijn_setting
                 name: Geconfigureerde instelling
-                type: line
-                color: '#2196F3'
-                data_generator: |
-                  const now = Date.now(), wMs = 6*3600*1000;
-                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
-                  const slope = parseFloat(entity.state);
-                  const intercept = entity.attributes.intercept;
-                  if (isNaN(slope) || slope === 0 || intercept == null) return [];
-                  const pts = [];
-                  for (let t = -10; t <= 20; t += 0.5) {
-                    const v = slope * t + intercept;
-                    if (v > 0) pts.push([ts(t), Math.round(v)]);
+                fn: |-
+                  ({ meta }) => {
+                    const s = parseFloat(meta.state), ic = meta.attributes.intercept;
+                    if (isNaN(s) || s === 0 || ic == null) return [{ x: [], y: [] }];
+                    const x = [], y = [];
+                    for (let t = -10; t <= 20; t += 0.5) { const v = s*t+ic; if (v>0) { x.push(t); y.push(Math.round(v)); } }
+                    return [{ x, y, mode: 'lines', type: 'scatter', line: { color: '#2196F3', width: 2 } }];
                   }
-                  return pts;
               - entity: sensor.quatt_stooklijn_freezing_performance_slope
                 name: HP capaciteit (vorst)
-                type: line
-                color: '#1E88E5'
-                data_generator: |
-                  const now = Date.now(), wMs = 6*3600*1000;
-                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
-                  const slope = parseFloat(entity.state);
-                  const intercept = entity.attributes.intercept;
-                  const kneeTemp = entity.attributes.knee_temperature;
-                  if (isNaN(slope) || intercept == null) return [];
-                  const pts = [];
-                  const maxT = kneeTemp != null ? kneeTemp : 2;
-                  for (let t = -10; t <= maxT; t += 0.5) {
-                    const v = slope * t + intercept;
-                    if (v > 0) pts.push([ts(t), Math.round(v)]);
+                fn: |-
+                  ({ meta }) => {
+                    const s = parseFloat(meta.state), ic = meta.attributes.intercept;
+                    const maxT = meta.attributes.knee_temperature != null ? meta.attributes.knee_temperature : 2;
+                    if (isNaN(s) || ic == null) return [{ x: [], y: [] }];
+                    const x = [], y = [];
+                    for (let t = -10; t <= maxT; t += 0.5) { const v = s*t+ic; if (v>0) { x.push(t); y.push(Math.round(v)); } }
+                    return [{ x, y, mode: 'lines', type: 'scatter', line: { color: '#1E88E5', width: 2 } }];
                   }
-                  return pts;
               - entity: sensor.quatt_stooklijn_gas_heat_loss_coefficient
                 name: Gas data
-                color: '#FFB74D'
-                stroke_width: 1
-                data_generator: |
-                  const now = Date.now(), wMs = 6*3600*1000;
-                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
-                  const d = entity.attributes.scatter_data;
-                  if (!d || !d.length) return [];
-                  return d.filter(p => p.heat > 0)
-                          .sort((a, b) => a.temp - b.temp)
-                          .map(p => [ts(p.temp), p.heat]);
+                fn: |-
+                  ({ meta }) => {
+                    const d = (meta.attributes.scatter_data || []).filter(p => p.heat > 0);
+                    return [{ x: d.map(p => p.temp), y: d.map(p => p.heat), mode: 'markers', type: 'scatter', marker: { size: 4, color: '#FFB74D' } }];
+                  }
               - entity: sensor.quatt_stooklijn_gas_heat_loss_coefficient
                 name: Gas trendlijn
-                type: line
-                color: '#FF9800'
-                data_generator: |
-                  const now = Date.now(), wMs = 6*3600*1000;
-                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
-                  const slope = entity.attributes.slope;
-                  const intercept = entity.attributes.intercept;
-                  if (!slope || intercept == null) return [];
-                  const pts = [];
-                  const maxT = slope !== 0 ? Math.min(-intercept / slope + 1, 20) : 20;
-                  for (let t = -10; t <= maxT; t += 0.5) {
-                    const v = slope * t + intercept;
-                    if (v > 0) pts.push([ts(t), Math.round(v)]);
+                fn: |-
+                  ({ meta }) => {
+                    const s = meta.attributes.slope, ic = meta.attributes.intercept;
+                    if (!s || ic == null) return [{ x: [], y: [] }];
+                    const x = [], y = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
+                    for (let t = -10; t <= maxT; t += 0.5) { const v = s*t+ic; if (v>0) { x.push(t); y.push(Math.round(v)); } }
+                    return [{ x, y, mode: 'lines', type: 'scatter', line: { color: '#FF9800', width: 2 } }];
                   }
-                  return pts;
+            layout:
+              height: 350
+              xaxis:
+                title: Buitentemperatuur (°C)
+                ticksuffix: "°C"
+              yaxis:
+                title: Vermogen (W)
+                rangemode: tozero
+                ticksuffix: " W"
+              legend:
+                orientation: h
+                y: -0.25
             grid_options:
               columns: 24
               rows: auto
@@ -524,62 +471,45 @@ views:
               rows: auto
 
           # ── Grafiek 4: COP vs Buitentemperatuur ────────────────────────────
-          - type: custom:apexcharts-card
-            header:
-              show: true
-              title: COP vs Buitentemperatuur
-            graph_span: 6h
-            apex_config:
-              chart:
-                height: 350
-                type: line
-              xaxis:
-                type: datetime
-                labels:
-                  formatter: "function(val) { const wMs=6*3600*1000; return Math.round((val-Date.now()+wMs)/wMs*37-15)+'°C'; }"
-                title:
-                  text: Buitentemperatuur (°C)
-              yaxis:
-                min: 0
-                title:
-                  text: COP
-                labels:
-                  formatter: "function(val) { return val.toFixed(1); }"
-              legend:
-                position: bottom
-                horizontalAlign: left
-            series:
+          - type: custom:plotly-graph
+            title: COP vs Buitentemperatuur
+            hours_to_show: 8
+            entities:
               - entity: sensor.quatt_stooklijn_average_cop
                 name: Dagelijkse COP
-                color: '#2196F3'
-                stroke_width: 1
-                data_generator: |
-                  const now = Date.now(), wMs = 6*3600*1000;
-                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
-                  const d = entity.attributes.cop_scatter_data;
-                  if (!d || !d.length) return [];
-                  return d.sort((a, b) => a.temp - b.temp)
-                          .map(p => [ts(p.temp), p.cop]);
+                fn: |-
+                  ({ meta }) => {
+                    const d = [...(meta.attributes.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
+                    return [{ x: d.map(p => p.temp), y: d.map(p => p.cop), mode: 'markers', type: 'scatter', marker: { size: 5, color: '#2196F3' } }];
+                  }
               - entity: sensor.quatt_stooklijn_average_cop
                 name: COP trendlijn
-                type: line
-                color: '#90CAF9'
-                data_generator: |
-                  const now = Date.now(), wMs = 6*3600*1000;
-                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
-                  const d = entity.attributes.cop_scatter_data;
-                  if (!d || d.length < 2) return [];
-                  const sorted = [...d].sort((a, b) => a.temp - b.temp);
-                  const pts = [];
-                  for (let i = 0; i < sorted.length - 1; i++) {
-                    const steps = Math.max(1, Math.round((sorted[i + 1].temp - sorted[i].temp) / 0.25));
-                    for (let s = 0; s <= steps; s++) {
-                      const frac = s / steps;
-                      const temp = sorted[i].temp + frac * (sorted[i + 1].temp - sorted[i].temp);
-                      pts.push([ts(temp), sorted[i].cop + frac * (sorted[i + 1].cop - sorted[i].cop)]);
+                fn: |-
+                  ({ meta }) => {
+                    const d = [...(meta.attributes.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
+                    if (d.length < 2) return [{ x: [], y: [] }];
+                    const x = [], y = [];
+                    for (let i = 0; i < d.length - 1; i++) {
+                      const steps = Math.max(1, Math.round((d[i+1].temp - d[i].temp) / 0.25));
+                      for (let s = 0; s <= steps; s++) {
+                        const f = s / steps;
+                        x.push(d[i].temp + f * (d[i+1].temp - d[i].temp));
+                        y.push(d[i].cop + f * (d[i+1].cop - d[i].cop));
+                      }
                     }
+                    return [{ x, y, mode: 'lines', type: 'scatter', line: { color: '#90CAF9', width: 2 } }];
                   }
-                  return pts;
+            layout:
+              height: 350
+              xaxis:
+                title: Buitentemperatuur (°C)
+                ticksuffix: "°C"
+              yaxis:
+                title: COP
+                rangemode: tozero
+              legend:
+                orientation: h
+                y: -0.25
             grid_options:
               columns: 24
               rows: auto
