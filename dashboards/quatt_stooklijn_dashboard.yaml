@@ -372,6 +372,28 @@ views:
                     if (y > 0) points.push([B + (t + 10) * H, y]);
                   }
                   return points;
+              - entity: sensor.quatt_stooklijn_quatt_stooklijn_slope
+                name: Aanbevolen instelling
+                type: line
+                color: "#9C27B0"
+                stroke_width: 2
+                stroke_dasharray: 6
+                data_generator: |
+                  var d = new Date(); d.setHours(0,0,0,0);
+                  var B = d.getTime(), H = 3600000;
+                  const slope = parseFloat(entity.state);
+                  const balanceEntity = hass.states['sensor.quatt_stooklijn_balance_point_temperature'];
+                  if (!slope || !balanceEntity) return [];
+                  const balanceTemp = parseFloat(balanceEntity.state);
+                  if (isNaN(balanceTemp)) return [];
+                  const intercept = -slope * balanceTemp;
+                  const maxT = Math.min(balanceTemp + 1, 20);
+                  const points = [];
+                  for (let t = -10; t <= maxT; t += 1) {
+                    const y = slope * t + intercept;
+                    if (y > 0) points.push([B + (t + 10) * H, y]);
+                  }
+                  return points;
               - entity: sensor.quatt_stooklijn_actual_stooklijn_setting
                 name: Actuele Quatt instelling
                 type: line
@@ -389,6 +411,70 @@ views:
                     if (y > 0) points.push([B + (t + 10) * H, y]);
                   }
                   return points;
+            grid_options:
+              columns: 24
+              rows: auto
+          - type: markdown
+            title: Stooklijn aanpassen?
+            content: >
+              {% set slope = states('sensor.quatt_stooklijn_quatt_stooklijn_slope') | float(0) %}
+
+              {% set balance = states('sensor.quatt_stooklijn_balance_point_temperature') | float(0) %}
+
+              {% if slope != 0 and balance != 0 %}
+
+              {% set intercept = -slope * balance %}
+
+              {% set p_min5 = (slope * (-5) + intercept) | round(0) | int %}
+
+              {% set p_plus10 = (slope * 10 + intercept) | round(0) | int %}
+
+              **Aanbevolen punten voor Quatt-configuratie** (gebaseerd op jouw data):
+
+              Buitentemp | Aanbevolen vermogen
+
+              :--|--:
+
+              -5°C | **{{ p_min5 }} W**
+
+              +10°C | **{{ p_plus10 }} W**
+
+
+              {% set act_slope = states('sensor.quatt_stooklijn_actual_stooklijn_setting') | float(0) %}
+
+              {% set act_intercept = state_attr('sensor.quatt_stooklijn_actual_stooklijn_setting', 'intercept') | float(0) %}
+
+              {% if act_slope != 0 %}
+
+              {% set act_balance = (-act_intercept / act_slope) | round(1) %}
+
+              {% set diff = ((act_balance - balance) | abs) | round(1) %}
+
+              {% if diff > 2 %}
+
+              ⚠️ **Aanpassing aanbevolen** — De huidige Quatt-balanstemperatuur ({{ act_balance }}°C)
+              wijkt {{ diff }}°C af van de balanstemperatuur van je huis ({{ balance | round(1) }}°C).
+              De paarse stippellijn toont de aanbevolen instelling.
+
+              {% else %}
+
+              ✅ **Geen aanpassing nodig** — De Quatt-instelling is goed afgestemd op je huis
+              (verschil {{ diff }}°C).
+
+              {% endif %}
+
+              {% else %}
+
+              ℹ️ Voer je huidige Quatt-instelling in via de configuratie om automatisch te controleren
+              of aanpassing nodig is.
+
+              {% endif %}
+
+              {% else %}
+
+              *Voer eerst een analyse uit.*
+
+              {% endif %}
             grid_options:
               columns: 24
               rows: auto
@@ -410,10 +496,12 @@ views:
                   - 5
                   - 0
                   - 0
+                  - 0
               stroke:
                 width:
                   - 0
-                  - 3
+                  - 2
+                  - 2
                   - 2
               xaxis:
                 title:
@@ -457,10 +545,27 @@ views:
                   const attr = entity.attributes.scatter_data;
                   if (!attr) return [];
                   return attr.map(p => [B + (p.temp + 10) * H, p.heat]);
+              - entity: sensor.quatt_stooklijn_optimal_stooklijn_slope
+                name: Warmtevraag trendlijn
+                type: line
+                color: "#F44336"
+                data_generator: |
+                  var d = new Date(); d.setHours(0,0,0,0);
+                  var B = d.getTime(), H = 3600000;
+                  const slope = parseFloat(entity.state);
+                  const intercept = entity.attributes.intercept;
+                  if (!slope || !intercept) return [];
+                  const maxT = slope !== 0 ? Math.min(-intercept / slope + 1, 20) : 20;
+                  const points = [];
+                  for (let t = -10; t <= maxT; t += 1) {
+                    const y = slope * t + intercept;
+                    if (y > 0) points.push([B + (t + 10) * H, y]);
+                  }
+                  return points;
               - entity: sensor.quatt_stooklijn_quatt_stooklijn_slope
                 name: Quatt stooklijn (geschat)
                 type: line
-                color: "#F44336"
+                color: "#FFC107"
                 data_generator: |
                   var d = new Date(); d.setHours(0,0,0,0);
                   var B = d.getTime(), H = 3600000;
@@ -483,9 +588,11 @@ views:
                   var B = d.getTime(), H = 3600000;
                   const slope = parseFloat(entity.state);
                   const intercept = entity.attributes.intercept;
+                  const kneeTemp = entity.attributes.knee_temperature;
                   if (!slope || !intercept) return [];
+                  const maxT = kneeTemp != null ? kneeTemp : 2;
                   const points = [];
-                  for (let t = -10; t <= 5; t += 1) {
+                  for (let t = -10; t <= maxT; t += 0.5) {
                     const y = slope * t + intercept;
                     if (y > 0) points.push([B + (t + 10) * H, y]);
                   }

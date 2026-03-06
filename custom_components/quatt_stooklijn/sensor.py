@@ -152,6 +152,7 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
         attr_fn=lambda d: {
             "intercept": d.stooklijn.intercept_local,
             "r2": d.stooklijn.r2_local,
+            "knee_temperature": d.stooklijn.knee_temperature,
         }
         if d.stooklijn.slope_local
         else None,

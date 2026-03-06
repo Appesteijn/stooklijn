@@ -42,6 +42,7 @@ class QuattInsightsCache:
             _LOGGER.info("No existing cache found, starting fresh")
 
         self._loaded = True
+        await self.async_cleanup()
 
     async def async_save(self) -> None:
         """Save cache to storage."""
