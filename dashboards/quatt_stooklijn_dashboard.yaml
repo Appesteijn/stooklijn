@@ -298,10 +298,8 @@ views:
                 type: line
               xaxis:
                 type: datetime
-                min: 945388800000
-                max: 948585600000
                 labels:
-                  formatter: "function(val) { return Math.round((val - 946684800000) / 86400000) + '°C'; }"
+                  formatter: "function(val) { const wMs=6*3600*1000; return Math.round((val-Date.now()+wMs)/wMs*37-15)+'°C'; }"
                 title:
                   text: Buitentemperatuur (°C)
               yaxis:
@@ -317,16 +315,20 @@ views:
                 color: '#66BB6A'
                 stroke_width: 1
                 data_generator: |
+                  const now = Date.now(), wMs = 6*3600*1000;
+                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
                   const d = entity.attributes.scatter_data;
                   if (!d || !d.length) return [];
                   return d.filter(p => p.heat > 0)
                           .sort((a, b) => a.temp - b.temp)
-                          .map(p => [946684800000 + p.temp * 86400000, p.heat]);
+                          .map(p => [ts(p.temp), p.heat]);
               - entity: sensor.quatt_stooklijn_optimal_stooklijn_slope
                 name: Optimale stooklijn
                 type: line
                 color: '#4CAF50'
                 data_generator: |
+                  const now = Date.now(), wMs = 6*3600*1000;
+                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
                   const slope = parseFloat(entity.state);
                   const intercept = entity.attributes.intercept;
                   if (isNaN(slope) || intercept == null) return [];
@@ -334,7 +336,7 @@ views:
                   const maxT = slope !== 0 ? Math.min(-intercept / slope + 1, 20) : 20;
                   for (let t = -10; t <= maxT; t += 0.5) {
                     const v = slope * t + intercept;
-                    if (v > 0) pts.push([946684800000 + t * 86400000, Math.round(v)]);
+                    if (v > 0) pts.push([ts(t), Math.round(v)]);
                   }
                   return pts;
               - entity: sensor.quatt_stooklijn_quatt_stooklijn_slope
@@ -342,6 +344,8 @@ views:
                 type: line
                 color: '#FFC107'
                 data_generator: |
+                  const now = Date.now(), wMs = 6*3600*1000;
+                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
                   const slope = entity.attributes.slope_daily;
                   const intercept = entity.attributes.intercept_daily;
                   if (!slope || intercept == null) return [];
@@ -349,7 +353,7 @@ views:
                   const maxT = slope !== 0 ? Math.min(-intercept / slope + 1, 20) : 20;
                   for (let t = -10; t <= maxT; t += 0.5) {
                     const v = slope * t + intercept;
-                    if (v > 0) pts.push([946684800000 + t * 86400000, Math.round(v)]);
+                    if (v > 0) pts.push([ts(t), Math.round(v)]);
                   }
                   return pts;
               - entity: sensor.quatt_stooklijn_actual_stooklijn_setting
@@ -357,13 +361,15 @@ views:
                 type: line
                 color: '#2196F3'
                 data_generator: |
+                  const now = Date.now(), wMs = 6*3600*1000;
+                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
                   const slope = parseFloat(entity.state);
                   const intercept = entity.attributes.intercept;
                   if (isNaN(slope) || slope === 0 || intercept == null) return [];
                   const pts = [];
                   for (let t = -10; t <= 20; t += 0.5) {
                     const v = slope * t + intercept;
-                    if (v > 0) pts.push([946684800000 + t * 86400000, Math.round(v)]);
+                    if (v > 0) pts.push([ts(t), Math.round(v)]);
                   }
                   return pts;
               - entity: sensor.quatt_stooklijn_freezing_performance_slope
@@ -371,6 +377,8 @@ views:
                 type: line
                 color: '#1E88E5'
                 data_generator: |
+                  const now = Date.now(), wMs = 6*3600*1000;
+                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
                   const slope = parseFloat(entity.state);
                   const intercept = entity.attributes.intercept;
                   const kneeTemp = entity.attributes.knee_temperature;
@@ -379,7 +387,7 @@ views:
                   const maxT = kneeTemp != null ? kneeTemp : 2;
                   for (let t = -10; t <= maxT; t += 0.5) {
                     const v = slope * t + intercept;
-                    if (v > 0) pts.push([946684800000 + t * 86400000, Math.round(v)]);
+                    if (v > 0) pts.push([ts(t), Math.round(v)]);
                   }
                   return pts;
               - entity: sensor.quatt_stooklijn_gas_heat_loss_coefficient
@@ -387,16 +395,20 @@ views:
                 color: '#FFB74D'
                 stroke_width: 1
                 data_generator: |
+                  const now = Date.now(), wMs = 6*3600*1000;
+                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
                   const d = entity.attributes.scatter_data;
                   if (!d || !d.length) return [];
                   return d.filter(p => p.heat > 0)
                           .sort((a, b) => a.temp - b.temp)
-                          .map(p => [946684800000 + p.temp * 86400000, p.heat]);
+                          .map(p => [ts(p.temp), p.heat]);
               - entity: sensor.quatt_stooklijn_gas_heat_loss_coefficient
                 name: Gas trendlijn
                 type: line
                 color: '#FF9800'
                 data_generator: |
+                  const now = Date.now(), wMs = 6*3600*1000;
+                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
                   const slope = entity.attributes.slope;
                   const intercept = entity.attributes.intercept;
                   if (!slope || intercept == null) return [];
@@ -404,7 +416,7 @@ views:
                   const maxT = slope !== 0 ? Math.min(-intercept / slope + 1, 20) : 20;
                   for (let t = -10; t <= maxT; t += 0.5) {
                     const v = slope * t + intercept;
-                    if (v > 0) pts.push([946684800000 + t * 86400000, Math.round(v)]);
+                    if (v > 0) pts.push([ts(t), Math.round(v)]);
                   }
                   return pts;
             grid_options:
@@ -513,10 +525,8 @@ views:
                 type: line
               xaxis:
                 type: datetime
-                min: 945388800000
-                max: 948585600000
                 labels:
-                  formatter: "function(val) { return Math.round((val - 946684800000) / 86400000) + '°C'; }"
+                  formatter: "function(val) { const wMs=6*3600*1000; return Math.round((val-Date.now()+wMs)/wMs*37-15)+'°C'; }"
                 title:
                   text: Buitentemperatuur (°C)
               yaxis:
@@ -532,15 +542,19 @@ views:
                 color: '#2196F3'
                 stroke_width: 1
                 data_generator: |
+                  const now = Date.now(), wMs = 6*3600*1000;
+                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
                   const d = entity.attributes.cop_scatter_data;
                   if (!d || !d.length) return [];
                   return d.sort((a, b) => a.temp - b.temp)
-                          .map(p => [946684800000 + p.temp * 86400000, p.cop]);
+                          .map(p => [ts(p.temp), p.cop]);
               - entity: sensor.quatt_stooklijn_average_cop
                 name: COP trendlijn
                 type: line
                 color: '#90CAF9'
                 data_generator: |
+                  const now = Date.now(), wMs = 6*3600*1000;
+                  const ts = t => now - wMs + Math.round((t + 15) / 37 * wMs);
                   const d = entity.attributes.cop_scatter_data;
                   if (!d || d.length < 2) return [];
                   const sorted = [...d].sort((a, b) => a.temp - b.temp);
@@ -550,8 +564,7 @@ views:
                     for (let s = 0; s <= steps; s++) {
                       const frac = s / steps;
                       const temp = sorted[i].temp + frac * (sorted[i + 1].temp - sorted[i].temp);
-                      pts.push([946684800000 + temp * 86400000,
-                                sorted[i].cop + frac * (sorted[i + 1].cop - sorted[i].cop)]);
+                      pts.push([ts(temp), sorted[i].cop + frac * (sorted[i + 1].cop - sorted[i].cop)]);
                     }
                   }
                   return pts;
