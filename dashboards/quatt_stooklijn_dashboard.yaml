@@ -94,6 +94,70 @@ views:
             grid_options:
               columns: 24
               rows: auto
+          - type: markdown
+            title: Stooklijn aanpassen?
+            content: >
+              {% set slope = states('sensor.quatt_stooklijn_quatt_stooklijn_slope') | float(0) %}
+
+              {% set balance = states('sensor.quatt_stooklijn_balance_point_temperature') | float(0) %}
+
+              {% if slope != 0 and balance != 0 %}
+
+              {% set intercept = -slope * balance %}
+
+              {% set p_min5 = (slope * (-5) + intercept) | round(0) | int %}
+
+              {% set p_plus10 = (slope * 10 + intercept) | round(0) | int %}
+
+              **Aanbevolen punten voor Quatt-configuratie** (gebaseerd op jouw data):
+
+              Buitentemp | Aanbevolen vermogen
+
+              :--|--:
+
+              -5°C | **{{ p_min5 }} W**
+
+              +10°C | **{{ p_plus10 }} W**
+
+
+              {% set act_slope = states('sensor.quatt_stooklijn_actual_stooklijn_setting') | float(0) %}
+
+              {% set act_intercept = state_attr('sensor.quatt_stooklijn_actual_stooklijn_setting', 'intercept') | float(0) %}
+
+              {% if act_slope != 0 %}
+
+              {% set act_balance = (-act_intercept / act_slope) | round(1) %}
+
+              {% set diff = ((act_balance - balance) | abs) | round(1) %}
+
+              {% if diff > 2 %}
+
+              ⚠️ **Aanpassing aanbevolen** — De huidige Quatt-balanstemperatuur ({{ act_balance }}°C)
+              wijkt {{ diff }}°C af van de balanstemperatuur van je huis ({{ balance | round(1) }}°C).
+              De paarse stippellijn toont de aanbevolen instelling.
+
+              {% else %}
+
+              ✅ **Geen aanpassing nodig** — De Quatt-instelling is goed afgestemd op je huis
+              (verschil {{ diff }}°C).
+
+              {% endif %}
+
+              {% else %}
+
+              ℹ️ Voer je huidige Quatt-instelling in via de configuratie om automatisch te controleren
+              of aanpassing nodig is.
+
+              {% endif %}
+
+              {% else %}
+
+              *Voer eerst een analyse uit.*
+
+              {% endif %}
+            grid_options:
+              columns: 24
+              rows: auto
       - type: grid
         column_span: 4
         cards:
@@ -416,70 +480,6 @@ views:
                     if (y > 0) points.push([B + (t + 10) * H, y]);
                   }
                   return points;
-            grid_options:
-              columns: 24
-              rows: auto
-          - type: markdown
-            title: Stooklijn aanpassen?
-            content: >
-              {% set slope = states('sensor.quatt_stooklijn_quatt_stooklijn_slope') | float(0) %}
-
-              {% set balance = states('sensor.quatt_stooklijn_balance_point_temperature') | float(0) %}
-
-              {% if slope != 0 and balance != 0 %}
-
-              {% set intercept = -slope * balance %}
-
-              {% set p_min5 = (slope * (-5) + intercept) | round(0) | int %}
-
-              {% set p_plus10 = (slope * 10 + intercept) | round(0) | int %}
-
-              **Aanbevolen punten voor Quatt-configuratie** (gebaseerd op jouw data):
-
-              Buitentemp | Aanbevolen vermogen
-
-              :--|--:
-
-              -5°C | **{{ p_min5 }} W**
-
-              +10°C | **{{ p_plus10 }} W**
-
-
-              {% set act_slope = states('sensor.quatt_stooklijn_actual_stooklijn_setting') | float(0) %}
-
-              {% set act_intercept = state_attr('sensor.quatt_stooklijn_actual_stooklijn_setting', 'intercept') | float(0) %}
-
-              {% if act_slope != 0 %}
-
-              {% set act_balance = (-act_intercept / act_slope) | round(1) %}
-
-              {% set diff = ((act_balance - balance) | abs) | round(1) %}
-
-              {% if diff > 2 %}
-
-              ⚠️ **Aanpassing aanbevolen** — De huidige Quatt-balanstemperatuur ({{ act_balance }}°C)
-              wijkt {{ diff }}°C af van de balanstemperatuur van je huis ({{ balance | round(1) }}°C).
-              De paarse stippellijn toont de aanbevolen instelling.
-
-              {% else %}
-
-              ✅ **Geen aanpassing nodig** — De Quatt-instelling is goed afgestemd op je huis
-              (verschil {{ diff }}°C).
-
-              {% endif %}
-
-              {% else %}
-
-              ℹ️ Voer je huidige Quatt-instelling in via de configuratie om automatisch te controleren
-              of aanpassing nodig is.
-
-              {% endif %}
-
-              {% else %}
-
-              *Voer eerst een analyse uit.*
-
-              {% endif %}
             grid_options:
               columns: 24
               rows: auto
