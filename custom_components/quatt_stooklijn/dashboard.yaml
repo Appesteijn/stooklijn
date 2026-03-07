@@ -309,6 +309,9 @@ views:
                 min: 0
                 labels:
                   formatter: "EVAL:function(val) { return Math.round(val) + ' W'; }"
+              tooltip:
+                x:
+                  formatter: "EVAL:function(val) { return Math.round(20 - (new Date().getTime() - val) / 3600000) + '°C'; }"
               legend:
                 position: bottom
             series:
@@ -333,6 +336,7 @@ views:
                   for (let t = -10; t <= maxT; t += 0.5) {
                     const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
+                  if (pts.length > 0) pts.push([now - (20 - maxT) * 3600000, null]);
                   return pts;
               - entity: sensor.quatt_warmteanalyse_quatt_warmteanalyse_slope
                 name: Quatt stooklijn (geschat)
@@ -347,6 +351,7 @@ views:
                   for (let t = -10; t <= maxT; t += 0.5) {
                     const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
+                  if (pts.length > 0) pts.push([now - (20 - maxT) * 3600000, null]);
                   return pts;
               - entity: sensor.quatt_warmteanalyse_actual_stooklijn_setting
                 name: Geconfigureerde instelling
@@ -361,6 +366,7 @@ views:
                   for (let t = -10; t <= 19; t += 0.5) {
                     const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
+                  if (pts.length > 0) pts.push([now - (20 - 19) * 3600000, null]);
                   return pts;
               - entity: sensor.quatt_warmteanalyse_freezing_performance_slope
                 name: HP capaciteit (vorst)
@@ -399,6 +405,7 @@ views:
                   for (let t = -10; t <= maxT; t += 0.5) {
                     const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
+                  if (pts.length > 0) pts.push([now - (20 - maxT) * 3600000, null]);
                   return pts;
             grid_options:
               columns: 24
@@ -465,6 +472,9 @@ views:
                 title:
                   text: COP
                 min: 0
+              tooltip:
+                x:
+                  formatter: "EVAL:function(val) { return Math.round(20 - (new Date().getTime() - val) / 3600000) + '°C'; }"
               legend:
                 position: bottom
             series:
