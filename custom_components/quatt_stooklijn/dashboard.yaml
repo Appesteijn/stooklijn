@@ -496,6 +496,7 @@ views:
                       ]);
                     }
                   }
+                  if (pts.length > 0) pts.push([now - (20 - d[d.length-1].temp) * 3600000, null]);
                   return pts;
             grid_options:
               columns: 24
