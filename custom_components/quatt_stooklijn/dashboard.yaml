@@ -318,7 +318,7 @@ views:
                 data_generator: |
                   const attrs = hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope']?.attributes || {};
                   const balanceTemp = attrs.balance_temp ?? 20;
-                  const now = Date.now(), d = (attrs.scatter_data || []).filter(p => p.heat > 0 && p.temp <= balanceTemp);
+                  const now = Date.now(), d = (attrs.scatter_data || []).filter(p => p.heat > 0 && p.temp < balanceTemp);
                   return d.map(p => [now - (20 - p.temp) * 3600000, p.heat]);
               - entity: sensor.quatt_warmteanalyse_optimal_stooklijn_slope
                 name: Optimale stooklijn
@@ -329,7 +329,7 @@ views:
                   const st = hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope'];
                   const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
                   if (isNaN(s) || ic == null) return [];
-                  const now = Date.now(), pts = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
+                  const now = Date.now(), pts = [], maxT = s !== 0 ? Math.min(-ic/s, 19) : 19;
                   for (let t = -10; t <= maxT; t += 0.5) {
                     const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
@@ -343,7 +343,7 @@ views:
                   const attrs = hass.states['sensor.quatt_warmteanalyse_quatt_warmteanalyse_slope']?.attributes || {};
                   const s = attrs.slope_daily, ic = attrs.intercept_daily;
                   if (!s || ic == null) return [];
-                  const now = Date.now(), pts = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
+                  const now = Date.now(), pts = [], maxT = s !== 0 ? Math.min(-ic/s, 19) : 19;
                   for (let t = -10; t <= maxT; t += 0.5) {
                     const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
@@ -358,7 +358,7 @@ views:
                   const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
                   if (isNaN(s) || s === 0 || ic == null) return [];
                   const now = Date.now(), pts = [];
-                  for (let t = -10; t <= 20; t += 0.5) {
+                  for (let t = -10; t <= 19; t += 0.5) {
                     const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
                   return pts;
@@ -383,7 +383,7 @@ views:
                 data_generator: |
                   const attrs = hass.states['sensor.quatt_warmteanalyse_gas_heat_loss_coefficient']?.attributes || {};
                   const balanceTemp = attrs.balance_point ?? 20;
-                  const now = Date.now(), d = (attrs.scatter_data || []).filter(p => p.heat > 0 && p.temp <= balanceTemp);
+                  const now = Date.now(), d = (attrs.scatter_data || []).filter(p => p.heat > 0 && p.temp < balanceTemp);
                   return d.map(p => [now - (20 - p.temp) * 3600000, p.heat]);
               - entity: sensor.quatt_warmteanalyse_gas_heat_loss_coefficient
                 name: Gas trendlijn
@@ -394,7 +394,7 @@ views:
                   const attrs = hass.states['sensor.quatt_warmteanalyse_gas_heat_loss_coefficient']?.attributes || {};
                   const s = attrs.slope, ic = attrs.intercept;
                   if (!s || ic == null) return [];
-                  const now = Date.now(), pts = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
+                  const now = Date.now(), pts = [], maxT = s !== 0 ? Math.min(-ic/s, 19) : 19;
                   for (let t = -10; t <= maxT; t += 0.5) {
                     const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
