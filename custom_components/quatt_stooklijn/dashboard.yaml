@@ -289,72 +289,79 @@ views:
           # ── Grafiek 1: Huis thermisch profiel ──────────────────────────────
           - type: custom:plotly-graph
             title: Huis thermisch profiel
-            hours_to_show: 8
+            hours_to_show: 0
             entities:
               - entity: sensor.quatt_warmteanalyse_optimal_stooklijn_slope
                 name: Dagelijkse warmtevraag
                 fn: |-
-                  ({ meta }) => {
-                    const d = (meta.attributes.scatter_data || []).filter(p => p.heat > 0);
-                    return [{ x: d.map(p => p.temp), y: d.map(p => p.heat), mode: 'markers', type: 'scatter', marker: { size: 4, color: '#66BB6A' } }];
+                  ({ hass }) => {
+                    const attrs = hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope']?.attributes || {};
+                    const d = (attrs.scatter_data || []).filter(p => p.heat > 0);
+                    return { x: d.map(p => p.temp), y: d.map(p => p.heat), mode: 'markers', type: 'scatter', marker: { size: 4, color: '#66BB6A' } };
                   }
               - entity: sensor.quatt_warmteanalyse_optimal_stooklijn_slope
                 name: Optimale stooklijn
                 fn: |-
-                  ({ meta }) => {
-                    const s = parseFloat(meta.state), ic = meta.attributes.intercept;
-                    if (isNaN(s) || ic == null) return [{ x: [], y: [] }];
+                  ({ hass }) => {
+                    const st = hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope'];
+                    const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
+                    if (isNaN(s) || ic == null) return { x: [], y: [] };
                     const x = [], y = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
                     for (let t = -10; t <= maxT; t += 0.5) { const v = s*t+ic; if (v>0) { x.push(t); y.push(Math.round(v)); } }
-                    return [{ x, y, mode: 'lines', type: 'scatter', line: { color: '#4CAF50', width: 2 } }];
+                    return { x, y, mode: 'lines', type: 'scatter', line: { color: '#4CAF50', width: 2 } };
                   }
               - entity: sensor.quatt_warmteanalyse_quatt_stooklijn_slope
                 name: Quatt stooklijn (geschat)
                 fn: |-
-                  ({ meta }) => {
-                    const s = meta.attributes.slope_daily, ic = meta.attributes.intercept_daily;
-                    if (!s || ic == null) return [{ x: [], y: [] }];
+                  ({ hass }) => {
+                    const attrs = hass.states['sensor.quatt_warmteanalyse_quatt_stooklijn_slope']?.attributes || {};
+                    const s = attrs.slope_daily, ic = attrs.intercept_daily;
+                    if (!s || ic == null) return { x: [], y: [] };
                     const x = [], y = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
                     for (let t = -10; t <= maxT; t += 0.5) { const v = s*t+ic; if (v>0) { x.push(t); y.push(Math.round(v)); } }
-                    return [{ x, y, mode: 'lines', type: 'scatter', line: { color: '#FFC107', width: 2 } }];
+                    return { x, y, mode: 'lines', type: 'scatter', line: { color: '#FFC107', width: 2 } };
                   }
               - entity: sensor.quatt_warmteanalyse_actual_stooklijn_setting
                 name: Geconfigureerde instelling
                 fn: |-
-                  ({ meta }) => {
-                    const s = parseFloat(meta.state), ic = meta.attributes.intercept;
-                    if (isNaN(s) || s === 0 || ic == null) return [{ x: [], y: [] }];
+                  ({ hass }) => {
+                    const st = hass.states['sensor.quatt_warmteanalyse_actual_stooklijn_setting'];
+                    const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
+                    if (isNaN(s) || s === 0 || ic == null) return { x: [], y: [] };
                     const x = [], y = [];
                     for (let t = -10; t <= 20; t += 0.5) { const v = s*t+ic; if (v>0) { x.push(t); y.push(Math.round(v)); } }
-                    return [{ x, y, mode: 'lines', type: 'scatter', line: { color: '#2196F3', width: 2 } }];
+                    return { x, y, mode: 'lines', type: 'scatter', line: { color: '#2196F3', width: 2 } };
                   }
               - entity: sensor.quatt_warmteanalyse_freezing_performance_slope
                 name: HP capaciteit (vorst)
                 fn: |-
-                  ({ meta }) => {
-                    const s = parseFloat(meta.state), ic = meta.attributes.intercept;
-                    const maxT = meta.attributes.knee_temperature != null ? meta.attributes.knee_temperature : 2;
-                    if (isNaN(s) || ic == null) return [{ x: [], y: [] }];
+                  ({ hass }) => {
+                    const st = hass.states['sensor.quatt_warmteanalyse_freezing_performance_slope'];
+                    const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
+                    const maxT = st?.attributes?.knee_temperature ?? 2;
+                    if (isNaN(s) || ic == null) return { x: [], y: [] };
                     const x = [], y = [];
                     for (let t = -10; t <= maxT; t += 0.5) { const v = s*t+ic; if (v>0) { x.push(t); y.push(Math.round(v)); } }
-                    return [{ x, y, mode: 'lines', type: 'scatter', line: { color: '#1E88E5', width: 2 } }];
+                    return { x, y, mode: 'lines', type: 'scatter', line: { color: '#1E88E5', width: 2 } };
                   }
               - entity: sensor.quatt_warmteanalyse_gas_heat_loss_coefficient
                 name: Gas data
                 fn: |-
-                  ({ meta }) => {
-                    const d = (meta.attributes.scatter_data || []).filter(p => p.heat > 0);
-                    return [{ x: d.map(p => p.temp), y: d.map(p => p.heat), mode: 'markers', type: 'scatter', marker: { size: 4, color: '#FFB74D' } }];
+                  ({ hass }) => {
+                    const attrs = hass.states['sensor.quatt_warmteanalyse_gas_heat_loss_coefficient']?.attributes || {};
+                    const d = (attrs.scatter_data || []).filter(p => p.heat > 0);
+                    return { x: d.map(p => p.temp), y: d.map(p => p.heat), mode: 'markers', type: 'scatter', marker: { size: 4, color: '#FFB74D' } };
                   }
               - entity: sensor.quatt_warmteanalyse_gas_heat_loss_coefficient
                 name: Gas trendlijn
                 fn: |-
-                  ({ meta }) => {
-                    const s = meta.attributes.slope, ic = meta.attributes.intercept;
-                    if (!s || ic == null) return [{ x: [], y: [] }];
+                  ({ hass }) => {
+                    const attrs = hass.states['sensor.quatt_warmteanalyse_gas_heat_loss_coefficient']?.attributes || {};
+                    const s = attrs.slope, ic = attrs.intercept;
+                    if (!s || ic == null) return { x: [], y: [] };
                     const x = [], y = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
                     for (let t = -10; t <= maxT; t += 0.5) { const v = s*t+ic; if (v>0) { x.push(t); y.push(Math.round(v)); } }
-                    return [{ x, y, mode: 'lines', type: 'scatter', line: { color: '#FF9800', width: 2 } }];
+                    return { x, y, mode: 'lines', type: 'scatter', line: { color: '#FF9800', width: 2 } };
                   }
             layout:
               height: 350
@@ -416,21 +423,23 @@ views:
           # ── Grafiek 4: COP vs Buitentemperatuur ────────────────────────────
           - type: custom:plotly-graph
             title: COP vs Buitentemperatuur
-            hours_to_show: 8
+            hours_to_show: 0
             entities:
               - entity: sensor.quatt_warmteanalyse_average_cop
                 name: Dagelijkse COP
                 fn: |-
-                  ({ meta }) => {
-                    const d = [...(meta.attributes.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
-                    return [{ x: d.map(p => p.temp), y: d.map(p => p.cop), mode: 'markers', type: 'scatter', marker: { size: 5, color: '#2196F3' } }];
+                  ({ hass }) => {
+                    const attrs = hass.states['sensor.quatt_warmteanalyse_average_cop']?.attributes || {};
+                    const d = [...(attrs.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
+                    return { x: d.map(p => p.temp), y: d.map(p => p.cop), mode: 'markers', type: 'scatter', marker: { size: 5, color: '#2196F3' } };
                   }
               - entity: sensor.quatt_warmteanalyse_average_cop
                 name: COP trendlijn
                 fn: |-
-                  ({ meta }) => {
-                    const d = [...(meta.attributes.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
-                    if (d.length < 2) return [{ x: [], y: [] }];
+                  ({ hass }) => {
+                    const attrs = hass.states['sensor.quatt_warmteanalyse_average_cop']?.attributes || {};
+                    const d = [...(attrs.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
+                    if (d.length < 2) return { x: [], y: [] };
                     const x = [], y = [];
                     for (let i = 0; i < d.length - 1; i++) {
                       const steps = Math.max(1, Math.round((d[i+1].temp - d[i].temp) / 0.25));
@@ -440,7 +449,7 @@ views:
                         y.push(d[i].cop + f * (d[i+1].cop - d[i].cop));
                       }
                     }
-                    return [{ x, y, mode: 'lines', type: 'scatter', line: { color: '#90CAF9', width: 2 } }];
+                    return { x, y, mode: 'lines', type: 'scatter', line: { color: '#90CAF9', width: 2 } };
                   }
             layout:
               height: 350
