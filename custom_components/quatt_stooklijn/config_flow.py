@@ -82,7 +82,7 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required(CONF_QUATT_END_DATE): str,
                     vol.Required(
                         CONF_TEMP_ENTITIES,
-                        default=", ".join(DEFAULT_TEMP_ENTITIES),
+                        default="sensor.thermostat_temperature_outside, sensor.heatpump_hp1_temperature_outside, sensor.heatpump_hp2_temperature_outside",
                     ): str,
                     vol.Required(
                         CONF_POWER_ENTITY,

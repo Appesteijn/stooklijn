@@ -297,11 +297,12 @@ views:
               chart:
                 height: 350
               xaxis:
-                type: numeric
+                min: "EVAL:Date.now() - 36 * 3600000"
+                max: "EVAL:Date.now()"
                 title:
                   text: Buitentemperatuur (°C)
                 labels:
-                  formatter: "EVAL:function(val) { return val.toFixed(1) + '°C'; }"
+                  formatter: "EVAL:function(val) { return Math.round(20 - (new Date().getTime() - val) / 3600000) + '°C'; }"
               yaxis:
                 title:
                   text: Vermogen (W)
@@ -316,8 +317,9 @@ views:
                 color: "#66BB6A"
                 data_generator: |
                   const attrs = hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope']?.attributes || {};
-                  const d = (attrs.scatter_data || []).filter(p => p.heat > 0);
-                  return d.map(p => ({ x: p.temp, y: p.heat }));
+                  const balanceTemp = attrs.balance_temp ?? 20;
+                  const now = Date.now(), d = (attrs.scatter_data || []).filter(p => p.heat > 0 && p.temp <= balanceTemp);
+                  return d.map(p => [now - (20 - p.temp) * 3600000, p.heat]);
               - entity: sensor.quatt_warmteanalyse_optimal_stooklijn_slope
                 name: Optimale stooklijn
                 color: "#4CAF50"
@@ -327,9 +329,9 @@ views:
                   const st = hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope'];
                   const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
                   if (isNaN(s) || ic == null) return [];
-                  const pts = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
+                  const now = Date.now(), pts = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
                   for (let t = -10; t <= maxT; t += 0.5) {
-                    const v = s*t+ic; if (v>0) pts.push({ x: t, y: Math.round(v) });
+                    const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
                   return pts;
               - entity: sensor.quatt_warmteanalyse_quatt_warmteanalyse_slope
@@ -341,9 +343,9 @@ views:
                   const attrs = hass.states['sensor.quatt_warmteanalyse_quatt_warmteanalyse_slope']?.attributes || {};
                   const s = attrs.slope_daily, ic = attrs.intercept_daily;
                   if (!s || ic == null) return [];
-                  const pts = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
+                  const now = Date.now(), pts = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
                   for (let t = -10; t <= maxT; t += 0.5) {
-                    const v = s*t+ic; if (v>0) pts.push({ x: t, y: Math.round(v) });
+                    const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
                   return pts;
               - entity: sensor.quatt_warmteanalyse_actual_stooklijn_setting
@@ -355,9 +357,9 @@ views:
                   const st = hass.states['sensor.quatt_warmteanalyse_actual_stooklijn_setting'];
                   const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
                   if (isNaN(s) || s === 0 || ic == null) return [];
-                  const pts = [];
+                  const now = Date.now(), pts = [];
                   for (let t = -10; t <= 20; t += 0.5) {
-                    const v = s*t+ic; if (v>0) pts.push({ x: t, y: Math.round(v) });
+                    const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
                   return pts;
               - entity: sensor.quatt_warmteanalyse_freezing_performance_slope
@@ -370,9 +372,9 @@ views:
                   const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
                   const maxT = st?.attributes?.knee_temperature ?? 2;
                   if (isNaN(s) || ic == null) return [];
-                  const pts = [];
+                  const now = Date.now(), pts = [];
                   for (let t = -10; t <= maxT; t += 0.5) {
-                    const v = s*t+ic; if (v>0) pts.push({ x: t, y: Math.round(v) });
+                    const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
                   return pts;
               - entity: sensor.quatt_warmteanalyse_gas_heat_loss_coefficient
@@ -380,8 +382,9 @@ views:
                 color: "#FFB74D"
                 data_generator: |
                   const attrs = hass.states['sensor.quatt_warmteanalyse_gas_heat_loss_coefficient']?.attributes || {};
-                  const d = (attrs.scatter_data || []).filter(p => p.heat > 0);
-                  return d.map(p => ({ x: p.temp, y: p.heat }));
+                  const balanceTemp = attrs.balance_point ?? 20;
+                  const now = Date.now(), d = (attrs.scatter_data || []).filter(p => p.heat > 0 && p.temp <= balanceTemp);
+                  return d.map(p => [now - (20 - p.temp) * 3600000, p.heat]);
               - entity: sensor.quatt_warmteanalyse_gas_heat_loss_coefficient
                 name: Gas trendlijn
                 color: "#FF9800"
@@ -391,9 +394,9 @@ views:
                   const attrs = hass.states['sensor.quatt_warmteanalyse_gas_heat_loss_coefficient']?.attributes || {};
                   const s = attrs.slope, ic = attrs.intercept;
                   if (!s || ic == null) return [];
-                  const pts = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
+                  const now = Date.now(), pts = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
                   for (let t = -10; t <= maxT; t += 0.5) {
-                    const v = s*t+ic; if (v>0) pts.push({ x: t, y: Math.round(v) });
+                    const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
                   return pts;
             grid_options:
@@ -451,11 +454,12 @@ views:
               chart:
                 height: 350
               xaxis:
-                type: numeric
+                min: "EVAL:Date.now() - 36 * 3600000"
+                max: "EVAL:Date.now()"
                 title:
                   text: Buitentemperatuur (°C)
                 labels:
-                  formatter: "EVAL:function(val) { return val.toFixed(1) + '°C'; }"
+                  formatter: "EVAL:function(val) { return Math.round(20 - (new Date().getTime() - val) / 3600000) + '°C'; }"
               yaxis:
                 title:
                   text: COP
@@ -468,8 +472,8 @@ views:
                 color: "#2196F3"
                 data_generator: |
                   const attrs = hass.states['sensor.quatt_warmteanalyse_average_cop']?.attributes || {};
-                  const d = [...(attrs.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
-                  return d.map(p => ({ x: p.temp, y: p.cop }));
+                  const now = Date.now(), d = [...(attrs.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
+                  return d.map(p => [now - (20 - p.temp) * 3600000, p.cop]);
               - entity: sensor.quatt_warmteanalyse_average_cop
                 name: COP trendlijn
                 color: "#90CAF9"
@@ -479,15 +483,16 @@ views:
                   const attrs = hass.states['sensor.quatt_warmteanalyse_average_cop']?.attributes || {};
                   const d = [...(attrs.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
                   if (d.length < 2) return [];
-                  const pts = [];
+                  const now = Date.now(), pts = [];
                   for (let i = 0; i < d.length - 1; i++) {
                     const steps = Math.max(1, Math.round((d[i+1].temp - d[i].temp) / 0.25));
                     for (let s = 0; s <= steps; s++) {
                       const f = s / steps;
-                      pts.push({
-                        x: d[i].temp + f * (d[i+1].temp - d[i].temp),
-                        y: d[i].cop + f * (d[i+1].cop - d[i].cop)
-                      });
+                      const t = d[i].temp + f * (d[i+1].temp - d[i].temp);
+                      pts.push([
+                        now - (20 - t) * 3600000,
+                        d[i].cop + f * (d[i+1].cop - d[i].cop)
+                      ]);
                     }
                   }
                   return pts;
