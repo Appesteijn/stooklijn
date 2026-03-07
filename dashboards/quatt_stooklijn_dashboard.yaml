@@ -317,7 +317,7 @@ views:
                 color: "#66BB6A"
                 data_generator: |
                   const attrs = hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope']?.attributes || {};
-                  const balanceTemp = attrs.balance_temp ?? 20;
+                  const balanceTemp = Math.min(attrs.balance_temp ?? 20, 20);
                   const now = Date.now(), d = (attrs.scatter_data || []).filter(p => p.heat > 0 && p.temp < balanceTemp);
                   return d.map(p => [now - (20 - p.temp) * 3600000, p.heat]);
               - entity: sensor.quatt_warmteanalyse_optimal_stooklijn_slope
@@ -376,6 +376,7 @@ views:
                   for (let t = -10; t <= maxT; t += 0.5) {
                     const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
+                  if (pts.length > 0) pts.push([now - (20 - maxT) * 3600000, null]);
                   return pts;
               - entity: sensor.quatt_warmteanalyse_gas_heat_loss_coefficient
                 name: Gas data
@@ -472,7 +473,7 @@ views:
                 color: "#2196F3"
                 data_generator: |
                   const attrs = hass.states['sensor.quatt_warmteanalyse_average_cop']?.attributes || {};
-                  const now = Date.now(), d = [...(attrs.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
+                  const now = Date.now(), d = [...(attrs.cop_scatter_data || [])].filter(p => p.cop > 0 && p.temp < 20).sort((a, b) => a.temp - b.temp);
                   return d.map(p => [now - (20 - p.temp) * 3600000, p.cop]);
               - entity: sensor.quatt_warmteanalyse_average_cop
                 name: COP trendlijn
@@ -481,7 +482,7 @@ views:
                 curve: straight
                 data_generator: |
                   const attrs = hass.states['sensor.quatt_warmteanalyse_average_cop']?.attributes || {};
-                  const d = [...(attrs.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
+                  const d = [...(attrs.cop_scatter_data || [])].filter(p => p.cop > 0 && p.temp < 20).sort((a, b) => a.temp - b.temp);
                   if (d.length < 2) return [];
                   const now = Date.now(), pts = [];
                   for (let i = 0; i < d.length - 1; i++) {
