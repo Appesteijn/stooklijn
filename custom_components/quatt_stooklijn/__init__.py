@@ -54,10 +54,11 @@ async def _async_setup_dashboard(hass: HomeAssistant) -> None:
         if lovelace is None:
             return
 
-        if _DASHBOARD_URL in lovelace.get("dashboards", {}):
+        dashboards = getattr(lovelace, "dashboards", None) or {}
+        if _DASHBOARD_URL in dashboards:
             return  # Already exists
 
-        dashboards_collection = lovelace.get("dashboards_collection")
+        dashboards_collection = getattr(lovelace, "dashboards_collection", None)
         if dashboards_collection is None:
             return
 
@@ -70,7 +71,7 @@ async def _async_setup_dashboard(hass: HomeAssistant) -> None:
             "mode": "storage",
         })
 
-        dashboard_obj = lovelace.get("dashboards", {}).get(_DASHBOARD_URL)
+        dashboard_obj = dashboards.get(_DASHBOARD_URL)
         if dashboard_obj is not None and _DASHBOARD_YAML.exists():
             config = yaml.safe_load(_DASHBOARD_YAML.read_text())
             await dashboard_obj.async_save(config)
