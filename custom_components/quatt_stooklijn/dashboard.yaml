@@ -314,7 +314,6 @@ views:
               - entity: sensor.quatt_warmteanalyse_optimal_stooklijn_slope
                 name: Dagelijkse warmtevraag
                 color: "#66BB6A"
-                type: scatter
                 data_generator: |
                   const d = (entity.attributes.scatter_data || []).filter(p => p.heat > 0);
                   return d.map(p => ({ x: p.temp, y: p.heat }));
@@ -374,7 +373,6 @@ views:
               - entity: sensor.quatt_warmteanalyse_gas_heat_loss_coefficient
                 name: Gas data
                 color: "#FFB74D"
-                type: scatter
                 data_generator: |
                   const d = (entity.attributes.scatter_data || []).filter(p => p.heat > 0);
                   return d.map(p => ({ x: p.temp, y: p.heat }));
@@ -461,7 +459,6 @@ views:
               - entity: sensor.quatt_warmteanalyse_average_cop
                 name: Dagelijkse COP
                 color: "#2196F3"
-                type: scatter
                 data_generator: |
                   const d = [...(entity.attributes.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
                   return d.map(p => ({ x: p.temp, y: p.cop }));
