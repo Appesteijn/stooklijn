@@ -287,95 +287,110 @@ views:
               rows: auto
 
           # ── Grafiek 1: Huis thermisch profiel ──────────────────────────────
-          - type: custom:plotly-graph
-            title: Huis thermisch profiel
-            hours_to_show: 0
-            entities:
+          - type: custom:apexcharts-card
+            chart_type: scatter
+            header:
+              title: Huis thermisch profiel
+              show: true
+            update_interval: "00:30:00"
+            apex_config:
+              chart:
+                height: 350
+              xaxis:
+                type: numeric
+                title:
+                  text: Buitentemperatuur (°C)
+                labels:
+                  formatter: "EVAL:function(val) { return val.toFixed(1) + '°C'; }"
+              yaxis:
+                title:
+                  text: Vermogen (W)
+                min: 0
+                labels:
+                  formatter: "EVAL:function(val) { return Math.round(val) + ' W'; }"
+              legend:
+                position: bottom
+            series:
               - entity: sensor.quatt_warmteanalyse_optimal_stooklijn_slope
                 name: Dagelijkse warmtevraag
-                fn: |-
-                  ({ hass }) => {
-                    const attrs = hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope']?.attributes || {};
-                    const d = (attrs.scatter_data || []).filter(p => p.heat > 0);
-                    return { x: d.map(p => p.temp), y: d.map(p => p.heat), mode: 'markers', type: 'scatter', marker: { size: 4, color: '#66BB6A' } };
-                  }
+                color: "#66BB6A"
+                type: scatter
+                data_generator: |
+                  const d = (entity.attributes.scatter_data || []).filter(p => p.heat > 0);
+                  return d.map(p => ({ x: p.temp, y: p.heat }));
               - entity: sensor.quatt_warmteanalyse_optimal_stooklijn_slope
                 name: Optimale stooklijn
-                fn: |-
-                  ({ hass }) => {
-                    const st = hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope'];
-                    const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
-                    if (isNaN(s) || ic == null) return { x: [], y: [] };
-                    const x = [], y = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
-                    for (let t = -10; t <= maxT; t += 0.5) { const v = s*t+ic; if (v>0) { x.push(t); y.push(Math.round(v)); } }
-                    return { x, y, mode: 'lines', type: 'scatter', line: { color: '#4CAF50', width: 2 } };
+                color: "#4CAF50"
+                type: line
+                curve: straight
+                data_generator: |
+                  const s = parseFloat(entity.state), ic = entity.attributes.intercept;
+                  if (isNaN(s) || ic == null) return [];
+                  const pts = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
+                  for (let t = -10; t <= maxT; t += 0.5) {
+                    const v = s*t+ic; if (v>0) pts.push({ x: t, y: Math.round(v) });
                   }
+                  return pts;
               - entity: sensor.quatt_warmteanalyse_quatt_stooklijn_slope
                 name: Quatt stooklijn (geschat)
-                fn: |-
-                  ({ hass }) => {
-                    const attrs = hass.states['sensor.quatt_warmteanalyse_quatt_stooklijn_slope']?.attributes || {};
-                    const s = attrs.slope_daily, ic = attrs.intercept_daily;
-                    if (!s || ic == null) return { x: [], y: [] };
-                    const x = [], y = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
-                    for (let t = -10; t <= maxT; t += 0.5) { const v = s*t+ic; if (v>0) { x.push(t); y.push(Math.round(v)); } }
-                    return { x, y, mode: 'lines', type: 'scatter', line: { color: '#FFC107', width: 2 } };
+                color: "#FFC107"
+                type: line
+                curve: straight
+                data_generator: |
+                  const s = entity.attributes.slope_daily, ic = entity.attributes.intercept_daily;
+                  if (!s || ic == null) return [];
+                  const pts = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
+                  for (let t = -10; t <= maxT; t += 0.5) {
+                    const v = s*t+ic; if (v>0) pts.push({ x: t, y: Math.round(v) });
                   }
+                  return pts;
               - entity: sensor.quatt_warmteanalyse_actual_stooklijn_setting
                 name: Geconfigureerde instelling
-                fn: |-
-                  ({ hass }) => {
-                    const st = hass.states['sensor.quatt_warmteanalyse_actual_stooklijn_setting'];
-                    const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
-                    if (isNaN(s) || s === 0 || ic == null) return { x: [], y: [] };
-                    const x = [], y = [];
-                    for (let t = -10; t <= 20; t += 0.5) { const v = s*t+ic; if (v>0) { x.push(t); y.push(Math.round(v)); } }
-                    return { x, y, mode: 'lines', type: 'scatter', line: { color: '#2196F3', width: 2 } };
+                color: "#2196F3"
+                type: line
+                curve: straight
+                data_generator: |
+                  const s = parseFloat(entity.state), ic = entity.attributes.intercept;
+                  if (isNaN(s) || s === 0 || ic == null) return [];
+                  const pts = [];
+                  for (let t = -10; t <= 20; t += 0.5) {
+                    const v = s*t+ic; if (v>0) pts.push({ x: t, y: Math.round(v) });
                   }
+                  return pts;
               - entity: sensor.quatt_warmteanalyse_freezing_performance_slope
                 name: HP capaciteit (vorst)
-                fn: |-
-                  ({ hass }) => {
-                    const st = hass.states['sensor.quatt_warmteanalyse_freezing_performance_slope'];
-                    const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
-                    const maxT = st?.attributes?.knee_temperature ?? 2;
-                    if (isNaN(s) || ic == null) return { x: [], y: [] };
-                    const x = [], y = [];
-                    for (let t = -10; t <= maxT; t += 0.5) { const v = s*t+ic; if (v>0) { x.push(t); y.push(Math.round(v)); } }
-                    return { x, y, mode: 'lines', type: 'scatter', line: { color: '#1E88E5', width: 2 } };
+                color: "#1E88E5"
+                type: line
+                curve: straight
+                data_generator: |
+                  const s = parseFloat(entity.state), ic = entity.attributes.intercept;
+                  const maxT = entity.attributes.knee_temperature ?? 2;
+                  if (isNaN(s) || ic == null) return [];
+                  const pts = [];
+                  for (let t = -10; t <= maxT; t += 0.5) {
+                    const v = s*t+ic; if (v>0) pts.push({ x: t, y: Math.round(v) });
                   }
+                  return pts;
               - entity: sensor.quatt_warmteanalyse_gas_heat_loss_coefficient
                 name: Gas data
-                fn: |-
-                  ({ hass }) => {
-                    const attrs = hass.states['sensor.quatt_warmteanalyse_gas_heat_loss_coefficient']?.attributes || {};
-                    const d = (attrs.scatter_data || []).filter(p => p.heat > 0);
-                    return { x: d.map(p => p.temp), y: d.map(p => p.heat), mode: 'markers', type: 'scatter', marker: { size: 4, color: '#FFB74D' } };
-                  }
+                color: "#FFB74D"
+                type: scatter
+                data_generator: |
+                  const d = (entity.attributes.scatter_data || []).filter(p => p.heat > 0);
+                  return d.map(p => ({ x: p.temp, y: p.heat }));
               - entity: sensor.quatt_warmteanalyse_gas_heat_loss_coefficient
                 name: Gas trendlijn
-                fn: |-
-                  ({ hass }) => {
-                    const attrs = hass.states['sensor.quatt_warmteanalyse_gas_heat_loss_coefficient']?.attributes || {};
-                    const s = attrs.slope, ic = attrs.intercept;
-                    if (!s || ic == null) return { x: [], y: [] };
-                    const x = [], y = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
-                    for (let t = -10; t <= maxT; t += 0.5) { const v = s*t+ic; if (v>0) { x.push(t); y.push(Math.round(v)); } }
-                    return { x, y, mode: 'lines', type: 'scatter', line: { color: '#FF9800', width: 2 } };
+                color: "#FF9800"
+                type: line
+                curve: straight
+                data_generator: |
+                  const s = entity.attributes.slope, ic = entity.attributes.intercept;
+                  if (!s || ic == null) return [];
+                  const pts = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
+                  for (let t = -10; t <= maxT; t += 0.5) {
+                    const v = s*t+ic; if (v>0) pts.push({ x: t, y: Math.round(v) });
                   }
-            layout:
-              height: 350
-              xaxis:
-                type: linear
-                title: Buitentemperatuur (°C)
-                ticksuffix: "°C"
-              yaxis:
-                title: Vermogen (W)
-                rangemode: tozero
-                ticksuffix: " W"
-              legend:
-                orientation: h
-                y: -0.25
+                  return pts;
             grid_options:
               columns: 24
               rows: auto
@@ -421,48 +436,55 @@ views:
               rows: auto
 
           # ── Grafiek 4: COP vs Buitentemperatuur ────────────────────────────
-          - type: custom:plotly-graph
-            title: COP vs Buitentemperatuur
-            hours_to_show: 0
-            entities:
+          - type: custom:apexcharts-card
+            chart_type: scatter
+            header:
+              title: COP vs Buitentemperatuur
+              show: true
+            update_interval: "00:30:00"
+            apex_config:
+              chart:
+                height: 350
+              xaxis:
+                type: numeric
+                title:
+                  text: Buitentemperatuur (°C)
+                labels:
+                  formatter: "EVAL:function(val) { return val.toFixed(1) + '°C'; }"
+              yaxis:
+                title:
+                  text: COP
+                min: 0
+              legend:
+                position: bottom
+            series:
               - entity: sensor.quatt_warmteanalyse_average_cop
                 name: Dagelijkse COP
-                fn: |-
-                  ({ hass }) => {
-                    const attrs = hass.states['sensor.quatt_warmteanalyse_average_cop']?.attributes || {};
-                    const d = [...(attrs.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
-                    return { x: d.map(p => p.temp), y: d.map(p => p.cop), mode: 'markers', type: 'scatter', marker: { size: 5, color: '#2196F3' } };
-                  }
+                color: "#2196F3"
+                type: scatter
+                data_generator: |
+                  const d = [...(entity.attributes.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
+                  return d.map(p => ({ x: p.temp, y: p.cop }));
               - entity: sensor.quatt_warmteanalyse_average_cop
                 name: COP trendlijn
-                fn: |-
-                  ({ hass }) => {
-                    const attrs = hass.states['sensor.quatt_warmteanalyse_average_cop']?.attributes || {};
-                    const d = [...(attrs.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
-                    if (d.length < 2) return { x: [], y: [] };
-                    const x = [], y = [];
-                    for (let i = 0; i < d.length - 1; i++) {
-                      const steps = Math.max(1, Math.round((d[i+1].temp - d[i].temp) / 0.25));
-                      for (let s = 0; s <= steps; s++) {
-                        const f = s / steps;
-                        x.push(d[i].temp + f * (d[i+1].temp - d[i].temp));
-                        y.push(d[i].cop + f * (d[i+1].cop - d[i].cop));
-                      }
+                color: "#90CAF9"
+                type: line
+                curve: straight
+                data_generator: |
+                  const d = [...(entity.attributes.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
+                  if (d.length < 2) return [];
+                  const pts = [];
+                  for (let i = 0; i < d.length - 1; i++) {
+                    const steps = Math.max(1, Math.round((d[i+1].temp - d[i].temp) / 0.25));
+                    for (let s = 0; s <= steps; s++) {
+                      const f = s / steps;
+                      pts.push({
+                        x: d[i].temp + f * (d[i+1].temp - d[i].temp),
+                        y: d[i].cop + f * (d[i+1].cop - d[i].cop)
+                      });
                     }
-                    return { x, y, mode: 'lines', type: 'scatter', line: { color: '#90CAF9', width: 2 } };
                   }
-            layout:
-              height: 350
-              xaxis:
-                type: linear
-                title: Buitentemperatuur (°C)
-                ticksuffix: "°C"
-              yaxis:
-                title: COP
-                rangemode: tozero
-              legend:
-                orientation: h
-                y: -0.25
+                  return pts;
             grid_options:
               columns: 24
               rows: auto
