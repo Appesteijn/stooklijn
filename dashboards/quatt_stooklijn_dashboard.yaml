@@ -315,7 +315,8 @@ views:
                 name: Dagelijkse warmtevraag
                 color: "#66BB6A"
                 data_generator: |
-                  const d = (entity.attributes.scatter_data || []).filter(p => p.heat > 0);
+                  const attrs = hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope']?.attributes || {};
+                  const d = (attrs.scatter_data || []).filter(p => p.heat > 0);
                   return d.map(p => ({ x: p.temp, y: p.heat }));
               - entity: sensor.quatt_warmteanalyse_optimal_stooklijn_slope
                 name: Optimale stooklijn
@@ -323,20 +324,22 @@ views:
                 type: line
                 curve: straight
                 data_generator: |
-                  const s = parseFloat(entity.state), ic = entity.attributes.intercept;
+                  const st = hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope'];
+                  const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
                   if (isNaN(s) || ic == null) return [];
                   const pts = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
                   for (let t = -10; t <= maxT; t += 0.5) {
                     const v = s*t+ic; if (v>0) pts.push({ x: t, y: Math.round(v) });
                   }
                   return pts;
-              - entity: sensor.quatt_warmteanalyse_quatt_stooklijn_slope
+              - entity: sensor.quatt_warmteanalyse_quatt_warmteanalyse_slope
                 name: Quatt stooklijn (geschat)
                 color: "#FFC107"
                 type: line
                 curve: straight
                 data_generator: |
-                  const s = entity.attributes.slope_daily, ic = entity.attributes.intercept_daily;
+                  const attrs = hass.states['sensor.quatt_warmteanalyse_quatt_warmteanalyse_slope']?.attributes || {};
+                  const s = attrs.slope_daily, ic = attrs.intercept_daily;
                   if (!s || ic == null) return [];
                   const pts = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
                   for (let t = -10; t <= maxT; t += 0.5) {
@@ -349,7 +352,8 @@ views:
                 type: line
                 curve: straight
                 data_generator: |
-                  const s = parseFloat(entity.state), ic = entity.attributes.intercept;
+                  const st = hass.states['sensor.quatt_warmteanalyse_actual_stooklijn_setting'];
+                  const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
                   if (isNaN(s) || s === 0 || ic == null) return [];
                   const pts = [];
                   for (let t = -10; t <= 20; t += 0.5) {
@@ -362,8 +366,9 @@ views:
                 type: line
                 curve: straight
                 data_generator: |
-                  const s = parseFloat(entity.state), ic = entity.attributes.intercept;
-                  const maxT = entity.attributes.knee_temperature ?? 2;
+                  const st = hass.states['sensor.quatt_warmteanalyse_freezing_performance_slope'];
+                  const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
+                  const maxT = st?.attributes?.knee_temperature ?? 2;
                   if (isNaN(s) || ic == null) return [];
                   const pts = [];
                   for (let t = -10; t <= maxT; t += 0.5) {
@@ -374,7 +379,8 @@ views:
                 name: Gas data
                 color: "#FFB74D"
                 data_generator: |
-                  const d = (entity.attributes.scatter_data || []).filter(p => p.heat > 0);
+                  const attrs = hass.states['sensor.quatt_warmteanalyse_gas_heat_loss_coefficient']?.attributes || {};
+                  const d = (attrs.scatter_data || []).filter(p => p.heat > 0);
                   return d.map(p => ({ x: p.temp, y: p.heat }));
               - entity: sensor.quatt_warmteanalyse_gas_heat_loss_coefficient
                 name: Gas trendlijn
@@ -382,7 +388,8 @@ views:
                 type: line
                 curve: straight
                 data_generator: |
-                  const s = entity.attributes.slope, ic = entity.attributes.intercept;
+                  const attrs = hass.states['sensor.quatt_warmteanalyse_gas_heat_loss_coefficient']?.attributes || {};
+                  const s = attrs.slope, ic = attrs.intercept;
                   if (!s || ic == null) return [];
                   const pts = [], maxT = s !== 0 ? Math.min(-ic/s+1, 20) : 20;
                   for (let t = -10; t <= maxT; t += 0.5) {
@@ -460,7 +467,8 @@ views:
                 name: Dagelijkse COP
                 color: "#2196F3"
                 data_generator: |
-                  const d = [...(entity.attributes.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
+                  const attrs = hass.states['sensor.quatt_warmteanalyse_average_cop']?.attributes || {};
+                  const d = [...(attrs.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
                   return d.map(p => ({ x: p.temp, y: p.cop }));
               - entity: sensor.quatt_warmteanalyse_average_cop
                 name: COP trendlijn
@@ -468,7 +476,8 @@ views:
                 type: line
                 curve: straight
                 data_generator: |
-                  const d = [...(entity.attributes.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
+                  const attrs = hass.states['sensor.quatt_warmteanalyse_average_cop']?.attributes || {};
+                  const d = [...(attrs.cop_scatter_data || [])].sort((a, b) => a.temp - b.temp);
                   if (d.length < 2) return [];
                   const pts = [];
                   for (let i = 0; i < d.length - 1; i++) {
