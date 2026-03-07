@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import voluptuous as vol
+import yaml
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -18,6 +20,65 @@ from .coordinator import (
 
 _LOGGER = logging.getLogger(__name__)
 
+_DASHBOARD_URL = "quatt-warmteanalyse"
+_DASHBOARD_YAML = Path(__file__).parent / "dashboard.yaml"
+
+
+async def _async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Hernoem quatt_stooklijn_* entiteiten naar quatt_warmteanalyse_* (eenmalige migratie)."""
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    entities = er.async_entries_for_config_entry(registry, entry.entry_id)
+
+    migrated = 0
+    for entity_entry in entities:
+        old_id = entity_entry.entity_id
+        if "quatt_stooklijn_" not in old_id:
+            continue
+        new_id = old_id.replace("quatt_stooklijn_", "quatt_warmteanalyse_")
+        if registry.async_get(new_id) is not None:
+            continue  # Nieuwe naam al in gebruik, sla over
+        registry.async_update_entity(old_id, new_entity_id=new_id)
+        migrated += 1
+        _LOGGER.info("Entiteit gemigreerd: %s → %s", old_id, new_id)
+
+    if migrated:
+        _LOGGER.info("%d entiteit(en) hernoemd naar quatt_warmteanalyse_*", migrated)
+
+
+async def _async_setup_dashboard(hass: HomeAssistant) -> None:
+    """Create the Quatt Warmteanalyse dashboard if it doesn't exist yet."""
+    try:
+        lovelace = hass.data.get("lovelace")
+        if lovelace is None:
+            return
+
+        if _DASHBOARD_URL in lovelace.get("dashboards", {}):
+            return  # Already exists
+
+        dashboards_collection = lovelace.get("dashboards_collection")
+        if dashboards_collection is None:
+            return
+
+        await dashboards_collection.async_create_item({
+            "url_path": _DASHBOARD_URL,
+            "require_admin": False,
+            "icon": "mdi:chart-line",
+            "title": "Quatt Warmteanalyse",
+            "show_in_sidebar": True,
+            "mode": "storage",
+        })
+
+        dashboard_obj = lovelace.get("dashboards", {}).get(_DASHBOARD_URL)
+        if dashboard_obj is not None and _DASHBOARD_YAML.exists():
+            config = yaml.safe_load(_DASHBOARD_YAML.read_text())
+            await dashboard_obj.async_save(config)
+            _LOGGER.info("Quatt Warmteanalyse dashboard aangemaakt")
+
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Kon dashboard niet automatisch aanmaken: %s", err)
+
 PLATFORMS = ["sensor", "text"]
 
 
@@ -29,6 +90,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    await _async_migrate_entity_ids(hass, entry)
+    await _async_setup_dashboard(hass)
 
     # Auto-run analysis on startup so dashboards are populated immediately
     async def _async_startup_analysis(_event=None) -> None:
