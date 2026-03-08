@@ -252,7 +252,7 @@ views:
 
               {% endif %}
             grid_options:
-              columns: 33
+              columns: 24
               rows: auto
           - type: markdown
             title: Warmtevraag bij verschillende temperaturen
@@ -283,7 +283,41 @@ views:
 
               {% endif %}
             grid_options:
-              columns: 15
+              columns: 12
+              rows: auto
+          - type: markdown
+            title: Databeschikbaarheid
+            content: >
+              {% set s = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'daily_days') %}
+
+              {% if s is not none %}
+
+              {% set daily   = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'daily_days') | int(0) %}
+              {% set hourly  = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'hourly_hours') | int(0) %}
+              {% set minutes = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'minute_minutes') | int(0) %}
+              {% set c_days  = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'cache_days') | int(0) %}
+              {% set c_old   = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'cache_oldest') %}
+              {% set c_new   = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'cache_newest') %}
+              {% set k_days  = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'knee_store_days') | int(0) %}
+              {% set k_pts   = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'knee_store_points') | int(0) %}
+              {% set k_old   = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'knee_store_oldest') %}
+              {% set k_new   = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'knee_store_newest') %}
+
+              | Dataset | Omvang | Gebruik |
+              |:--------|-------:|:--------|
+              | Daggemiddeldes | **{{ daily }} dagen** | Warmteverlies & stooklijn |
+              | Uurwaarden (API/cache) | **{{ hourly }} uur** | COP & stooklijn |
+              | Minuutwaarden (recorder) | **{{ minutes }} min** | Knikpuntdetectie |
+              | API-cache opgeslagen | **{{ c_days }} dagen**{% if c_old %} ({{ c_old[:7] }} – {{ c_new[:7] }}){% endif %} | Minder API-aanvragen |
+              | Knie-datastore | **{{ k_days }} dgn / {{ k_pts }} ptn**{% if k_old %} ({{ k_old[:7] }} – {{ k_new[:7] }}){% endif %} | Knikpunt meerdere winters |
+
+              {% else %}
+
+              *Voer eerst een analyse uit.*
+
+              {% endif %}
+            grid_options:
+              columns: 12
               rows: auto
 
           # ── Grafiek 1: Huis thermisch profiel ──────────────────────────────
@@ -321,7 +355,7 @@ views:
                 data_generator: |
                   const attrs = hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope']?.attributes || {};
                   const balanceTemp = Math.min(attrs.balance_temp ?? 20, 20);
-                  const now = Date.now(), d = (attrs.scatter_data || []).filter(p => p.heat > 0 && p.temp < balanceTemp);
+                  const now = Date.now(), d = (attrs.scatter_data || []).filter(p => p.heat > 0 && p.temp < Math.min(balanceTemp, 19));
                   return d.map(p => [now - (20 - p.temp) * 3600000, p.heat]);
               - entity: sensor.quatt_warmteanalyse_optimal_stooklijn_slope
                 name: Optimale stooklijn
