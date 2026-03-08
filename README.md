@@ -20,6 +20,7 @@ Home Assistant custom integration for analyzing your Quatt heat pump performance
 - Home Assistant 2024.1.0 or newer
 - [Quatt integration](https://github.com/marcoboers/home-assistant-quatt) configured and running
 - [apexcharts-card](https://github.com/RomRider/apexcharts-card) (HACS frontend) for the dashboard charts
+- [mini-graph-card](https://github.com/kalkih/mini-graph-card) (HACS frontend) for the historical trend charts
 
 ## Installation
 
