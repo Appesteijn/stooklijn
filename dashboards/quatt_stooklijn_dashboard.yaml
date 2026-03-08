@@ -207,7 +207,7 @@ views:
               {% endif %}
             grid_options:
               columns: 18
-              rows: 5
+              rows: 6
           - type: markdown
             title: Databeschikbaarheid
             content: >
@@ -291,7 +291,7 @@ views:
               {% endif %}
             grid_options:
               columns: 15
-              rows: 5
+              rows: 6
           - type: markdown
             title: Warmtevraag bij verschillende temperaturen
             content: >
@@ -322,7 +322,7 @@ views:
               {% endif %}
             grid_options:
               columns: 15
-              rows: 5
+              rows: 6
           - type: history-graph
             title: Aanvoertemperatuur — Aanbevolen vs Quatt
             hours_to_show: 24
