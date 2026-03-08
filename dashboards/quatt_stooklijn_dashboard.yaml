@@ -385,6 +385,7 @@ views:
         column_span: 4
         cards:
           - type: custom:apexcharts-card
+            chart_type: scatter
             header:
               title: Huis thermisch profiel
               show: true
@@ -418,7 +419,6 @@ views:
               - entity: sensor.quatt_warmteanalyse_optimal_stooklijn_slope
                 name: Dagelijkse warmtevraag
                 color: "#66BB6A"
-                type: scatter
                 data_generator: >
                   const attrs =
                   hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope']?.attributes
@@ -534,7 +534,6 @@ views:
               - entity: sensor.quatt_warmteanalyse_gas_heat_loss_coefficient
                 name: Gas data
                 color: "#FFB74D"
-                type: scatter
                 data_generator: >
                   const attrs =
                   hass.states['sensor.quatt_warmteanalyse_gas_heat_loss_coefficient']?.attributes
@@ -611,6 +610,7 @@ views:
               columns: 24
               rows: auto
           - type: custom:apexcharts-card
+            chart_type: scatter
             header:
               title: COP vs Buitentemperatuur
               show: true
@@ -642,7 +642,6 @@ views:
               - entity: sensor.quatt_warmteanalyse_average_cop
                 name: Dagelijkse COP
                 color: "#2196F3"
-                type: scatter
                 data_generator: >
                   const attrs =
                   hass.states['sensor.quatt_warmteanalyse_average_cop']?.attributes
