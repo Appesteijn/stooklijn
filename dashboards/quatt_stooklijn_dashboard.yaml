@@ -63,36 +63,39 @@ views:
                   action: call-service
                   service: quatt_stooklijn.run_analysis
                 icon_height: 48px
-              - show_name: true
-                show_icon: true
-                type: button
-                name: Data Wissen
-                icon: mdi:delete-outline
-                tap_action:
-                  action: call-service
-                  service: quatt_stooklijn.clear_data
-                  confirmation:
-                    text: Weet je zeker dat je alle analysedata wilt wissen?
-                icon_height: 48px
             grid_options:
-              columns: 24
+              columns: full
               rows: auto
           - type: markdown
             title: Stooklijn aanpassen?
             content: >
-              {% set house_balance = states('sensor.quatt_warmteanalyse_balance_point_temperature') | float(0) %}
+              {% set house_balance =
+              states('sensor.quatt_warmteanalyse_balance_point_temperature') |
+              float(0) %}
 
-              {% set hlc_slope = state_attr('sensor.quatt_warmteanalyse_heat_loss_coefficient', 'slope') | float(0) %}
+              {% set hlc_slope =
+              state_attr('sensor.quatt_warmteanalyse_heat_loss_coefficient',
+              'slope') | float(0) %}
 
-              {% set hlc_intercept = state_attr('sensor.quatt_warmteanalyse_heat_loss_coefficient', 'intercept') | float(0) %}
+              {% set hlc_intercept =
+              state_attr('sensor.quatt_warmteanalyse_heat_loss_coefficient',
+              'intercept') | float(0) %}
 
-              {% set act_slope = states('sensor.quatt_warmteanalyse_actual_stooklijn_setting') | float(0) %}
+              {% set act_slope =
+              states('sensor.quatt_warmteanalyse_actual_stooklijn_setting') |
+              float(0) %}
 
-              {% set act_intercept = state_attr('sensor.quatt_warmteanalyse_actual_stooklijn_setting', 'intercept') | float(0) %}
+              {% set act_intercept =
+              state_attr('sensor.quatt_warmteanalyse_actual_stooklijn_setting',
+              'intercept') | float(0) %}
 
-              {% set est_balance_daily = state_attr('sensor.quatt_warmteanalyse_quatt_stooklijn_slope', 'balance_temp_daily') | float(0) %}
+              {% set est_balance_daily =
+              state_attr('sensor.quatt_warmteanalyse_quatt_stooklijn_slope',
+              'balance_temp_daily') | float(0) %}
 
-              {% set slope_ratio = state_attr('sensor.quatt_warmteanalyse_optimal_stooklijn_slope', 'quatt_slope_ratio') | float(0) %}
+              {% set slope_ratio =
+              state_attr('sensor.quatt_warmteanalyse_optimal_stooklijn_slope',
+              'quatt_slope_ratio') | float(0) %}
 
               {% if hlc_slope == 0 or hlc_intercept == 0 %}
 
@@ -106,7 +109,8 @@ views:
 
               {% set quatt_source = "geconfigureerde instelling" %}
 
-              {% set quatt_balance = (-quatt_intercept / quatt_slope) | round(1) %}
+              {% set quatt_balance = (-quatt_intercept / quatt_slope) | round(1)
+              %}
 
               {% elif est_balance_daily != 0 %}
 
@@ -116,7 +120,8 @@ views:
 
               {% else %}
 
-              ℹ️ Voer je huidige Quatt-instelling in via de configuratie om een advies te krijgen.
+              ℹ️ Voer je huidige Quatt-instelling in via de configuratie om een
+              advies te krijgen.
 
               {% endif %}
 
@@ -130,65 +135,194 @@ views:
 
               {% if diff_abs <= 2 %}
 
-              ✅ **Geen aanpassing nodig** — De Quatt-balanstemperatuur ({{ quatt_balance }}°C) sluit
-              goed aan op de warmtevraag van jouw huis ({{ house_balance | round(1) }}°C, verschil {{ diff_abs }}°C).
+              ✅ **Geen aanpassing nodig** — De Quatt-balanstemperatuur ({{
+              quatt_balance }}°C) sluit goed aan op de warmtevraag van jouw huis
+              ({{ house_balance | round(1) }}°C, verschil {{ diff_abs }}°C).
 
               {% elif diff > 2 %}
 
-              ⚠️ **Aanpassing aanbevolen — Quatt verwarmt te lang door bij mild weer**
+              ⚠️ **Aanpassing aanbevolen — Quatt verwarmt te lang door bij mild
+              weer**
 
 
-              Quatt stopt pas met verwarmen bij {{ quatt_balance }}°C, maar jouw huis heeft al geen warmte
-              meer nodig boven {{ house_balance | round(1) }}°C. Bij zachte temperaturen (boven
-              {{ house_balance | round(0) | int }}°C) draait de warmtepomp dus onnodig door.
+              Quatt stopt pas met verwarmen bij {{ quatt_balance }}°C, maar jouw
+              huis heeft al geen warmte meer nodig boven {{ house_balance |
+              round(1) }}°C. Bij zachte temperaturen (boven {{ house_balance |
+              round(0) | int }}°C) draait de warmtepomp dus onnodig door.
 
               {% if quatt_slope is defined %}
 
-              {% set waste_w = (quatt_slope * house_balance + quatt_intercept) | round(0) | int %}
+              {% set waste_w = (quatt_slope * house_balance + quatt_intercept) |
+              round(0) | int %}
 
-              Bij {{ house_balance | round(1) }}°C levert de warmtepomp nog **{{ waste_w }} W**
-              terwijl de warmtevraag al 0 is. Dit verhoogt het elektriciteitsverbruik zonder
-              extra warmtecomfort.
+              Bij {{ house_balance | round(1) }}°C levert de warmtepomp nog **{{
+              waste_w }} W** terwijl de warmtevraag al 0 is. Dit verhoogt het
+              elektriciteitsverbruik zonder extra warmtecomfort.
 
               {% endif %}
 
-              **Advies:** vraag Quatt de balanstemperatuur te verlagen naar ~{{ house_balance | round(0) | int }}°C.
-              Gebruik de waarden in de tabel *Warmtevraag bij verschillende temperaturen* als referentie.
+              **Advies:** vraag Quatt de balanstemperatuur te verlagen naar ~{{
+              house_balance | round(0) | int }}°C. Gebruik de waarden in de
+              tabel *Warmtevraag bij verschillende temperaturen* als referentie.
 
               {% if slope_ratio > 0 and slope_ratio > 1.15 %}
 
-              *Let op: de helling van Quatt's stooklijn is {{ ((slope_ratio - 1) * 100) | round(0) | int }}% steiler dan optimaal — bij mild weer produceert de warmtepomp meer warmte dan nodig.*
+              *Let op: de helling van Quatt's stooklijn is {{ ((slope_ratio - 1)
+              * 100) | round(0) | int }}% steiler dan optimaal — bij mild weer
+              produceert de warmtepomp meer warmte dan nodig.*
 
               {% elif slope_ratio > 0 and slope_ratio < 0.85 %}
 
-              *Let op: de helling van Quatt's stooklijn is {{ ((1 - slope_ratio) * 100) | round(0) | int }}% vlakker dan optimaal — bij strenge kou kan de warmtepomp te weinig leveren.*
+              *Let op: de helling van Quatt's stooklijn is {{ ((1 - slope_ratio)
+              * 100) | round(0) | int }}% vlakker dan optimaal — bij strenge kou
+              kan de warmtepomp te weinig leveren.*
 
               {% endif %}
 
               {% else %}
 
-              ⚠️ **Aanpassing aanbevolen — Quatt verwarmt te weinig bij mild weer**
+              ⚠️ **Aanpassing aanbevolen — Quatt verwarmt te weinig bij mild
+              weer**
 
 
-              Quatt stopt al met verwarmen bij {{ quatt_balance }}°C, maar jouw huis heeft warmte
-              nodig tot {{ house_balance | round(1) }}°C. Bij temperaturen tussen {{ quatt_balance }}°C
-              en {{ house_balance | round(1) }}°C levert de warmtepomp te weinig.
+              Quatt stopt al met verwarmen bij {{ quatt_balance }}°C, maar jouw
+              huis heeft warmte nodig tot {{ house_balance | round(1) }}°C. Bij
+              temperaturen tussen {{ quatt_balance }}°C en {{ house_balance |
+              round(1) }}°C levert de warmtepomp te weinig.
 
-              {% set shortfall_w = (hlc_slope * quatt_balance + hlc_intercept) | round(0) | int %}
+              {% set shortfall_w = (hlc_slope * quatt_balance + hlc_intercept) |
+              round(0) | int %}
 
-              Bij {{ quatt_balance }}°C is de warmtevraag nog **{{ shortfall_w }} W**, maar de
-              warmtepomp geeft al 0. Dit moet worden overgenomen door de cv-ketel (lagere COP).
+              Bij {{ quatt_balance }}°C is de warmtevraag nog **{{ shortfall_w
+              }} W**, maar de warmtepomp geeft al 0. Dit moet worden overgenomen
+              door de cv-ketel (lagere COP).
 
 
-              **Advies:** vraag Quatt de balanstemperatuur te verhogen naar ~{{ house_balance | round(0) | int }}°C.
-              Gebruik de waarden in de tabel *Warmtevraag bij verschillende temperaturen* als referentie.
+              **Advies:** vraag Quatt de balanstemperatuur te verhogen naar ~{{
+              house_balance | round(0) | int }}°C. Gebruik de waarden in de
+              tabel *Warmtevraag bij verschillende temperaturen* als referentie.
 
               {% endif %}
 
               {% endif %}
             grid_options:
-              columns: 16
-              rows: 6
+              columns: 18
+              rows: 5
+          - type: markdown
+            title: Databeschikbaarheid
+            content: >
+              {% set s =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'daily_days') %}
+
+
+              {% if s is not none %}
+
+
+              {% set daily   =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'daily_days') | int(0) %}
+
+              {% set hourly  =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'hourly_hours') | int(0) %}
+
+              {% set minutes =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'minute_minutes') | int(0) %}
+
+              {% set c_days  =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'cache_days') | int(0) %}
+
+              {% set c_old   =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'cache_oldest') %}
+
+              {% set c_new   =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'cache_newest') %}
+
+              {% set k_days  =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'knee_store_days') | int(0) %}
+
+              {% set k_pts   =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'knee_store_points') | int(0) %}
+
+              {% set k_old   =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'knee_store_oldest') %}
+
+              {% set k_new   =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'knee_store_newest') %}
+
+
+              | Dataset | Omvang | Gebruik |
+
+              |:--------|-------:|:--------|
+
+              | Daggemiddeldes | **{{ daily }} dagen** | Warmteverlies &
+              stooklijn |
+
+              | Uurwaarden (API/cache) | **{{ hourly }} uur** | COP & stooklijn
+              |
+
+              | Minuutwaarden (recorder) | **{{ minutes }} min** |
+              Knikpuntdetectie |
+
+              | API-cache opgeslagen | **{{ c_days }} dagen**{% if c_old %} ({{
+              c_old[:7] }} – {{ c_new[:7] }}){% endif %} | Minder API-aanvragen
+              |
+
+              | Knie-datastore | **{{ k_days }} dgn / {{ k_pts }} ptn**{% if
+              k_old %} ({{ k_old[:7] }} – {{ k_new[:7] }}){% endif %} | Knikpunt
+              meerdere winters |
+
+
+              {% else %}
+
+
+              *Voer eerst een analyse uit.*
+
+
+              {% endif %}
+            grid_options:
+              columns: 15
+              rows: 5
+          - type: markdown
+            title: Warmtevraag bij verschillende temperaturen
+            content: >
+              {% set temps =
+              state_attr('sensor.quatt_warmteanalyse_heat_loss_coefficient',
+              'heat_at_temps') %}
+
+              {% if temps %}
+
+              Buitentemp | Vermogen | Warmte/dag | COP | Stroom/dag
+
+              :--|--:|--:|--:|--:
+
+              {% for t, data in temps.items() -%}
+
+              **{{ t }}°C** | **{{ data.heat | round(0) | int }} W** | {{
+              (data.heat * 24 / 1000) | round(1) }} kWh | {% if data.cop %}{{
+              data.cop | round(2) }}{% else %}-{% endif %} | {% if data.cop and
+              data.cop > 0 %}{{ ((data.heat * 24 / 1000) / data.cop) | round(1)
+              }} kWh{% else %}-{% endif %}
+
+              {% endfor %}
+
+              {% else %}
+
+              *Voer eerst een analyse uit*
+
+              {% endif %}
+            grid_options:
+              columns: 15
+              rows: 5
           - type: history-graph
             title: Aanvoertemperatuur — Aanbevolen vs Quatt
             hours_to_show: 24
@@ -200,11 +334,8 @@ views:
               - entity: sensor.heatpump_flowmeter_temperature
                 name: Werkelijk (flowmeter)
             grid_options:
-              columns: 32
-              rows: 6
-      - type: grid
-        column_span: 4
-        cards:
+              columns: 24
+              rows: 5
           - type: markdown
             title: Wat betekenen deze waarden?
             content: >
@@ -214,7 +345,8 @@ views:
               {% set bp =
               states('sensor.quatt_warmteanalyse_balance_point_temperature') %}
 
-              {% set knee = states('sensor.quatt_warmteanalyse_knee_temperature') %}
+              {% set knee =
+              states('sensor.quatt_warmteanalyse_knee_temperature') %}
 
               {% set cop = states('sensor.quatt_warmteanalyse_average_cop') %}
 
@@ -248,74 +380,10 @@ views:
               {% endif %}
             grid_options:
               columns: 24
-              rows: auto
-          - type: markdown
-            title: Warmtevraag bij verschillende temperaturen
-            content: >
-              {% set temps =
-              state_attr('sensor.quatt_warmteanalyse_heat_loss_coefficient',
-              'heat_at_temps') %}
-
-              {% if temps %}
-
-              Buitentemp | Vermogen | Warmte/dag | COP | Stroom/dag
-
-              :--|--:|--:|--:|--:
-
-              {% for t, data in temps.items() -%}
-
-              **{{ t }}°C** | **{{ data.heat | round(0) | int }} W** | {{ (data.heat
-              * 24 / 1000) | round(1) }} kWh | {% if data.cop %}{{ data.cop |
-              round(2) }}{% else %}-{% endif %} | {% if data.cop and data.cop > 0
-              %}{{ ((data.heat * 24 / 1000) / data.cop) | round(1) }} kWh{% else
-              %}-{% endif %}
-
-              {% endfor %}
-
-              {% else %}
-
-              *Voer eerst een analyse uit*
-
-              {% endif %}
-            grid_options:
-              columns: 12
-              rows: auto
-          - type: markdown
-            title: Databeschikbaarheid
-            content: |
-              {% set s = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'daily_days') %}
-
-              {% if s is not none %}
-
-              {% set daily   = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'daily_days') | int(0) %}
-              {% set hourly  = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'hourly_hours') | int(0) %}
-              {% set minutes = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'minute_minutes') | int(0) %}
-              {% set c_days  = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'cache_days') | int(0) %}
-              {% set c_old   = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'cache_oldest') %}
-              {% set c_new   = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'cache_newest') %}
-              {% set k_days  = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'knee_store_days') | int(0) %}
-              {% set k_pts   = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'knee_store_points') | int(0) %}
-              {% set k_old   = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'knee_store_oldest') %}
-              {% set k_new   = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'knee_store_newest') %}
-
-              | Dataset | Omvang | Gebruik |
-              |:--------|-------:|:--------|
-              | Daggemiddeldes | **{{ daily }} dagen** | Warmteverlies & stooklijn |
-              | Uurwaarden (API/cache) | **{{ hourly }} uur** | COP & stooklijn |
-              | Minuutwaarden (recorder) | **{{ minutes }} min** | Knikpuntdetectie |
-              | API-cache opgeslagen | **{{ c_days }} dagen**{% if c_old %} ({{ c_old[:7] }} – {{ c_new[:7] }}){% endif %} | Minder API-aanvragen |
-              | Knie-datastore | **{{ k_days }} dgn / {{ k_pts }} ptn**{% if k_old %} ({{ k_old[:7] }} – {{ k_new[:7] }}){% endif %} | Knikpunt meerdere winters |
-
-              {% else %}
-
-              *Voer eerst een analyse uit.*
-
-              {% endif %}
-            grid_options:
-              columns: 12
-              rows: auto
-
-          # ── Grafiek 1: Huis thermisch profiel ──────────────────────────────
+              rows: 5
+      - type: grid
+        column_span: 4
+        cards:
           - type: custom:apexcharts-card
             chart_type: scatter
             header:
@@ -326,121 +394,185 @@ views:
               chart:
                 height: 350
               xaxis:
-                min: "EVAL:Date.now() - 36 * 3600000"
-                max: "EVAL:Date.now()"
+                min: EVAL:Date.now() - 36 * 3600000
+                max: EVAL:Date.now()
                 title:
                   text: Buitentemperatuur (°C)
                 labels:
-                  formatter: "EVAL:function(val) { return Math.round(20 - (new Date().getTime() - val) / 3600000) + '°C'; }"
+                  formatter: >-
+                    EVAL:function(val) { return Math.round(20 - (new
+                    Date().getTime() - val) / 3600000) + '°C'; }
               yaxis:
                 title:
                   text: Vermogen (W)
                 min: 0
                 labels:
-                  formatter: "EVAL:function(val) { return Math.round(val) + ' W'; }"
+                  formatter: EVAL:function(val) { return Math.round(val) + ' W'; }
               tooltip:
                 x:
-                  formatter: "EVAL:function(val) { return Math.round(20 - (new Date().getTime() - val) / 3600000) + '°C'; }"
+                  formatter: >-
+                    EVAL:function(val) { return Math.round(20 - (new
+                    Date().getTime() - val) / 3600000) + '°C'; }
               legend:
                 position: bottom
             series:
               - entity: sensor.quatt_warmteanalyse_optimal_stooklijn_slope
                 name: Dagelijkse warmtevraag
                 color: "#66BB6A"
-                data_generator: |
-                  const attrs = hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope']?.attributes || {};
+                data_generator: >
+                  const attrs =
+                  hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope']?.attributes
+                  || {};
+
                   const balanceTemp = Math.min(attrs.balance_temp ?? 20, 20);
-                  const now = Date.now(), d = (attrs.scatter_data || []).filter(p => p.heat > 0 && p.temp < Math.min(balanceTemp, 19));
+
+                  const now = Date.now(), d = (attrs.scatter_data ||
+                  []).filter(p => p.heat > 0 && p.temp < Math.min(balanceTemp,
+                  19));
+
                   return d.map(p => [now - (20 - p.temp) * 3600000, p.heat]);
               - entity: sensor.quatt_warmteanalyse_optimal_stooklijn_slope
                 name: Optimale stooklijn
                 color: "#4CAF50"
                 type: line
                 curve: straight
-                data_generator: |
-                  const st = hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope'];
-                  const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
+                data_generator: >
+                  const st =
+                  hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope'];
+
+                  const s = parseFloat(st?.state), ic =
+                  st?.attributes?.intercept;
+
                   if (isNaN(s) || ic == null) return [];
-                  const now = Date.now(), pts = [], maxT = s !== 0 ? Math.min(-ic/s, 19) : 19;
+
+                  const now = Date.now(), pts = [], maxT = s !== 0 ?
+                  Math.min(-ic/s, 19) : 19;
+
                   for (let t = -10; t <= maxT; t += 0.5) {
                     const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
-                  if (pts.length > 0) pts.push([now - (20 - maxT) * 3600000, null]);
+
+                  if (pts.length > 0) pts.push([now - (20 - maxT) * 3600000,
+                  null]);
+
                   return pts;
               - entity: sensor.quatt_warmteanalyse_quatt_warmteanalyse_slope
                 name: Quatt stooklijn (geschat)
                 color: "#FFC107"
                 type: line
                 curve: straight
-                data_generator: |
-                  const attrs = hass.states['sensor.quatt_warmteanalyse_quatt_warmteanalyse_slope']?.attributes || {};
+                data_generator: >
+                  const attrs =
+                  hass.states['sensor.quatt_warmteanalyse_quatt_warmteanalyse_slope']?.attributes
+                  || {};
+
                   const s = attrs.slope_daily, ic = attrs.intercept_daily;
+
                   if (!s || ic == null) return [];
-                  const now = Date.now(), pts = [], maxT = s !== 0 ? Math.min(-ic/s, 19) : 19;
+
+                  const now = Date.now(), pts = [], maxT = s !== 0 ?
+                  Math.min(-ic/s, 19) : 19;
+
                   for (let t = -10; t <= maxT; t += 0.5) {
                     const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
-                  if (pts.length > 0) pts.push([now - (20 - maxT) * 3600000, null]);
+
+                  if (pts.length > 0) pts.push([now - (20 - maxT) * 3600000,
+                  null]);
+
                   return pts;
               - entity: sensor.quatt_warmteanalyse_actual_stooklijn_setting
                 name: Geconfigureerde instelling
                 color: "#2196F3"
                 type: line
                 curve: straight
-                data_generator: |
-                  const st = hass.states['sensor.quatt_warmteanalyse_actual_stooklijn_setting'];
-                  const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
+                data_generator: >
+                  const st =
+                  hass.states['sensor.quatt_warmteanalyse_actual_stooklijn_setting'];
+
+                  const s = parseFloat(st?.state), ic =
+                  st?.attributes?.intercept;
+
                   if (isNaN(s) || s === 0 || ic == null) return [];
+
                   const now = Date.now(), pts = [];
+
                   for (let t = -10; t <= 19; t += 0.5) {
                     const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
-                  if (pts.length > 0) pts.push([now - (20 - 19) * 3600000, null]);
+
+                  if (pts.length > 0) pts.push([now - (20 - 19) * 3600000,
+                  null]);
+
                   return pts;
               - entity: sensor.quatt_warmteanalyse_freezing_performance_slope
                 name: HP capaciteit (vorst)
                 color: "#1E88E5"
                 type: line
                 curve: straight
-                data_generator: |
-                  const st = hass.states['sensor.quatt_warmteanalyse_freezing_performance_slope'];
-                  const s = parseFloat(st?.state), ic = st?.attributes?.intercept;
+                data_generator: >
+                  const st =
+                  hass.states['sensor.quatt_warmteanalyse_freezing_performance_slope'];
+
+                  const s = parseFloat(st?.state), ic =
+                  st?.attributes?.intercept;
+
                   const maxT = st?.attributes?.knee_temperature ?? 2;
+
                   if (isNaN(s) || ic == null) return [];
+
                   const now = Date.now(), pts = [];
+
                   for (let t = -10; t <= maxT; t += 0.5) {
                     const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
-                  if (pts.length > 0) pts.push([now - (20 - maxT) * 3600000, null]);
+
+                  if (pts.length > 0) pts.push([now - (20 - maxT) * 3600000,
+                  null]);
+
                   return pts;
               - entity: sensor.quatt_warmteanalyse_gas_heat_loss_coefficient
                 name: Gas data
                 color: "#FFB74D"
-                data_generator: |
-                  const attrs = hass.states['sensor.quatt_warmteanalyse_gas_heat_loss_coefficient']?.attributes || {};
+                data_generator: >
+                  const attrs =
+                  hass.states['sensor.quatt_warmteanalyse_gas_heat_loss_coefficient']?.attributes
+                  || {};
+
                   const balanceTemp = attrs.balance_point ?? 20;
-                  const now = Date.now(), d = (attrs.scatter_data || []).filter(p => p.heat > 0 && p.temp < balanceTemp);
+
+                  const now = Date.now(), d = (attrs.scatter_data ||
+                  []).filter(p => p.heat > 0 && p.temp < balanceTemp);
+
                   return d.map(p => [now - (20 - p.temp) * 3600000, p.heat]);
               - entity: sensor.quatt_warmteanalyse_gas_heat_loss_coefficient
                 name: Gas trendlijn
                 color: "#FF9800"
                 type: line
                 curve: straight
-                data_generator: |
-                  const attrs = hass.states['sensor.quatt_warmteanalyse_gas_heat_loss_coefficient']?.attributes || {};
+                data_generator: >
+                  const attrs =
+                  hass.states['sensor.quatt_warmteanalyse_gas_heat_loss_coefficient']?.attributes
+                  || {};
+
                   const s = attrs.slope, ic = attrs.intercept;
+
                   if (!s || ic == null) return [];
-                  const now = Date.now(), pts = [], maxT = s !== 0 ? Math.min(-ic/s, 19) : 19;
+
+                  const now = Date.now(), pts = [], maxT = s !== 0 ?
+                  Math.min(-ic/s, 19) : 19;
+
                   for (let t = -10; t <= maxT; t += 0.5) {
                     const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
                   }
-                  if (pts.length > 0) pts.push([now - (20 - maxT) * 3600000, null]);
+
+                  if (pts.length > 0) pts.push([now - (20 - maxT) * 3600000,
+                  null]);
+
                   return pts;
             grid_options:
               columns: 24
               rows: auto
-
-          # ── Grafiek 2: Aanvoertemperatuur — Werkelijk vs Aanbevolen ──────────
           - type: custom:mini-graph-card
             name: Aanvoertemperatuur — Werkelijk vs Aanbevolen
             hours_to_show: 336
@@ -459,8 +591,6 @@ views:
             grid_options:
               columns: 24
               rows: auto
-
-          # ── Grafiek 3: Comfort & Klimaat ────────────────────────────────────
           - type: custom:mini-graph-card
             name: Comfort & Klimaat (laatste 7 dagen)
             hours_to_show: 168
@@ -479,8 +609,6 @@ views:
             grid_options:
               columns: 24
               rows: auto
-
-          # ── Grafiek 4: COP vs Buitentemperatuur ────────────────────────────
           - type: custom:apexcharts-card
             chart_type: scatter
             header:
@@ -491,39 +619,56 @@ views:
               chart:
                 height: 350
               xaxis:
-                min: "EVAL:Date.now() - 36 * 3600000"
-                max: "EVAL:Date.now()"
+                min: EVAL:Date.now() - 36 * 3600000
+                max: EVAL:Date.now()
                 title:
                   text: Buitentemperatuur (°C)
                 labels:
-                  formatter: "EVAL:function(val) { return Math.round(20 - (new Date().getTime() - val) / 3600000) + '°C'; }"
+                  formatter: >-
+                    EVAL:function(val) { return Math.round(20 - (new
+                    Date().getTime() - val) / 3600000) + '°C'; }
               yaxis:
                 title:
                   text: COP
                 min: 0
               tooltip:
                 x:
-                  formatter: "EVAL:function(val) { return Math.round(20 - (new Date().getTime() - val) / 3600000) + '°C'; }"
+                  formatter: >-
+                    EVAL:function(val) { return Math.round(20 - (new
+                    Date().getTime() - val) / 3600000) + '°C'; }
               legend:
                 position: bottom
             series:
               - entity: sensor.quatt_warmteanalyse_average_cop
                 name: Dagelijkse COP
                 color: "#2196F3"
-                data_generator: |
-                  const attrs = hass.states['sensor.quatt_warmteanalyse_average_cop']?.attributes || {};
-                  const now = Date.now(), d = [...(attrs.cop_scatter_data || [])].filter(p => p.cop > 0 && p.temp < 20).sort((a, b) => a.temp - b.temp);
+                data_generator: >
+                  const attrs =
+                  hass.states['sensor.quatt_warmteanalyse_average_cop']?.attributes
+                  || {};
+
+                  const now = Date.now(), d = [...(attrs.cop_scatter_data ||
+                  [])].filter(p => p.cop > 0 && p.temp < 20).sort((a, b) =>
+                  a.temp - b.temp);
+
                   return d.map(p => [now - (20 - p.temp) * 3600000, p.cop]);
               - entity: sensor.quatt_warmteanalyse_average_cop
                 name: COP trendlijn
                 color: "#90CAF9"
                 type: line
                 curve: straight
-                data_generator: |
-                  const attrs = hass.states['sensor.quatt_warmteanalyse_average_cop']?.attributes || {};
-                  const d = [...(attrs.cop_scatter_data || [])].filter(p => p.cop > 0 && p.temp < 20).sort((a, b) => a.temp - b.temp);
+                data_generator: >
+                  const attrs =
+                  hass.states['sensor.quatt_warmteanalyse_average_cop']?.attributes
+                  || {};
+
+                  const d = [...(attrs.cop_scatter_data || [])].filter(p =>
+                  p.cop > 0 && p.temp < 20).sort((a, b) => a.temp - b.temp);
+
                   if (d.length < 2) return [];
+
                   const now = Date.now(), pts = [];
+
                   for (let i = 0; i < d.length - 1; i++) {
                     const steps = Math.max(1, Math.round((d[i+1].temp - d[i].temp) / 0.25));
                     for (let s = 0; s <= steps; s++) {
@@ -535,7 +680,10 @@ views:
                       ]);
                     }
                   }
-                  if (pts.length > 0) pts.push([now - (20 - d[d.length-1].temp) * 3600000, null]);
+
+                  if (pts.length > 0) pts.push([now - (20 - d[d.length-1].temp)
+                  * 3600000, null]);
+
                   return pts;
             grid_options:
               columns: 24
