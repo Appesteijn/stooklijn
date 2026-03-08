@@ -202,6 +202,13 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
         attr_fn=lambda _: None,
     ),
     QuattSensorDescription(
+        key="data_stats",
+        name="Data Statistieken",
+        icon="mdi:database-outline",
+        value_fn=lambda d: d.data_stats.get("daily_days", 0) if d.data_stats else 0,
+        attr_fn=lambda d: d.data_stats if d.data_stats else None,
+    ),
+    QuattSensorDescription(
         key="actual_stooklijn",
         name="Actual Stooklijn Setting",
         native_unit_of_measurement="W/°C",

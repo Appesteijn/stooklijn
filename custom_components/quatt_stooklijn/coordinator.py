@@ -13,7 +13,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .analysis.gas import async_fetch_gas_data
 from .analysis.heat_loss import HeatLossResult, calculate_heat_loss
-from .analysis.quatt import async_fetch_quatt_insights
+from .analysis.quatt import async_fetch_quatt_insights, async_get_cache_stats
 from .analysis.stooklijn import (
     StooklijnResult,
     async_fetch_live_history,
@@ -77,6 +77,9 @@ class QuattStooklijnData:
     # Actual Quatt stooklijn settings (calculated from config points)
     actual_stooklijn_slope: float | None = None
     actual_stooklijn_intercept: float | None = None
+
+    # Data availability stats (populated after each analysis run)
+    data_stats: dict = field(default_factory=dict)
 
 
 class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
@@ -212,6 +215,22 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             if len(cop_valid) > 0:
                 average_cop = float(cop_valid.mean())
 
+        # Collect data availability stats
+        cache_stats = await async_get_cache_stats(self.hass)
+        knee_stats = self._knee_store.get_stats()
+        computed_data_stats = {
+            "daily_days": len(df_daily) if not df_daily.empty else 0,
+            "hourly_hours": len(df_hourly) if not df_hourly.empty else 0,
+            "minute_minutes": len(df_ha_merged) if df_ha_merged is not None and not df_ha_merged.empty else 0,
+            "cache_days": cache_stats["total_days"],
+            "cache_oldest": cache_stats["oldest_date"],
+            "cache_newest": cache_stats["newest_date"],
+            "knee_store_days": knee_stats["total_days"],
+            "knee_store_points": knee_stats["total_points"],
+            "knee_store_oldest": knee_stats["oldest_date"],
+            "knee_store_newest": knee_stats["newest_date"],
+        }
+
         # Assemble results
         self.data = QuattStooklijnData(
             stooklijn=stooklijn_result,
@@ -222,6 +241,7 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             analysis_status="completed",
             actual_stooklijn_slope=self.data.actual_stooklijn_slope,
             actual_stooklijn_intercept=self.data.actual_stooklijn_intercept,
+            data_stats=computed_data_stats,
         )
 
         _LOGGER.info("Quatt Stooklijn analysis completed")

@@ -239,6 +239,13 @@ async def _async_fetch_api_days(
     return hourly_chunks, daily_records, api_calls_made, cache_hits
 
 
+async def async_get_cache_stats(hass: HomeAssistant) -> dict:
+    """Return current QuattInsightsCache statistics without triggering a load."""
+    if _cache is None:
+        return {"total_days": 0, "oldest_date": None, "newest_date": None}
+    return _cache.get_stats()
+
+
 async def async_fetch_quatt_insights(
     hass: HomeAssistant,
     start_date: str,
