@@ -412,6 +412,15 @@ views:
                   formatter: >-
                     EVAL:function(val) { return Math.round(20 - (new
                     Date().getTime() - val) / 3600000) + '°C'; }
+              markers:
+                size:
+                  - 4
+                  - 0
+                  - 0
+                  - 0
+                  - 0
+                  - 4
+                  - 0
               legend:
                 position: bottom
             series:
@@ -643,6 +652,10 @@ views:
                   formatter: >-
                     EVAL:function(val) { return Math.round(20 - (new
                     Date().getTime() - val) / 3600000) + '°C'; }
+              markers:
+                size:
+                  - 4
+                  - 0
               legend:
                 position: bottom
             series:
