@@ -10,48 +10,7 @@ views:
         cards:
           - square: false
             type: grid
-            columns: 3
-            cards:
-              - type: entity
-                entity: text.quatt_warmteanalyse_analyse_startdatum
-                name: Startdatum
-              - type: entity
-                entity: text.quatt_warmteanalyse_analyse_einddatum
-                name: Einddatum
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_last_analysis
-                name: Laatste Analyse
-                icon: mdi:clock-check-outline
-              - show_name: true
-                show_icon: true
-                type: button
-                name: Analyse Starten
-                icon: mdi:play-circle
-                tap_action:
-                  action: call-service
-                  service: quatt_stooklijn.run_analysis
-                icon_height: 48px
-              - show_name: true
-                show_icon: true
-                type: button
-                name: Data Wissen
-                icon: mdi:delete-outline
-                tap_action:
-                  action: call-service
-                  service: quatt_stooklijn.clear_data
-                  confirmation:
-                    text: Weet je zeker dat je alle analysedata wilt wissen?
-                icon_height: 48px
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_analysis_status
-                name: Status
-                icon: mdi:information-outline
-            grid_options: &ref_0
-              columns: 24
-              rows: auto
-          - square: false
-            type: grid
-            columns: 3
+            columns: 4
             cards:
               - type: entity
                 entity: sensor.quatt_warmteanalyse_average_cop
@@ -81,7 +40,43 @@ views:
                 entity: sensor.heatpump_thermostat_control_setpoint
                 name: Quatt Setpoint
                 icon: mdi:thermometer-chevron-up
-            grid_options: *ref_0
+              - type: entity
+                entity: text.quatt_warmteanalyse_analyse_startdatum
+                name: Startdatum
+              - type: entity
+                entity: text.quatt_warmteanalyse_analyse_einddatum
+                name: Einddatum
+              - type: entity
+                entity: sensor.quatt_warmteanalyse_last_analysis
+                name: Laatste Analyse
+                icon: mdi:clock-check-outline
+              - type: entity
+                entity: sensor.quatt_warmteanalyse_analysis_status
+                name: Status
+                icon: mdi:information-outline
+              - show_name: true
+                show_icon: true
+                type: button
+                name: Analyse Starten
+                icon: mdi:play-circle
+                tap_action:
+                  action: call-service
+                  service: quatt_stooklijn.run_analysis
+                icon_height: 48px
+              - show_name: true
+                show_icon: true
+                type: button
+                name: Data Wissen
+                icon: mdi:delete-outline
+                tap_action:
+                  action: call-service
+                  service: quatt_stooklijn.clear_data
+                  confirmation:
+                    text: Weet je zeker dat je alle analysedata wilt wissen?
+                icon_height: 48px
+            grid_options:
+              columns: 24
+              rows: auto
           - type: markdown
             title: Stooklijn aanpassen?
             content: >
