@@ -690,22 +690,22 @@ views:
 
                   if (d.length < 2) return [];
 
-                  const now = Date.now(), pts = [];
+                  const n = d.length, sumX = d.reduce((s,p) => s+p.temp, 0),
+                  sumY = d.reduce((s,p) => s+p.cop, 0), sumXY =
+                  d.reduce((s,p) => s+p.temp*p.cop, 0), sumX2 =
+                  d.reduce((s,p) => s+p.temp*p.temp, 0);
 
-                  for (let i = 0; i < d.length - 1; i++) {
-                    const steps = Math.max(1, Math.round((d[i+1].temp - d[i].temp) / 0.25));
-                    for (let s = 0; s <= steps; s++) {
-                      const f = s / steps;
-                      const t = d[i].temp + f * (d[i+1].temp - d[i].temp);
-                      pts.push([
-                        now - (20 - t) * 3600000,
-                        d[i].cop + f * (d[i+1].cop - d[i].cop)
-                      ]);
-                    }
-                  }
+                  const slope = (n*sumXY - sumX*sumY) / (n*sumX2 - sumX*sumX);
 
-                  if (pts.length > 0) pts.push([now - (20 - d[d.length-1].temp)
-                  * 3600000, null]);
+                  const intercept = (sumY - slope*sumX) / n;
+
+                  const now = Date.now(), pts = [], minT = d[0].temp, maxT =
+                  d[d.length-1].temp;
+
+                  for (let t = minT; t <= maxT; t += 0.5) pts.push([now - (20 -
+                  t) * 3600000, slope*t + intercept]);
+
+                  pts.push([now - (20 - maxT) * 3600000, null]);
 
                   return pts;
             grid_options:
