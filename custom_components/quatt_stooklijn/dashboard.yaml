@@ -192,7 +192,7 @@ views:
 
               {% endif %}
             grid_options:
-              columns: 8
+              columns: 16
               rows: 6
           - type: history-graph
             title: Aanvoertemperatuur — Aanbevolen vs Quatt
@@ -205,7 +205,7 @@ views:
               - entity: sensor.heatpump_flowmeter_temperature
                 name: Werkelijk (flowmeter)
             grid_options:
-              columns: 16
+              columns: 32
               rows: 6
       - type: grid
         column_span: 4
@@ -287,7 +287,7 @@ views:
               rows: auto
           - type: markdown
             title: Databeschikbaarheid
-            content: >
+            content: |
               {% set s = state_attr('sensor.quatt_warmteanalyse_data_statistieken', 'daily_days') %}
 
               {% if s is not none %}
