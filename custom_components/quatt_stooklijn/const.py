@@ -30,6 +30,7 @@ CONF_RETURN_TEMP_ENTITY = "return_temp_entity"
 
 DEFAULT_FLOW_ENTITY = "sensor.heatpump_flowmeter_flowrate"
 DEFAULT_RETURN_TEMP_ENTITY = "sensor.heatpump_hp1_temperature_water_in"
+MIN_FLOW_LPH = 30  # l/h — below this the pump is not actively circulating
 
 # Default temperature entities (in priority order)
 DEFAULT_TEMP_ENTITIES = [

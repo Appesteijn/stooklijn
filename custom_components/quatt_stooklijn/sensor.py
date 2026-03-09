@@ -25,6 +25,7 @@ from .const import (
     DEFAULT_FLOW_ENTITY,
     DEFAULT_RETURN_TEMP_ENTITY,
     DOMAIN,
+    MIN_FLOW_LPH,
 )
 from .coordinator import QuattStooklijnCoordinator, QuattStooklijnData
 
@@ -483,7 +484,7 @@ class QuattSupplyTempSensor(
         t_return = self._get_float_state(self._return_temp_entity)
         flow_lph = self._get_float_state(self._flow_entity)
 
-        if t_outdoor is None or t_return is None or flow_lph is None or flow_lph <= 0:
+        if t_outdoor is None or t_return is None or flow_lph is None or flow_lph < MIN_FLOW_LPH:
             return None
 
         heat_demand_w = max(0.0, heat_loss.slope * t_outdoor + heat_loss.intercept)
