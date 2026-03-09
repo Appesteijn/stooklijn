@@ -207,7 +207,7 @@ views:
               {% endif %}
             grid_options:
               columns: 18
-              rows: 5
+              rows: 6
           - type: markdown
             title: Databeschikbaarheid
             content: >
@@ -291,7 +291,7 @@ views:
               {% endif %}
             grid_options:
               columns: 15
-              rows: 5
+              rows: 6
           - type: markdown
             title: Warmtevraag bij verschillende temperaturen
             content: >
@@ -322,7 +322,7 @@ views:
               {% endif %}
             grid_options:
               columns: 15
-              rows: 5
+              rows: 6
           - type: history-graph
             title: Aanvoertemperatuur — Aanbevolen vs Quatt
             hours_to_show: 24
@@ -385,7 +385,6 @@ views:
         column_span: 4
         cards:
           - type: custom:apexcharts-card
-            chart_type: scatter
             header:
               title: Huis thermisch profiel
               show: true
@@ -413,12 +412,23 @@ views:
                   formatter: >-
                     EVAL:function(val) { return Math.round(20 - (new
                     Date().getTime() - val) / 3600000) + '°C'; }
+              markers:
+                size:
+                  - 4
+                  - 0
+                  - 0
+                  - 0
+                  - 0
+                  - 4
+                  - 0
               legend:
                 position: bottom
             series:
               - entity: sensor.quatt_warmteanalyse_optimal_stooklijn_slope
                 name: Dagelijkse warmtevraag
                 color: "#66BB6A"
+                type: line
+                stroke_width: 0
                 data_generator: >
                   const attrs =
                   hass.states['sensor.quatt_warmteanalyse_optimal_stooklijn_slope']?.attributes
@@ -435,6 +445,7 @@ views:
                 name: Optimale stooklijn
                 color: "#4CAF50"
                 type: line
+                stroke_width: 2
                 curve: straight
                 data_generator: >
                   const st =
@@ -460,6 +471,7 @@ views:
                 name: Quatt stooklijn (geschat)
                 color: "#FFC107"
                 type: line
+                stroke_width: 2
                 curve: straight
                 data_generator: >
                   const attrs =
@@ -485,6 +497,7 @@ views:
                 name: Geconfigureerde instelling
                 color: "#2196F3"
                 type: line
+                stroke_width: 2
                 curve: straight
                 data_generator: >
                   const st =
@@ -509,6 +522,7 @@ views:
                 name: HP capaciteit (vorst)
                 color: "#1E88E5"
                 type: line
+                stroke_width: 2
                 curve: straight
                 data_generator: >
                   const st =
@@ -534,6 +548,8 @@ views:
               - entity: sensor.quatt_warmteanalyse_gas_heat_loss_coefficient
                 name: Gas data
                 color: "#FFB74D"
+                type: line
+                stroke_width: 0
                 data_generator: >
                   const attrs =
                   hass.states['sensor.quatt_warmteanalyse_gas_heat_loss_coefficient']?.attributes
@@ -549,6 +565,7 @@ views:
                 name: Gas trendlijn
                 color: "#FF9800"
                 type: line
+                stroke_width: 2
                 curve: straight
                 data_generator: >
                   const attrs =
@@ -610,7 +627,6 @@ views:
               columns: 24
               rows: auto
           - type: custom:apexcharts-card
-            chart_type: scatter
             header:
               title: COP vs Buitentemperatuur
               show: true
@@ -636,12 +652,18 @@ views:
                   formatter: >-
                     EVAL:function(val) { return Math.round(20 - (new
                     Date().getTime() - val) / 3600000) + '°C'; }
+              markers:
+                size:
+                  - 4
+                  - 0
               legend:
                 position: bottom
             series:
               - entity: sensor.quatt_warmteanalyse_average_cop
                 name: Dagelijkse COP
                 color: "#2196F3"
+                type: line
+                stroke_width: 0
                 data_generator: >
                   const attrs =
                   hass.states['sensor.quatt_warmteanalyse_average_cop']?.attributes
@@ -656,6 +678,7 @@ views:
                 name: COP trendlijn
                 color: "#90CAF9"
                 type: line
+                stroke_width: 2
                 curve: straight
                 data_generator: >
                   const attrs =
@@ -667,22 +690,22 @@ views:
 
                   if (d.length < 2) return [];
 
-                  const now = Date.now(), pts = [];
+                  const n = d.length, sumX = d.reduce((s,p) => s+p.temp, 0),
+                  sumY = d.reduce((s,p) => s+p.cop, 0), sumXY =
+                  d.reduce((s,p) => s+p.temp*p.cop, 0), sumX2 =
+                  d.reduce((s,p) => s+p.temp*p.temp, 0);
 
-                  for (let i = 0; i < d.length - 1; i++) {
-                    const steps = Math.max(1, Math.round((d[i+1].temp - d[i].temp) / 0.25));
-                    for (let s = 0; s <= steps; s++) {
-                      const f = s / steps;
-                      const t = d[i].temp + f * (d[i+1].temp - d[i].temp);
-                      pts.push([
-                        now - (20 - t) * 3600000,
-                        d[i].cop + f * (d[i+1].cop - d[i].cop)
-                      ]);
-                    }
-                  }
+                  const slope = (n*sumXY - sumX*sumY) / (n*sumX2 - sumX*sumX);
 
-                  if (pts.length > 0) pts.push([now - (20 - d[d.length-1].temp)
-                  * 3600000, null]);
+                  const intercept = (sumY - slope*sumX) / n;
+
+                  const now = Date.now(), pts = [], minT = d[0].temp, maxT =
+                  d[d.length-1].temp;
+
+                  for (let t = minT; t <= maxT; t += 0.5) pts.push([now - (20 -
+                  t) * 3600000, slope*t + intercept]);
+
+                  pts.push([now - (20 - maxT) * 3600000, null]);
 
                   return pts;
             grid_options:
