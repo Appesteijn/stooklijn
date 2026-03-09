@@ -10,7 +10,7 @@ views:
         cards:
           - square: false
             type: grid
-            columns: 2
+            columns: 3
             cards:
               - type: entity
                 entity: sensor.quatt_warmteanalyse_average_cop
