@@ -21,6 +21,7 @@ from ..const import (
     DAYS_HISTORY,
     KEEP_THRESHOLD,
     MIN_HEATING_WATTS,
+    MIN_MODULATION_WATTS,
     MIN_POWER_FILTER,
     OUTLIER_STD_THRESHOLD,
 )
@@ -567,31 +568,6 @@ def calculate_stooklijn(
                 len(x_all),
             )
 
-    # Compute daily-based warm-side regression (temp >= knee, totalHeatPerHour >= threshold).
-    # This mirrors the notebook approach and gives a realistic Quatt balance temperature
-    # (vs the minute-based slope_api which over-extrapolates to ~26°C).
-    if df_daily is not None and not df_daily.empty:
-        cols_needed = ["avg_temperatureOutside", "totalHeatPerHour"]
-        if all(c in df_daily.columns for c in cols_needed):
-            df_warm = df_daily[
-                (df_daily["avg_temperatureOutside"] >= dynamic_min_temp)
-                & (df_daily["totalHeatPerHour"] >= MIN_HEATING_WATTS)
-            ][cols_needed].dropna()
-            if len(df_warm) > 1:
-                x_d = df_warm["avg_temperatureOutside"].values
-                y_d = df_warm["totalHeatPerHour"].values
-                slope_d, intercept_d = np.polyfit(x_d, y_d, 1)
-                result.slope_api_daily = float(slope_d)
-                result.intercept_api_daily = float(intercept_d)
-                if slope_d != 0:
-                    result.balance_temp_api_daily = float(-intercept_d / slope_d)
-                    _LOGGER.info(
-                        "Daily-based stooklijn: slope=%.1f W/°C, zero at %.1f°C (%d days)",
-                        slope_d,
-                        result.balance_temp_api_daily,
-                        len(df_warm),
-                    )
-
     # =========================================================
     # STEP 2: Max-envelope analysis (freezing performance)
     # =========================================================
@@ -713,6 +689,53 @@ def calculate_stooklijn(
                         }
                     )
                 result.scatter_data = scatter
+
+        # =========================================================
+        # STEP 3b: Daily-based Quatt stooklijn estimation
+        # =========================================================
+        # Done after Step 3 so we can use slope_optimal/intercept_optimal to
+        # determine the upper temperature cutoff: days where the house heat
+        # demand (from the optimal stooklijn) would fall below Quatt's minimum
+        # modulation power are excluded, because on those days Quatt runs at
+        # minimum and delivers more heat than needed — biasing the regression
+        # toward a higher x-intercept (balance temperature).
+        cols_needed_daily = ["avg_temperatureOutside", "totalHeatPerHour"]
+        if all(c in df_daily.columns for c in cols_needed_daily):
+            # Upper cutoff: temperature where house demand < MIN_MODULATION_WATTS
+            t_max_valid = 19.0  # default: no meaningful cutoff
+            if result.slope_optimal and result.intercept_optimal and result.slope_optimal != 0:
+                t_cutoff = (MIN_MODULATION_WATTS - result.intercept_optimal) / result.slope_optimal
+                if t_cutoff < t_max_valid:
+                    t_max_valid = float(t_cutoff)
+                    _LOGGER.info(
+                        "Daily Quatt regression: upper cutoff %.1f°C "
+                        "(house demand < %d W above this temp)",
+                        t_max_valid,
+                        MIN_MODULATION_WATTS,
+                    )
+
+            df_warm = df_daily[
+                (df_daily["avg_temperatureOutside"] >= dynamic_min_temp)
+                & (df_daily["avg_temperatureOutside"] <= t_max_valid)
+                & (df_daily["totalHeatPerHour"] >= MIN_HEATING_WATTS)
+            ][cols_needed_daily].dropna()
+            if len(df_warm) > 1:
+                x_d = df_warm["avg_temperatureOutside"].values
+                y_d = df_warm["totalHeatPerHour"].values
+                slope_d, intercept_d = np.polyfit(x_d, y_d, 1)
+                result.slope_api_daily = float(slope_d)
+                result.intercept_api_daily = float(intercept_d)
+                if slope_d != 0:
+                    result.balance_temp_api_daily = float(-intercept_d / slope_d)
+                    _LOGGER.info(
+                        "Daily-based Quatt stooklijn: slope=%.1f W/°C, "
+                        "zero at %.1f°C (%d days, temp %.1f–%.1f°C)",
+                        slope_d,
+                        result.balance_temp_api_daily,
+                        len(df_warm),
+                        x_d.min(),
+                        x_d.max(),
+                    )
 
         # Build COP scatter data (only heating days with valid COP)
         if "averageCOP" in df_daily.columns and "avg_temperatureOutside" in df_daily.columns:

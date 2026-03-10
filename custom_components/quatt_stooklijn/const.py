@@ -55,6 +55,7 @@ BIN_SIZE = 0.5  # °C - temperature bin width
 KEEP_THRESHOLD = 0.90  # Keep values >= 90% of max in each bin
 DAYS_HISTORY = 30  # Days of live history for stooklijn analysis
 MIN_HEATING_WATTS = 200  # Minimum W/h to count as a heating day
+MIN_MODULATION_WATTS = 2000  # W - minimum Quatt output at lowest compressor step (30Hz, v1.5)
 
 # Service names
 SERVICE_RUN_ANALYSIS = "run_analysis"

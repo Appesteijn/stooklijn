@@ -89,8 +89,16 @@ views:
               state_attr('sensor.quatt_warmteanalyse_actual_stooklijn_setting',
               'intercept') | float(0) %}
 
+              {% set est_slope_daily =
+              state_attr('sensor.quatt_warmteanalyse_quatt_warmteanalyse_slope',
+              'slope_daily') | float(0) %}
+
+              {% set est_intercept_daily =
+              state_attr('sensor.quatt_warmteanalyse_quatt_warmteanalyse_slope',
+              'intercept_daily') | float(0) %}
+
               {% set est_balance_daily =
-              state_attr('sensor.quatt_warmteanalyse_quatt_stooklijn_slope',
+              state_attr('sensor.quatt_warmteanalyse_quatt_warmteanalyse_slope',
               'balance_temp_daily') | float(0) %}
 
               {% set slope_ratio =
@@ -114,14 +122,18 @@ views:
 
               {% elif est_balance_daily != 0 %}
 
+              {% set quatt_slope = est_slope_daily %}
+
+              {% set quatt_intercept = est_intercept_daily %}
+
               {% set quatt_balance = est_balance_daily | round(1) %}
 
               {% set quatt_source = "schatting op basis van dagelijkse data" %}
 
               {% else %}
 
-              ℹ️ Voer je huidige Quatt-instelling in via de configuratie om een
-              advies te krijgen.
+              ℹ️ Geen schatting beschikbaar — voer een analyse uit of voer je
+              Quatt-instelling handmatig in via de configuratie.
 
               {% endif %}
 
