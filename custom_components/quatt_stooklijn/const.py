@@ -98,3 +98,38 @@ MPC_SUPPLY_TEMP_MAX = 55.0  # °C
 
 # Hoeveel forecast-uren meenemen in het MPC-attribuut
 MPC_FORECAST_HOURS = 6
+
+# Open-Meteo URL template — wordt ingevuld met lat/lon uit HA config
+OPEN_METEO_FORECAST_URL = (
+    "https://api.open-meteo.com/v1/forecast"
+    "?latitude={lat}&longitude={lon}"
+    "&hourly=shortwave_radiation,cloud_cover"
+    "&forecast_days=2&timezone=Europe%2FAmsterdam"
+)
+
+# Standaard omrekeningsfactor shortwave_radiation (W/m²) → warmtewinst (W).
+# Wordt dynamisch gekalibreerd als solaredge_ac_power beschikbaar is.
+# Formule: Q_zon = shortwave_radiation × factor
+# Typische waarde ≈ effectief raamoppervlak (m²) × transmissie × absorptie (~8–12 m² netto)
+SOLAR_RADIATION_DEFAULT_FACTOR = 8.0  # W per W/m²
+
+# Zonproductie-fractie per HA weather condition (proxy voor shortwave_radiation).
+# Waarde × huidige solaredge_ac_power = geschatte zonproductie dat uur.
+# Bron: HA weather condition strings (https://www.home-assistant.io/integrations/weather/)
+CONDITION_SOLAR_FRACTION: dict[str, float] = {
+    "clear-night":       0.0,
+    "cloudy":            0.05,
+    "exceptional":       0.3,
+    "fog":               0.05,
+    "hail":              0.0,
+    "lightning":         0.0,
+    "lightning-rainy":   0.0,
+    "partlycloudy":      0.45,
+    "pouring":           0.0,
+    "rainy":             0.05,
+    "snowy":             0.05,
+    "snowy-rainy":       0.0,
+    "sunny":             1.0,
+    "windy":             0.7,
+    "windy-variant":     0.5,
+}

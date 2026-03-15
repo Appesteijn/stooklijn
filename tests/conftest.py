@@ -34,6 +34,7 @@ def _stub_ha():
     _ensure_module("homeassistant.helpers.update_coordinator")
     _ensure_module("homeassistant.helpers.entity_platform")
     _ensure_module("homeassistant.helpers.event")
+    _ensure_module("homeassistant.helpers.aiohttp_client")
     _ensure_module("homeassistant.helpers.storage")
     _ensure_module("homeassistant.components")
     _ensure_module("homeassistant.components.sensor")
@@ -120,6 +121,10 @@ def _stub_ha():
     history.state_changes_during_period = MagicMock()
     stats_mod = sys.modules["homeassistant.components.recorder.statistics"]
     stats_mod.statistics_during_period = MagicMock()
+
+    # aiohttp_client stub
+    aiohttp_mod = sys.modules["homeassistant.helpers.aiohttp_client"]
+    aiohttp_mod.async_get_clientsession = MagicMock()
 
     # Storage stub
     storage_mod = sys.modules["homeassistant.helpers.storage"]

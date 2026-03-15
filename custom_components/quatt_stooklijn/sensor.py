@@ -16,12 +16,14 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONDITION_SOLAR_FRACTION,
     CONF_FLOW_ENTITY,
     CONF_RETURN_TEMP_ENTITY,
     CONF_SOLAR_ENTITY,
@@ -36,6 +38,8 @@ from .const import (
     MPC_FORECAST_HOURS,
     MPC_SUPPLY_TEMP_MAX,
     MPC_SUPPLY_TEMP_MIN,
+    OPEN_METEO_FORECAST_URL,
+    SOLAR_RADIATION_DEFAULT_FACTOR,
     SOLAR_TO_HEAT_FACTOR,
 )
 from .coordinator import QuattStooklijnCoordinator, QuattStooklijnData
@@ -592,6 +596,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         }
         self._forecast: list[dict] = []
         self._forecast_fetched_at: float | None = None
+        self._solar_radiation: list[float] = []  # uurlijkse shortwave W/m² van Open-Meteo
 
     # ------------------------------------------------------------------ helpers
 
@@ -645,8 +650,16 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 timedelta(hours=1),
             )
         )
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass,
+                self._async_refresh_solar_radiation,
+                timedelta(hours=1),
+            )
+        )
         # Laad forecast direct bij opstarten
         await self._async_refresh_forecast()
+        await self._async_refresh_solar_radiation()
 
     async def _handle_state_change(self, event) -> None:
         self.async_write_ha_state()
@@ -667,6 +680,27 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             _LOGGER.debug("MPC: kon weersverwachting niet ophalen", exc_info=True)
             self._forecast = []
 
+        self.async_write_ha_state()
+
+    async def _async_refresh_solar_radiation(self, _=None) -> None:
+        """Haal shortwave_radiation forecast op van Open-Meteo (gratis, geen API key).
+
+        Gebruikt lat/lon uit HA config — geen handmatige instelling nodig.
+        Slaat 48 uurlijkse W/m² waarden op in self._solar_radiation.
+        """
+        lat = self.hass.config.latitude
+        lon = self.hass.config.longitude
+        url = OPEN_METEO_FORECAST_URL.format(lat=lat, lon=lon)
+        try:
+            session = async_get_clientsession(self.hass)
+            async with session.get(url, timeout=10) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    self._solar_radiation = data.get("hourly", {}).get("shortwave_radiation", [])
+                else:
+                    _LOGGER.debug("Open-Meteo response %s", resp.status)
+        except Exception:
+            _LOGGER.debug("Open-Meteo fetch mislukt", exc_info=True)
         self.async_write_ha_state()
 
     # ------------------------------------------------------------------ value
@@ -721,13 +755,48 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         )
         net_demand = max(0.0, raw_demand - solar_gain_w) if raw_demand is not None else None
 
+        # Dynamische kalibratie: bereken radiation_factor uit live solar + Open-Meteo uur 0.
+        # Als de zon schijnt (solar_w > 50) én Open-Meteo data beschikbaar is:
+        #   factor = (solaredge_W × SOLAR_TO_HEAT_FACTOR) / shortwave_radiation_Wm2
+        # Dit geeft het effectieve warmtewinst-oppervlak gecalibreerd op het huidige huis.
+        now_hour = dt_util.now().hour
+        radiation_factor = SOLAR_RADIATION_DEFAULT_FACTOR
+        radiation_source = "default"
+        if self._solar_radiation:
+            rad_now = (
+                self._solar_radiation[now_hour]
+                if now_hour < len(self._solar_radiation)
+                else 0.0
+            )
+            if solar_w > 50 and rad_now > 50:
+                radiation_factor = (solar_w * SOLAR_TO_HEAT_FACTOR) / rad_now
+                radiation_source = "calibrated"
+            elif rad_now <= 0:
+                radiation_source = "open_meteo_night"
+            else:
+                radiation_source = "open_meteo_default"
+
         # Bouw 6-uurs forecast
         forecast_out: list[dict] = []
         for i, point in enumerate(self._forecast[:MPC_FORECAST_HOURS]):
             fc_temp = point.get("temperature")
             if fc_temp is None:
                 continue
-            fc_solar_gain = solar_gain_w if i == 0 else 0.0  # alleen huidig uur heeft live solar
+            condition = point.get("condition", "")
+            if i == 0:
+                # Uur 0: altijd live solaredge meting (meest nauwkeurig)
+                fc_solar_gain = solar_gain_w
+                fc_rad_wm2 = None
+            else:
+                rad_idx = now_hour + i
+                if self._solar_radiation and rad_idx < len(self._solar_radiation):
+                    fc_rad_wm2 = self._solar_radiation[rad_idx]
+                    fc_solar_gain = fc_rad_wm2 * radiation_factor
+                else:
+                    # Fallback: condition-fractie × huidige solar
+                    fc_rad_wm2 = None
+                    fraction = CONDITION_SOLAR_FRACTION.get(condition, 0.3)
+                    fc_solar_gain = solar_w * fraction * SOLAR_TO_HEAT_FACTOR
             fc_raw = max(0.0, heat_loss.slope * fc_temp + heat_loss.intercept)
             fc_net = max(0.0, fc_raw - fc_solar_gain)
             fc_supply = None
@@ -739,9 +808,11 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             forecast_out.append({
                 "hour": i,
                 "datetime": point.get("datetime"),
+                "condition": condition,
                 "temp_forecast": fc_temp,
-                "heat_demand_w": round(fc_raw),
+                "shortwave_wm2": fc_rad_wm2,
                 "solar_gain_w": round(fc_solar_gain),
+                "heat_demand_w": round(fc_raw),
                 "net_demand_w": round(fc_net),
                 "supply_temp": fc_supply,
             })
@@ -754,6 +825,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             "solar_gain_w": round(solar_gain_w),
             "heat_demand_w": round(raw_demand) if raw_demand is not None else None,
             "net_demand_w": round(net_demand) if net_demand is not None else None,
-            "solar_factor": SOLAR_TO_HEAT_FACTOR,
+            "radiation_factor": round(radiation_factor, 3),
+            "radiation_source": radiation_source,
             "forecast_6h": forecast_out,
         }
