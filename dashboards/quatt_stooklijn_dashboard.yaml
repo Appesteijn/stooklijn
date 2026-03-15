@@ -37,6 +37,10 @@ views:
                 name: Aanbevolen Aanvoer
                 icon: mdi:thermometer-water
               - type: entity
+                entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
+                name: MPC Aanvoer (shadow)
+                icon: mdi:brain
+              - type: entity
                 entity: sensor.heatpump_thermostat_control_setpoint
                 name: Quatt Setpoint
                 icon: mdi:thermometer-chevron-up
@@ -336,11 +340,13 @@ views:
               columns: 15
               rows: 6
           - type: history-graph
-            title: Aanvoertemperatuur — Aanbevolen vs Quatt
+            title: Aanvoertemperatuur — Aanbevolen vs MPC vs Quatt
             hours_to_show: 24
             entities:
               - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-                name: Aanbevolen
+                name: Aanbevolen (stooklijn)
+              - entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
+                name: MPC (shadow)
               - entity: sensor.heatpump_thermostat_control_setpoint
                 name: Quatt setpoint
               - entity: sensor.heatpump_flowmeter_temperature
@@ -603,7 +609,7 @@ views:
               columns: 24
               rows: auto
           - type: custom:mini-graph-card
-            name: Aanvoertemperatuur — Werkelijk vs Aanbevolen
+            name: Aanvoertemperatuur — Werkelijk vs Aanbevolen vs MPC
             hours_to_show: 336
             points_per_hour: 1
             line_width: 1.5
@@ -612,8 +618,11 @@ views:
                 name: Werkelijke aanvoertemp
                 color: "#64B5F6"
               - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-                name: Aanbevolen aanvoertemp
+                name: Aanbevolen (stooklijn)
                 color: "#4CAF50"
+              - entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
+                name: MPC (shadow)
+                color: "#E040FB"
               - entity: sensor.heatpump_hp1_temperature_outside
                 name: Buitentemperatuur
                 color: "#90A4AE"
