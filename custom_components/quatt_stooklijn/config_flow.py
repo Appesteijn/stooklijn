@@ -21,18 +21,24 @@ from .const import (
     CONF_GAS_END_DATE,
     CONF_GAS_START_DATE,
     CONF_HOT_WATER_TEMP_THRESHOLD,
+    CONF_INDOOR_TEMP_ENTITY,
     CONF_POWER_ENTITY,
     CONF_QUATT_END_DATE,
     CONF_QUATT_START_DATE,
     CONF_RETURN_TEMP_ENTITY,
+    CONF_SOLAR_ENTITY,
     CONF_TEMP_ENTITIES,
+    CONF_WEATHER_ENTITY,
     DEFAULT_BOILER_EFFICIENCY,
     DEFAULT_FLOW_ENTITY,
     DEFAULT_GAS_CALORIFIC_VALUE,
     DEFAULT_HOT_WATER_TEMP_THRESHOLD,
+    DEFAULT_INDOOR_TEMP_ENTITY,
     DEFAULT_POWER_ENTITY,
     DEFAULT_RETURN_TEMP_ENTITY,
+    DEFAULT_SOLAR_ENTITY,
     DEFAULT_TEMP_ENTITIES,
+    DEFAULT_WEATHER_ENTITY,
     DOMAIN,
 )
 
@@ -210,6 +216,28 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_RETURN_TEMP_ENTITY,
                     default=DEFAULT_RETURN_TEMP_ENTITY,
                 ): str,
+                # --- MPC / zonnewinst ---
+                # Zonnestroom-sensor in Watt. Gebruik bij voorkeur de output van
+                # je omvormer (bijv. sensor.solaredge_ac_power). Heb je geen PV,
+                # laat dan leeg of gebruik een stralingsensor (W/m² × dakoppervlak).
+                vol.Optional(
+                    CONF_SOLAR_ENTITY,
+                    default=DEFAULT_SOLAR_ENTITY,
+                ): str,
+                # Weersverwachting-entiteit voor het MPC forecast-venster.
+                # Standaard weather.home (Open-Meteo via HA weather integratie).
+                vol.Optional(
+                    CONF_WEATHER_ENTITY,
+                    default=DEFAULT_WEATHER_ENTITY,
+                ): str,
+                # Kamertemperatuur voor RC-model kalibratie (solar gain learning).
+                # Gebruik bij voorkeur een sensor dicht bij een groot zuidraam:
+                # die reageert het snelst op zon en geeft het scherpste leersignaal.
+                # Elke kamerthermometer werkt; hoe dichter bij de zon, hoe beter.
+                vol.Optional(
+                    CONF_INDOOR_TEMP_ENTITY,
+                    default=DEFAULT_INDOOR_TEMP_ENTITY,
+                ): str,
             }
         )
 
@@ -286,6 +314,18 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(
                         CONF_RETURN_TEMP_ENTITY,
                         default=data.get(CONF_RETURN_TEMP_ENTITY, DEFAULT_RETURN_TEMP_ENTITY),
+                    ): str,
+                    vol.Optional(
+                        CONF_SOLAR_ENTITY,
+                        default=data.get(CONF_SOLAR_ENTITY, DEFAULT_SOLAR_ENTITY),
+                    ): str,
+                    vol.Optional(
+                        CONF_WEATHER_ENTITY,
+                        default=data.get(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY),
+                    ): str,
+                    vol.Optional(
+                        CONF_INDOOR_TEMP_ENTITY,
+                        default=data.get(CONF_INDOOR_TEMP_ENTITY, DEFAULT_INDOOR_TEMP_ENTITY),
                     ): str,
                 }
             ),

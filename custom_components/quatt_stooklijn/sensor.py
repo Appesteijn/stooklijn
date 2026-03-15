@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
+import logging
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -15,19 +17,30 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_FLOW_ENTITY,
     CONF_RETURN_TEMP_ENTITY,
+    CONF_SOLAR_ENTITY,
     CONF_TEMP_ENTITIES,
+    CONF_WEATHER_ENTITY,
     DEFAULT_FLOW_ENTITY,
     DEFAULT_RETURN_TEMP_ENTITY,
+    DEFAULT_SOLAR_ENTITY,
+    DEFAULT_WEATHER_ENTITY,
     DOMAIN,
     MIN_FLOW_LPH,
+    MPC_FORECAST_HOURS,
+    MPC_SUPPLY_TEMP_MAX,
+    MPC_SUPPLY_TEMP_MIN,
+    SOLAR_TO_HEAT_FACTOR,
 )
 from .coordinator import QuattStooklijnCoordinator, QuattStooklijnData
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -243,6 +256,7 @@ async def async_setup_entry(
     ]
     entities.append(QuattSupplyTempSensor(coordinator, entry))
     entities.append(QuattEstimatedCopSensor(coordinator, entry))
+    entities.append(QuattMpcSensor(coordinator, entry))
 
     async_add_entities(entities)
 
@@ -518,4 +532,228 @@ class QuattSupplyTempSensor(
             "return_temp": t_return,
             "flow_lph": flow_lph,
             "heat_demand_w": heat_demand_w,
+        }
+
+
+def _calc_mpc_supply_temp(
+    heat_loss_slope: float,
+    heat_loss_intercept: float,
+    balance_point: float,
+    t_outdoor: float,
+    t_return: float,
+    flow_lph: float,
+    solar_gain_w: float,
+) -> float | None:
+    """Bereken MPC aanvoertemperatuur.
+
+    warmtevraag = UA × max(0, T_balance - T_buiten) − Q_zon
+    T_aanvoer   = T_retour + max(0, warmtevraag) / (1.16 × debiet)
+    """
+    if flow_lph < MIN_FLOW_LPH:
+        return None
+    raw_demand = heat_loss_slope * t_outdoor + heat_loss_intercept
+    net_demand = max(0.0, raw_demand - solar_gain_w)
+    t_supply = t_return + net_demand / (1.16 * flow_lph)
+    return max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, t_supply))
+
+
+class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity):
+    """Shadow-mode MPC sensor: aanbevolen aanvoertemperatuur op basis van
+    weersvoorspelling + zonnewinst.
+
+    Schrijft NIKS naar OTGW of klimaat-entiteiten — puur observatie voor
+    vergelijking met de huidige stooklijn.
+
+    Verversing:
+    - Weersverwachting: elke uur via timer
+    - Aanvoertemp: bij elke state-change van buitentemp / solar / flow / retour
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "MPC Aanbevolen Aanvoertemperatuur"
+    _attr_native_unit_of_measurement = "°C"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:brain"
+
+    def __init__(
+        self,
+        coordinator: QuattStooklijnCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_mpc_recommended_supply_temp"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "Quatt Warmteanalyse",
+            "manufacturer": "Quatt",
+            "model": "Warmteanalyse",
+        }
+        self._forecast: list[dict] = []
+        self._forecast_fetched_at: float | None = None
+
+    # ------------------------------------------------------------------ helpers
+
+    @property
+    def _outdoor_entity(self) -> str:
+        temp_entities = self._entry.data.get(CONF_TEMP_ENTITIES, [])
+        return temp_entities[0] if temp_entities else "sensor.heatpump_hp1_temperature_outside"
+
+    @property
+    def _flow_entity(self) -> str:
+        return self._entry.data.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY)
+
+    @property
+    def _return_temp_entity(self) -> str:
+        return self._entry.data.get(CONF_RETURN_TEMP_ENTITY, DEFAULT_RETURN_TEMP_ENTITY)
+
+    @property
+    def _solar_entity(self) -> str:
+        return self._entry.data.get(CONF_SOLAR_ENTITY, DEFAULT_SOLAR_ENTITY)
+
+    @property
+    def _weather_entity(self) -> str:
+        return self._entry.data.get(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
+
+    def _get_float_state(self, entity_id: str) -> float | None:
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable", "None", ""):
+            return None
+        try:
+            return float(state.state)
+        except (ValueError, TypeError):
+            return None
+
+    # ------------------------------------------------------------------ lifecycle
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                [self._outdoor_entity, self._flow_entity,
+                 self._return_temp_entity, self._solar_entity],
+                self._handle_state_change,
+            )
+        )
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass,
+                self._async_refresh_forecast,
+                timedelta(hours=1),
+            )
+        )
+        # Laad forecast direct bij opstarten
+        await self._async_refresh_forecast()
+
+    async def _handle_state_change(self, event) -> None:
+        self.async_write_ha_state()
+
+    async def _async_refresh_forecast(self, _now=None) -> None:
+        """Haal hourly weersverwachting op via HA weather service."""
+        try:
+            result = await self.hass.services.async_call(
+                "weather",
+                "get_forecasts",
+                {"entity_id": self._weather_entity, "type": "hourly"},
+                blocking=True,
+                return_response=True,
+            )
+            entity_data = result.get(self._weather_entity, {})
+            self._forecast = entity_data.get("forecast", [])
+        except Exception:
+            _LOGGER.debug("MPC: kon weersverwachting niet ophalen", exc_info=True)
+            self._forecast = []
+
+        self.async_write_ha_state()
+
+    # ------------------------------------------------------------------ value
+
+    @property
+    def native_value(self) -> float | None:
+        """Aanbevolen aanvoertemp voor het huidige moment."""
+        if self.coordinator.data is None:
+            return None
+        heat_loss = self.coordinator.data.heat_loss_hp
+        if heat_loss.slope is None or heat_loss.intercept is None or heat_loss.balance_point is None:
+            return None
+
+        t_outdoor = self._get_float_state(self._outdoor_entity)
+        t_return = self._get_float_state(self._return_temp_entity)
+        flow_lph = self._get_float_state(self._flow_entity)
+        solar_w = self._get_float_state(self._solar_entity) or 0.0
+
+        if t_outdoor is None or t_return is None or flow_lph is None:
+            return None
+
+        solar_gain_w = solar_w * SOLAR_TO_HEAT_FACTOR
+        return _calc_mpc_supply_temp(
+            heat_loss.slope,
+            heat_loss.intercept,
+            heat_loss.balance_point,
+            t_outdoor,
+            t_return,
+            flow_lph,
+            solar_gain_w,
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        """Attribuut met 6-uurs voorspelling + huidige inputs."""
+        if self.coordinator.data is None:
+            return None
+        heat_loss = self.coordinator.data.heat_loss_hp
+        if heat_loss.slope is None or heat_loss.intercept is None:
+            return None
+
+        t_outdoor = self._get_float_state(self._outdoor_entity)
+        t_return = self._get_float_state(self._return_temp_entity)
+        flow_lph = self._get_float_state(self._flow_entity)
+        solar_w = self._get_float_state(self._solar_entity) or 0.0
+        solar_gain_w = solar_w * SOLAR_TO_HEAT_FACTOR
+
+        raw_demand = (
+            max(0.0, heat_loss.slope * t_outdoor + heat_loss.intercept)
+            if t_outdoor is not None
+            else None
+        )
+        net_demand = max(0.0, raw_demand - solar_gain_w) if raw_demand is not None else None
+
+        # Bouw 6-uurs forecast
+        forecast_out: list[dict] = []
+        for i, point in enumerate(self._forecast[:MPC_FORECAST_HOURS]):
+            fc_temp = point.get("temperature")
+            if fc_temp is None:
+                continue
+            fc_solar_gain = solar_gain_w if i == 0 else 0.0  # alleen huidig uur heeft live solar
+            fc_raw = max(0.0, heat_loss.slope * fc_temp + heat_loss.intercept)
+            fc_net = max(0.0, fc_raw - fc_solar_gain)
+            fc_supply = None
+            if t_return is not None and flow_lph is not None and flow_lph >= MIN_FLOW_LPH:
+                fc_supply = round(
+                    max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX,
+                        t_return + fc_net / (1.16 * flow_lph))), 1
+                )
+            forecast_out.append({
+                "hour": i,
+                "datetime": point.get("datetime"),
+                "temp_forecast": fc_temp,
+                "heat_demand_w": round(fc_raw),
+                "solar_gain_w": round(fc_solar_gain),
+                "net_demand_w": round(fc_net),
+                "supply_temp": fc_supply,
+            })
+
+        return {
+            "outdoor_temp": t_outdoor,
+            "return_temp": t_return,
+            "flow_lph": flow_lph,
+            "solar_power_w": round(solar_w),
+            "solar_gain_w": round(solar_gain_w),
+            "heat_demand_w": round(raw_demand) if raw_demand is not None else None,
+            "net_demand_w": round(net_demand) if net_demand is not None else None,
+            "solar_factor": SOLAR_TO_HEAT_FACTOR,
+            "forecast_6h": forecast_out,
         }

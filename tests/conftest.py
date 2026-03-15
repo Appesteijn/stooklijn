@@ -107,6 +107,11 @@ def _stub_ha():
     # Event helpers
     event_mod = sys.modules["homeassistant.helpers.event"]
     event_mod.async_track_state_change_event = MagicMock()
+    event_mod.async_track_time_interval = MagicMock()
+
+    # dt util
+    util_mod = sys.modules["homeassistant.util"]
+    util_mod.dt = sys.modules["homeassistant.util.dt"]
 
     # Recorder stubs
     recorder = sys.modules["homeassistant.components.recorder"]

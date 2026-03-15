@@ -60,3 +60,41 @@ MIN_MODULATION_WATTS = 2000  # W - minimum Quatt output at lowest compressor ste
 # Service names
 SERVICE_RUN_ANALYSIS = "run_analysis"
 SERVICE_CLEAR_DATA = "clear_data"
+
+# MPC / shadow-mode forecast sensor
+CONF_SOLAR_ENTITY = "solar_entity"
+CONF_WEATHER_ENTITY = "weather_entity"
+
+# Kamertemperatuur voor RC-regressie (solar gain learning).
+# Gebruik bij voorkeur een sensor dicht bij een groot zuidraam: die reageert
+# het snelst op zoninstraling en geeft het scherpste leerssignaal.
+# Elke kamerthermometer werkt, maar hoe dichter bij de zon, hoe beter.
+CONF_INDOOR_TEMP_ENTITY = "indoor_temp_entity"
+
+DEFAULT_SOLAR_ENTITY = "sensor.solaredge_ac_power"
+DEFAULT_WEATHER_ENTITY = "weather.home"
+# Meest representatieve kamerthermometer in Quatt-setups; pas aan naar jouw sensor.
+DEFAULT_INDOOR_TEMP_ENTITY = "sensor.heatpump_thermostat_room_temperature"
+
+# Raamfactor: verhouding PV-opbrengst (W) → zoninstraling woonkamer (W)
+# Empirisch: SolarEdge 2000 W ≈ ~600 W netto zonnewinst via zuidgevel-ramen
+#
+# Dit is een fallback. De voorkeur is om deze factor te leren via RC-regressie
+# op de recorder-data (zie analysis/solar_gain.py als dat geïmplementeerd is):
+#
+#   C × dT_room/dt = Q_hp + factor × solaredge − U × (T_room − T_buiten)
+#
+# Herschreven als 2-parameter OLS:
+#   dT/dt = α × [Q_hp − U × (T_room − T_buiten)] + β × solaredge
+#   → factor = β / α,  thermische massa C = 1 / α
+#
+# Als de regressie beschikbaar is (QuattStooklijnData.solar_gain_factor is not None)
+# gebruikt QuattMpcSensor die waarde; anders valt hij terug op deze constante.
+SOLAR_TO_HEAT_FACTOR = 0.30
+
+# Veiligheidsgrenzen aanvoertemperatuur MPC-sensor
+MPC_SUPPLY_TEMP_MIN = 25.0  # °C
+MPC_SUPPLY_TEMP_MAX = 55.0  # °C
+
+# Hoeveel forecast-uren meenemen in het MPC-attribuut
+MPC_FORECAST_HOURS = 6
