@@ -732,3 +732,84 @@ views:
             grid_options:
               columns: 24
               rows: auto
+
+  - title: Shadow Validatie
+    icon: mdi:compare-horizontal
+    type: sections
+    sections:
+      - type: grid
+        column_span: 4
+        cards:
+          - square: false
+            type: grid
+            columns: 4
+            cards:
+              - type: entity
+                entity: sensor.quatt_warmteanalyse_stooklijn_fout_aanvoertemperatuur
+                name: Stooklijn fout nu
+                icon: mdi:thermometer-check
+              - type: entity
+                entity: sensor.quatt_warmteanalyse_mpc_fout_aanvoertemperatuur
+                name: MPC fout nu
+                icon: mdi:thermometer-check
+              - type: entity
+                entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
+                name: Stooklijn advies
+                icon: mdi:thermometer-water
+              - type: entity
+                entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
+                name: MPC advies
+                icon: mdi:brain
+            grid_options:
+              columns: 24
+              rows: auto
+
+          - type: custom:mini-graph-card
+            name: Aanvoertemperatuur — Advies vs Werkelijk (7 dagen)
+            hours_to_show: 168
+            points_per_hour: 2
+            line_width: 1.5
+            entities:
+              - entity: sensor.heatpump_flowmeter_temperature
+                name: Werkelijk
+                color: "#90A4AE"
+              - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
+                name: Stooklijn advies
+                color: "#2196F3"
+              - entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
+                name: MPC advies
+                color: "#4CAF50"
+            grid_options:
+              columns: 24
+              rows: auto
+
+          - type: custom:mini-graph-card
+            name: Fout — Advies minus Werkelijk (7 dagen)
+            hours_to_show: 168
+            points_per_hour: 2
+            line_width: 2
+            lower_bound: -5
+            upper_bound: 5
+            entities:
+              - entity: sensor.quatt_warmteanalyse_stooklijn_fout_aanvoertemperatuur
+                name: Stooklijn fout (+ = te hoog, − = te laag)
+                color: "#2196F3"
+              - entity: sensor.quatt_warmteanalyse_mpc_fout_aanvoertemperatuur
+                name: MPC fout
+                color: "#4CAF50"
+            grid_options:
+              columns: 24
+              rows: auto
+
+          - type: custom:mini-graph-card
+            name: Buitentemperatuur (context)
+            hours_to_show: 168
+            points_per_hour: 1
+            line_width: 1
+            entities:
+              - entity: sensor.heatpump_hp1_temperature_outside
+                name: Buitentemp
+                color: "#78909C"
+            grid_options:
+              columns: 24
+              rows: auto
