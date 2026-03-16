@@ -13,7 +13,35 @@ Home Assistant custom integration for analyzing your Quatt heat pump performance
 - **COP tracking** — Average coefficient of performance and per-temperature scatter data
 - **Knee temperature** — Detects the outdoor temperature where supplemental heating (boiler) kicks in
 - **Gas comparison** (optional) — Compare heat pump performance with historical gas consumption from before installation
+- **MPC shadow sensor** — Calculates an optimal supply temperature advice based on a 6-hour weather forecast, without touching your system
 - **Dashboard included** — Pre-built Lovelace dashboard with interactive charts
+
+## MPC shadow sensor
+
+The MPC (Model Predictive Control) sensor calculates what supply temperature your heat pump *should* be running at, given the weather forecast for the next 6 hours. It runs in **shadow mode**: it only produces advice and never writes any setpoints to your system.
+
+### How it works
+
+Every update cycle the sensor:
+
+1. Fetches the outdoor temperature forecast for the next 6 hours from your weather entity
+2. Estimates solar heat gain for each hour based on solar radiation forecast (from [Open-Meteo](https://open-meteo.com/)) or your PV inverter output
+3. Applies a simple RC thermal model of your home (heat loss coefficient + thermal mass) to predict how much heat the house will need hour by hour
+4. Picks the supply temperature that keeps the house comfortable while avoiding unnecessary overheating
+
+The result is compared to the actual supply temperature via the **error sensors** on the Shadow Validatie tab:
+- A positive error means the sensor advises a higher supply temperature than what's currently running (risk of underheating)
+- A negative error means the sensor advises lower (heat pump is running warmer than necessary)
+
+### Solar gain correction
+
+If you have a PV inverter (`sensor.solaredge_ac_power` or similar), the sensor learns how much of the solar production translates into actual heat gain inside your home. This calibration improves automatically over time: on sunny days the MPC recommendation will be lower than on overcast days with the same outdoor temperature.
+
+Without a PV sensor the integration falls back to a fixed conversion factor based on Open-Meteo shortwave radiation estimates.
+
+### Shadow mode — why no live control yet
+
+Live control requires an OpenTherm Gateway (OTGW) to write setpoints to the boiler/heat pump. The integration is designed to support this in a future release. In the meantime, shadow mode lets you collect real-world validation data: after a few weeks of data you can judge whether the MPC advice would have improved efficiency before enabling live control.
 
 ## Requirements
 
@@ -112,6 +140,14 @@ If you have two heat pumps, the dashboard also references `sensor.heatpump_hp2_t
 |-----------|------------------------|
 | `sensor.thermostat_temperature_outside` | Your outdoor temperature sensor (Toon, Nest, weather station, etc.) |
 | `sensor.solaredge_ac_power` | Your solar inverter power sensor — or remove the MPC solar graph if you have no PV |
+
+**Weather forecast — required for MPC shadow sensor:**
+
+The MPC sensor needs a weather forecast entity to predict the next 6 hours of outdoor temperature and solar radiation. During setup you are asked to provide one; the default is `weather.home`.
+
+Almost every Home Assistant installation has this: the built-in [Met.no integration](https://www.home-assistant.io/integrations/met/) creates `weather.home` automatically. If your entity is named differently (e.g. `weather.your_city`), update it in **Settings > Devices & Services > Quatt Warmteanalyse > Configure**.
+
+> **No weather integration?** The MPC sensor will stay `unavailable`. Install Met.no (free, no API key) or any other HA weather integration to enable it.
 
 **Search and replace:**
 
