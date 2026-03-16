@@ -33,23 +33,12 @@ views:
                 name: Knikpunt
                 icon: mdi:thermometer-alert
               - type: entity
-                entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-                name: Aanbevolen Aanvoer
-                icon: mdi:thermometer-water
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
-                name: MPC Aanvoer (shadow)
-                icon: mdi:brain
-              - type: entity
                 entity: sensor.heatpump_thermostat_control_setpoint
                 name: Quatt Setpoint
                 icon: mdi:thermometer-chevron-up
               - type: entity
                 entity: text.quatt_warmteanalyse_analyse_startdatum
                 name: Startdatum
-              - type: entity
-                entity: text.quatt_warmteanalyse_analyse_einddatum
-                name: Einddatum
               - type: entity
                 entity: sensor.quatt_warmteanalyse_last_analysis
                 name: Laatste Analyse
@@ -339,21 +328,6 @@ views:
             grid_options:
               columns: 15
               rows: 6
-          - type: history-graph
-            title: Aanvoertemperatuur — Aanbevolen vs MPC vs Quatt
-            hours_to_show: 24
-            entities:
-              - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-                name: Aanbevolen (stooklijn)
-              - entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
-                name: MPC (shadow)
-              - entity: sensor.heatpump_thermostat_control_setpoint
-                name: Quatt setpoint
-              - entity: sensor.heatpump_flowmeter_temperature
-                name: Werkelijk (flowmeter)
-            grid_options:
-              columns: 24
-              rows: 5
           - type: markdown
             title: Wat betekenen deze waarden?
             content: >
@@ -605,27 +579,6 @@ views:
                   null]);
 
                   return pts;
-            grid_options:
-              columns: 24
-              rows: auto
-          - type: custom:mini-graph-card
-            name: Aanvoertemperatuur — Werkelijk vs Aanbevolen vs MPC
-            hours_to_show: 336
-            points_per_hour: 1
-            line_width: 1.5
-            entities:
-              - entity: sensor.heatpump_flowmeter_temperature
-                name: Werkelijke aanvoertemp
-                color: "#64B5F6"
-              - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-                name: Aanbevolen (stooklijn)
-                color: "#4CAF50"
-              - entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
-                name: MPC (shadow)
-                color: "#E040FB"
-              - entity: sensor.heatpump_hp1_temperature_outside
-                name: Buitentemperatuur
-                color: "#90A4AE"
             grid_options:
               columns: 24
               rows: auto

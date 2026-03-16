@@ -11,7 +11,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
-    CONF_QUATT_END_DATE,
     CONF_QUATT_START_DATE,
     DOMAIN,
 )
@@ -30,7 +29,6 @@ async def async_setup_entry(
 
     async_add_entities([
         QuattDateText(coordinator, entry, CONF_QUATT_START_DATE, "Analyse Startdatum"),
-        QuattDateText(coordinator, entry, CONF_QUATT_END_DATE, "Analyse Einddatum"),
     ])
 
 

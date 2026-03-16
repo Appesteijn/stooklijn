@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import pandas as pd
 
@@ -122,7 +122,7 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
         df_hourly, df_daily = await async_fetch_quatt_insights(
             self.hass,
             config[CONF_QUATT_START_DATE],
-            config[CONF_QUATT_END_DATE],
+            date.today().isoformat(),
             power_entity=config.get(CONF_POWER_ENTITY, "sensor.heatpump_total_power"),
             temp_entity=temp_entities[0] if temp_entities else "sensor.heatpump_hp1_temperature_outside",
         )

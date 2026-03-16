@@ -59,10 +59,7 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             # Validate dates
             try:
-                start = date.fromisoformat(user_input[CONF_QUATT_START_DATE])
-                end = date.fromisoformat(user_input[CONF_QUATT_END_DATE])
-                if start >= end:
-                    errors["base"] = "invalid_date_range"
+                date.fromisoformat(user_input[CONF_QUATT_START_DATE])
             except ValueError:
                 errors["base"] = "invalid_date_format"
 
@@ -74,7 +71,6 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ]
                 self._data = {
                     CONF_QUATT_START_DATE: user_input[CONF_QUATT_START_DATE],
-                    CONF_QUATT_END_DATE: user_input[CONF_QUATT_END_DATE],
                     CONF_TEMP_ENTITIES: temp_entities,
                     CONF_POWER_ENTITY: user_input[CONF_POWER_ENTITY],
                 }
@@ -85,7 +81,6 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_QUATT_START_DATE): str,
-                    vol.Required(CONF_QUATT_END_DATE): str,
                     vol.Required(
                         CONF_TEMP_ENTITIES,
                         default="sensor.thermostat_temperature_outside, sensor.heatpump_hp1_temperature_outside, sensor.heatpump_hp2_temperature_outside",
@@ -286,10 +281,6 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     vol.Required(
                         CONF_QUATT_START_DATE,
                         default=data.get(CONF_QUATT_START_DATE, ""),
-                    ): str,
-                    vol.Required(
-                        CONF_QUATT_END_DATE,
-                        default=data.get(CONF_QUATT_END_DATE, ""),
                     ): str,
                     vol.Optional(
                         CONF_ACTUAL_STOOKLIJN_TEMP1,
