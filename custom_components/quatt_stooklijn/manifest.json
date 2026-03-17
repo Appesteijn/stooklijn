@@ -1,12 +1,19 @@
 {
   "domain": "quatt_stooklijn",
   "name": "Quatt Warmteanalyse",
-  "codeowners": ["@Appesteijn"],
+  "codeowners": [
+    "@Appesteijn"
+  ],
   "config_flow": true,
-  "dependencies": ["recorder"],
+  "dependencies": [
+    "recorder"
+  ],
   "documentation": "https://github.com/Appesteijn/stooklijn",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/Appesteijn/stooklijn/issues",
-  "requirements": ["numpy>=1.26.0", "pandas>=2.1.0"],
-  "version": "0.3.7"
+  "requirements": [
+    "numpy>=1.26.0",
+    "pandas>=2.1.0"
+  ],
+  "version": "0.3.8"
 }

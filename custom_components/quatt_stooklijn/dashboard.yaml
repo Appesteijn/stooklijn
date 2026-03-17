@@ -10,7 +10,7 @@ views:
         cards:
           - square: false
             type: grid
-            columns: 3
+            columns: 5
             cards:
               - type: entity
                 entity: sensor.quatt_warmteanalyse_average_cop
@@ -211,8 +211,8 @@ views:
 
               {% endif %}
             grid_options:
-              columns: 18
-              rows: 6
+              columns: 14
+              rows: auto
           - type: markdown
             title: Databeschikbaarheid
             content: >
@@ -295,8 +295,8 @@ views:
 
               {% endif %}
             grid_options:
-              columns: 15
-              rows: 6
+              columns: 10
+              rows: auto
           - type: markdown
             title: Warmtevraag bij verschillende temperaturen
             content: >
@@ -326,8 +326,8 @@ views:
 
               {% endif %}
             grid_options:
-              columns: 15
-              rows: 6
+              columns: 12
+              rows: auto
           - type: markdown
             title: Wat betekenen deze waarden?
             content: >
@@ -371,8 +371,8 @@ views:
 
               {% endif %}
             grid_options:
-              columns: 24
-              rows: 5
+              columns: 12
+              rows: auto
       - type: grid
         column_span: 4
         cards:
@@ -741,8 +741,6 @@ views:
             hours_to_show: 168
             points_per_hour: 2
             line_width: 2
-            lower_bound: -5
-            upper_bound: 5
             entities:
               - entity: sensor.quatt_warmteanalyse_stooklijn_fout_aanvoertemperatuur
                 name: Stooklijn fout (+ = te hoog, − = te laag)
@@ -751,7 +749,7 @@ views:
                 name: MPC fout
                 color: "#4CAF50"
             grid_options:
-              columns: 24
+              columns: 16
               rows: auto
 
           - type: custom:mini-graph-card
@@ -764,5 +762,5 @@ views:
                 name: Buitentemp
                 color: "#78909C"
             grid_options:
-              columns: 24
+              columns: 8
               rows: auto

@@ -36,6 +36,7 @@ from .const import (
     DEFAULT_WEATHER_ENTITY,
     DOMAIN,
     MIN_FLOW_LPH,
+    NOMINAL_FLOW_LPH,
     MPC_FORECAST_HOURS,
     MPC_SUPPLY_TEMP_MAX,
     MPC_SUPPLY_TEMP_MIN,
@@ -516,11 +517,12 @@ class QuattSupplyTempSensor(
         t_return = self._get_float_state(self._return_temp_entity)
         flow_lph = self._get_float_state(self._flow_entity)
 
-        if t_outdoor is None or t_return is None or flow_lph is None or flow_lph < MIN_FLOW_LPH:
+        if t_outdoor is None or t_return is None:
             return None
 
+        effective_flow = flow_lph if (flow_lph is not None and flow_lph >= MIN_FLOW_LPH) else NOMINAL_FLOW_LPH
         heat_demand_w = max(0.0, heat_loss.slope * t_outdoor + heat_loss.intercept)
-        t_supply = t_return + heat_demand_w / (1.16 * flow_lph)
+        t_supply = t_return + heat_demand_w / (1.16 * effective_flow)
         return round(t_supply, 1)
 
     @property
@@ -733,9 +735,10 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         flow_lph = self._get_float_state(self._flow_entity)
         solar_w = self._get_float_state(self._solar_entity) or 0.0
 
-        if t_outdoor is None or t_return is None or flow_lph is None:
+        if t_outdoor is None or t_return is None:
             return None
 
+        effective_flow = flow_lph if (flow_lph is not None and flow_lph >= MIN_FLOW_LPH) else NOMINAL_FLOW_LPH
         solar_gain_w = solar_w * SOLAR_TO_HEAT_FACTOR
         return _calc_mpc_supply_temp(
             heat_loss.slope,
@@ -743,7 +746,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             heat_loss.balance_point,
             t_outdoor,
             t_return,
-            flow_lph,
+            effective_flow,
             solar_gain_w,
         )
 
