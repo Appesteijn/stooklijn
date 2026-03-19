@@ -10,7 +10,6 @@ views:
         cards:
           - square: false
             type: grid
-            columns: 5
             cards:
               - type: entity
                 entity: sensor.quatt_warmteanalyse_average_cop
@@ -59,6 +58,7 @@ views:
             grid_options:
               columns: full
               rows: auto
+            columns: 2
           - type: markdown
             title: Stooklijn aanpassen?
             content: >
@@ -665,9 +665,9 @@ views:
                   if (d.length < 2) return [];
 
                   const n = d.length, sumX = d.reduce((s,p) => s+p.temp, 0),
-                  sumY = d.reduce((s,p) => s+p.cop, 0), sumXY =
-                  d.reduce((s,p) => s+p.temp*p.cop, 0), sumX2 =
-                  d.reduce((s,p) => s+p.temp*p.temp, 0);
+                  sumY = d.reduce((s,p) => s+p.cop, 0), sumXY = d.reduce((s,p)
+                  => s+p.temp*p.cop, 0), sumX2 = d.reduce((s,p) =>
+                  s+p.temp*p.temp, 0);
 
                   const slope = (n*sumXY - sumX*sumY) / (n*sumX2 - sumX*sumX);
 
@@ -685,7 +685,6 @@ views:
             grid_options:
               columns: 24
               rows: auto
-
   - title: Shadow Validatie
     icon: mdi:compare-horizontal
     type: sections
@@ -695,7 +694,7 @@ views:
         cards:
           - square: false
             type: grid
-            columns: 4
+            columns: 2
             cards:
               - type: entity
                 entity: sensor.quatt_warmteanalyse_stooklijn_fout_aanvoertemperatuur
@@ -716,10 +715,21 @@ views:
             grid_options:
               columns: 24
               rows: auto
-
+          - type: custom:mini-graph-card
+            name: Buitentemperatuur (context)
+            hours_to_show: 168
+            points_per_hour: 1
+            line_width: 1
+            entities:
+              - entity: sensor.heatpump_hp1_temperature_outside
+                name: Buitentemp
+                color: "#78909C"
+            grid_options:
+              columns: 16
+              rows: auto
           - type: custom:mini-graph-card
             name: Aanvoertemperatuur — Advies vs Werkelijk (7 dagen)
-            hours_to_show: 168
+            hours_to_show: 24
             points_per_hour: 2
             line_width: 1.5
             entities:
@@ -735,10 +745,9 @@ views:
             grid_options:
               columns: 24
               rows: auto
-
           - type: custom:mini-graph-card
             name: Fout — Advies minus Werkelijk (7 dagen)
-            hours_to_show: 168
+            hours_to_show: 24
             points_per_hour: 2
             line_width: 2
             entities:
@@ -750,17 +759,4 @@ views:
                 color: "#4CAF50"
             grid_options:
               columns: 16
-              rows: auto
-
-          - type: custom:mini-graph-card
-            name: Buitentemperatuur (context)
-            hours_to_show: 168
-            points_per_hour: 1
-            line_width: 1
-            entities:
-              - entity: sensor.heatpump_hp1_temperature_outside
-                name: Buitentemp
-                color: "#78909C"
-            grid_options:
-              columns: 8
               rows: auto

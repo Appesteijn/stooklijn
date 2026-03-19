@@ -762,6 +762,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         t_outdoor = self._get_float_state(self._outdoor_entity)
         t_return = self._get_float_state(self._return_temp_entity)
         flow_lph = self._get_float_state(self._flow_entity)
+        effective_flow = flow_lph if (flow_lph is not None and flow_lph >= MIN_FLOW_LPH) else NOMINAL_FLOW_LPH
         solar_w = self._get_float_state(self._solar_entity) or 0.0
         solar_gain_w = solar_w * SOLAR_TO_HEAT_FACTOR
 
@@ -817,10 +818,11 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             fc_raw = max(0.0, heat_loss.slope * fc_temp + heat_loss.intercept)
             fc_net = max(0.0, fc_raw - fc_solar_gain)
             fc_supply = None
-            if t_return is not None and flow_lph is not None and flow_lph >= MIN_FLOW_LPH:
+            if t_return is not None:
+                fc_flow = effective_flow  # gebruikt fallback van 800 L/h als HP uit staat
                 fc_supply = round(
                     max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX,
-                        t_return + fc_net / (1.16 * flow_lph))), 1
+                        t_return + fc_net / (1.16 * fc_flow))), 1
                 )
             forecast_out.append({
                 "hour": i,

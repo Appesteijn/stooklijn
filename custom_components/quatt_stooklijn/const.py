@@ -95,7 +95,7 @@ DEFAULT_INDOOR_TEMP_ENTITY = "sensor.heatpump_thermostat_room_temperature"
 SOLAR_TO_HEAT_FACTOR = 0.30
 
 # Veiligheidsgrenzen aanvoertemperatuur MPC-sensor
-MPC_SUPPLY_TEMP_MIN = 25.0  # °C
+MPC_SUPPLY_TEMP_MIN = 20.0  # °C — warmtepompen werken niet effectief onder 20°C aanvoer
 MPC_SUPPLY_TEMP_MAX = 55.0  # °C
 
 # Hoeveel forecast-uren meenemen in het MPC-attribuut
