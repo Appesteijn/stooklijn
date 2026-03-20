@@ -817,12 +817,19 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                     fc_solar_gain = solar_w * fraction * SOLAR_TO_HEAT_FACTOR
             fc_raw = max(0.0, heat_loss.slope * fc_temp + heat_loss.intercept)
             fc_net = max(0.0, fc_raw - fc_solar_gain)
+            # Forecast: gebruik stooklijn als baseline (T_retour is onbekend voor toekomstige uren).
+            # De stooklijn geeft T_aanvoer direct als functie van T_buiten, gecalibreerd op
+            # het echte warmtepomp-gedrag (inclusief T_retour + ΔT in steady state).
+            # Solar correctie: lagere warmtevraag → lagere aanvoertemperatuur nodig.
             fc_supply = None
-            if t_return is not None:
-                fc_flow = effective_flow  # gebruikt fallback van 800 L/h als HP uit staat
+            sl_slope = self.coordinator.data.actual_stooklijn_slope
+            sl_intercept = self.coordinator.data.actual_stooklijn_intercept
+            if sl_slope is not None and sl_intercept is not None:
+                fc_stooklijn = sl_slope * fc_temp + sl_intercept
+                fc_solar_correction = fc_solar_gain / (1.16 * effective_flow)
                 fc_supply = round(
                     max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX,
-                        t_return + fc_net / (1.16 * fc_flow))), 1
+                        fc_stooklijn - fc_solar_correction)), 1
                 )
             forecast_out.append({
                 "hour": i,
