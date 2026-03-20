@@ -822,8 +822,14 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             # het echte warmtepomp-gedrag (inclusief T_retour + ΔT in steady state).
             # Solar correctie: lagere warmtevraag → lagere aanvoertemperatuur nodig.
             fc_supply = None
-            sl_slope = self.coordinator.data.actual_stooklijn_slope
-            sl_intercept = self.coordinator.data.actual_stooklijn_intercept
+            # Kies de beste beschikbare stooklijn: eerst de geanalyseerde optimale,
+            # dan de Quatt-app instelling als fallback.
+            sl = self.coordinator.data.stooklijn
+            if sl.slope_optimal is not None and sl.intercept_optimal is not None:
+                sl_slope, sl_intercept = sl.slope_optimal, sl.intercept_optimal
+            else:
+                sl_slope = self.coordinator.data.actual_stooklijn_slope
+                sl_intercept = self.coordinator.data.actual_stooklijn_intercept
             if sl_slope is not None and sl_intercept is not None:
                 fc_stooklijn = sl_slope * fc_temp + sl_intercept
                 fc_solar_correction = fc_solar_gain / (1.16 * effective_flow)
