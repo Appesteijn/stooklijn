@@ -258,6 +258,51 @@ def _perform_knee_detection_quatt(df_hourly: pd.DataFrame) -> tuple[float | None
     return knee_temp, knee_power
 
 
+def extract_knee_points_from_hourly(
+    df_hourly: pd.DataFrame,
+    min_power: float = MIN_POWER_FILTER,
+    max_temp: float = 10.0,
+) -> dict[str, list[list[float]]]:
+    """Extract cold-weather knee points from Quatt API hourly data, grouped by date.
+
+    Equivalent to extract_knee_points_from_recorder but works on df_hourly
+    (columns: hpHeat, temperatureOutside, DatetimeIndex).  Used to backfill
+    the KneeDataStore for historical cold periods that were never in the
+    recorder window.
+
+    Note: hourly API data includes defrost-cycle dilution (unlike recorder
+    minute data), but is the only source for cold periods before the
+    integration was installed.
+
+    Returns:
+        Dict mapping YYYY-MM-DD → list of [temp, power] pairs.
+    """
+    if df_hourly is None or df_hourly.empty:
+        return {}
+    if "hpHeat" not in df_hourly.columns or "temperatureOutside" not in df_hourly.columns:
+        return {}
+
+    mask = (df_hourly["hpHeat"] >= min_power) & (df_hourly["temperatureOutside"] < max_temp)
+    active = df_hourly[mask][["temperatureOutside", "hpHeat"]].copy().dropna()
+
+    if active.empty:
+        return {}
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    result: dict[str, list[list[float]]] = {}
+    for ts, row in active.iterrows():
+        date_str = ts.strftime("%Y-%m-%d") if hasattr(ts, "strftime") else str(ts)[:10]
+        if date_str >= today_str:
+            continue
+        if date_str not in result:
+            result[date_str] = []
+        result[date_str].append(
+            [round(float(row["temperatureOutside"]), 1), round(float(row["hpHeat"]), 0)]
+        )
+
+    return result
+
+
 def extract_knee_points_from_recorder(
     df_ha_merged: pd.DataFrame,
     min_power: float = MIN_POWER_FILTER,
@@ -449,27 +494,6 @@ def calculate_stooklijn(
                 len(df_knee_history),
             )
 
-        # Also add cold-period hourly data from the API cache.  The KneeDataStore
-        # only contains data that was in the recorder window at analysis time, so
-        # cold spells (e.g. Dec/Jan) that occurred before the integration was
-        # installed are absent.  df_hourly covers the full cache history (up to
-        # 3 years) and fills this gap.  Hourly averages are slightly diluted by
-        # defrost cycles but the physical constraints in the grid-search handle
-        # that, and the cold-side anchor is far more important than precision here.
-        if df_hourly is not None and not df_hourly.empty:
-            if "hpHeat" in df_hourly.columns and "temperatureOutside" in df_hourly.columns:
-                cold_hourly = df_hourly[
-                    (df_hourly["hpHeat"] >= MIN_POWER_FILTER)
-                    & (df_hourly["temperatureOutside"] < 10.0)
-                ][["temperatureOutside", "hpHeat"]].rename(
-                    columns={"temperatureOutside": "temp", "hpHeat": "power"}
-                ).dropna()
-                if not cold_hourly.empty:
-                    df_fit = pd.concat([df_fit, cold_hourly], ignore_index=True)
-                    _LOGGER.info(
-                        "Knee detection: added %d cold-period hourly points from API cache",
-                        len(cold_hourly),
-                    )
 
         if not df_fit.empty and len(df_fit) > 10:
             x_data = df_fit["temp"].values

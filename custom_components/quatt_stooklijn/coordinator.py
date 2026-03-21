@@ -18,6 +18,7 @@ from .analysis.stooklijn import (
     StooklijnResult,
     async_fetch_live_history,
     calculate_stooklijn,
+    extract_knee_points_from_hourly,
     extract_knee_points_from_recorder,
 )
 from .cache import KneeDataStore
@@ -154,18 +155,34 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
         )
 
         # Step 3b: Update persistent knee data store
-        # Extract today's active, cold-weather hourly points from the recorder
-        # and merge into the rolling multi-year store so future analyses benefit
-        # from cold-weather data even when the 30-day recorder window is mild.
+        # Primary: extract recorder minute-data (defrost-filtered, accurate).
+        # Backfill: also add cold-weather hourly points from the API cache for
+        # historical dates not yet in the store (e.g. cold spells from before
+        # the integration was installed that were never in the recorder window).
         await self._knee_store.async_load()
+        saved = False
         if df_ha_merged is not None and not df_ha_merged.empty:
             new_days = extract_knee_points_from_recorder(df_ha_merged)
             added = self._knee_store.merge_days(new_days)
             if added > 0:
-                _LOGGER.info("Knee data store: added %d new days", added)
-                await self._knee_store.async_save()
-            else:
-                _LOGGER.debug("Knee data store: no new days to add")
+                _LOGGER.info("Knee data store: added %d new days from recorder", added)
+                saved = True
+
+        if not df_hourly.empty:
+            hourly_days = await self.hass.async_add_executor_job(
+                extract_knee_points_from_hourly, df_hourly
+            )
+            added_hourly = self._knee_store.merge_days(hourly_days)
+            if added_hourly > 0:
+                _LOGGER.info(
+                    "Knee data store: backfilled %d days from API cache", added_hourly
+                )
+                saved = True
+
+        if saved:
+            await self._knee_store.async_save()
+        else:
+            _LOGGER.debug("Knee data store: no new days to add")
 
         stats = self._knee_store.get_stats()
         _LOGGER.info(
