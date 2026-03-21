@@ -26,12 +26,20 @@
       },
       "options": {
         "title": "Options supplémentaires",
-        "description": "Optionnel : Saisissez votre courbe de chauffe Quatt actuelle pour comparaison. La courbe de chauffe est définie par deux points : une température basse avec sa puissance et une température haute avec sa puissance (ex. -10°C / 10000W et 16°C / 0W). Laisser vide si inconnu.",
+        "description": "Configurez les capteurs et la courbe de chauffe. Le capteur de panneaux solaires peut être n'importe quel capteur rapportant la puissance actuelle en Watts (W) — ex. SolarEdge, Enphase, Huawei, SMA ou un capteur template. Laisser vide si vous n'avez pas de panneaux solaires.",
         "data": {
           "actual_stooklijn_temp1": "Courbe de chauffe point 1 : température (°C, ex. -10)",
           "actual_stooklijn_power1": "Courbe de chauffe point 1 : puissance (W, ex. 10000)",
           "actual_stooklijn_temp2": "Courbe de chauffe point 2 : température (°C, ex. 16)",
-          "actual_stooklijn_power2": "Courbe de chauffe point 2 : puissance (W, ex. 0)"
+          "actual_stooklijn_power2": "Courbe de chauffe point 2 : puissance (W, ex. 0)",
+          "flow_entity": "Capteur de débit (L/h)",
+          "return_temp_entity": "Capteur de température de retour (°C)",
+          "solar_entity": "Capteur de puissance solaire (W) — ex. SolarEdge, Enphase ou template",
+          "weather_entity": "Entité de prévisions météo (pour la prévision MPC)",
+          "indoor_temp_entity": "Capteur de température intérieure (°C, pour la calibration solaire)",
+          "otgw_enabled": "Activer la compensation OTGW (nécessite OpenTherm Gateway)",
+          "otgw_room_temp_override": "Entité OTGW de remplacement de température ambiante",
+          "otgw_max_offset": "Offset maximum OTGW (°C, max 3.0)"
         }
       }
     },
@@ -46,14 +54,22 @@
     "step": {
       "init": {
         "title": "Mettre à jour la configuration",
-        "description": "Remplissez les quatre champs du bas uniquement si vous connaissez votre courbe de chauffe Quatt actuelle (optionnel).",
+        "description": "Le capteur de panneaux solaires peut être n'importe quel capteur rapportant la puissance actuelle en Watts (W). Laisser vide si vous n'avez pas de panneaux solaires.",
         "data": {
           "quatt_start_date": "Date de début Quatt (AAAA-MM-JJ)",
           "quatt_end_date": "Date de fin Quatt (AAAA-MM-JJ)",
           "actual_stooklijn_temp1": "Courbe de chauffe point 1 : température (°C, ex. -10)",
           "actual_stooklijn_power1": "Courbe de chauffe point 1 : puissance (W, ex. 10000)",
           "actual_stooklijn_temp2": "Courbe de chauffe point 2 : température (°C, ex. 16)",
-          "actual_stooklijn_power2": "Courbe de chauffe point 2 : puissance (W, ex. 0)"
+          "actual_stooklijn_power2": "Courbe de chauffe point 2 : puissance (W, ex. 0)",
+          "flow_entity": "Capteur de débit (L/h)",
+          "return_temp_entity": "Capteur de température de retour (°C)",
+          "solar_entity": "Capteur de puissance solaire (W) — ex. SolarEdge, Enphase ou template",
+          "weather_entity": "Entité de prévisions météo (pour la prévision MPC)",
+          "indoor_temp_entity": "Capteur de température intérieure (°C, pour la calibration solaire)",
+          "otgw_enabled": "Activer la compensation OTGW (nécessite OpenTherm Gateway)",
+          "otgw_room_temp_override": "Entité OTGW de remplacement de température ambiante",
+          "otgw_max_offset": "Offset maximum OTGW (°C, max 3.0)"
         }
       }
     }

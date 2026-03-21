@@ -26,12 +26,20 @@
       },
       "options": {
         "title": "Additional Options",
-        "description": "Optional: Set your current Quatt stooklijn for comparison. The stooklijn is defined by two points: a low temperature with its power, and a high temperature with its power (e.g. -10°C / 10000W and 16°C / 0W). Leave empty if unknown.",
+        "description": "Configure sensors and heating curve. The solar panel sensor can be any sensor that reports current power in Watts (W) — e.g. SolarEdge, Enphase, Huawei, SMA, or a template sensor. Leave empty if you have no solar panels.",
         "data": {
           "actual_stooklijn_temp1": "Stooklijn point 1: temperature (°C, e.g. -10)",
           "actual_stooklijn_power1": "Stooklijn point 1: power (W, e.g. 10000)",
           "actual_stooklijn_temp2": "Stooklijn point 2: temperature (°C, e.g. 16)",
-          "actual_stooklijn_power2": "Stooklijn point 2: power (W, e.g. 0)"
+          "actual_stooklijn_power2": "Stooklijn point 2: power (W, e.g. 0)",
+          "flow_entity": "Flow rate sensor (L/h)",
+          "return_temp_entity": "Return temperature sensor (°C)",
+          "solar_entity": "Solar panel power sensor (W) — e.g. SolarEdge, Enphase, or template",
+          "weather_entity": "Weather forecast entity (for MPC forecast)",
+          "indoor_temp_entity": "Indoor temperature sensor (°C, for solar gain calibration)",
+          "otgw_enabled": "Enable OTGW compensation (requires OpenTherm Gateway)",
+          "otgw_room_temp_override": "OTGW room temperature override entity",
+          "otgw_max_offset": "OTGW maximum offset (°C, max 3.0)"
         }
       }
     },
@@ -46,14 +54,22 @@
     "step": {
       "init": {
         "title": "Update Configuration",
-        "description": "Fill in the bottom four fields only if you know your current Quatt stooklijn (optional).",
+        "description": "The solar panel sensor can be any sensor that reports current power in Watts (W). Leave empty if you have no solar panels.",
         "data": {
           "quatt_start_date": "Quatt start date (YYYY-MM-DD)",
           "quatt_end_date": "Quatt end date (YYYY-MM-DD)",
           "actual_stooklijn_temp1": "Stooklijn point 1: temperature (°C, e.g. -10)",
           "actual_stooklijn_power1": "Stooklijn point 1: power (W, e.g. 10000)",
           "actual_stooklijn_temp2": "Stooklijn point 2: temperature (°C, e.g. 16)",
-          "actual_stooklijn_power2": "Stooklijn point 2: power (W, e.g. 0)"
+          "actual_stooklijn_power2": "Stooklijn point 2: power (W, e.g. 0)",
+          "flow_entity": "Flow rate sensor (L/h)",
+          "return_temp_entity": "Return temperature sensor (°C)",
+          "solar_entity": "Solar panel power sensor (W) — e.g. SolarEdge, Enphase, or template",
+          "weather_entity": "Weather forecast entity (for MPC forecast)",
+          "indoor_temp_entity": "Indoor temperature sensor (°C, for solar gain calibration)",
+          "otgw_enabled": "Enable OTGW compensation (requires OpenTherm Gateway)",
+          "otgw_room_temp_override": "OTGW room temperature override entity",
+          "otgw_max_offset": "OTGW maximum offset (°C, max 3.0)"
         }
       }
     }
