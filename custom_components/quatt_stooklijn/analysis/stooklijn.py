@@ -432,16 +432,18 @@ def calculate_stooklijn(
     # --- Primary: HA recorder minute-level data (+ historical store) ---
     if df_ha_merged is not None and not df_ha_merged.empty:
         _LOGGER.info("Attempting knee detection with recorder minute-level data...")
-        valid_mask = df_ha_merged["power"] >= MIN_POWER_FILTER
+        valid_mask = (df_ha_merged["power"] >= MIN_POWER_FILTER) & (df_ha_merged["temp"] < 10.0)
         df_fit_current = df_ha_merged[valid_mask][["temp", "power"]].copy()
 
         # Merge with historical knee data from previous analyses so that
         # cold-weather data from earlier winters is included even when the
         # recent 30-day window happens to be mild.
+        # Both datasets are filtered to temp < 10°C so mild-weather modulation
+        # data cannot bias the knee toward warmer temperatures.
         if df_knee_history is not None and not df_knee_history.empty:
             df_fit = pd.concat([df_fit_current, df_knee_history], ignore_index=True)
             _LOGGER.info(
-                "Knee detection: %d current + %d historical points",
+                "Knee detection: %d current cold-weather + %d historical points",
                 len(df_fit_current),
                 len(df_knee_history),
             )
