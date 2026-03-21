@@ -25,6 +25,7 @@ from ..const import (
     MIN_POWER_FILTER,
     OUTLIER_STD_THRESHOLD,
 )
+from .utils import calc_r2, robust_linear_fit
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -584,19 +585,8 @@ def calculate_stooklijn(
             # Two-pass outlier removal: first-pass fit identifies anomalous
             # minutes (e.g. defrost bleed-through, setpoint spikes) so the
             # final slope is not skewed by a handful of unusual data points.
-            slope_rough, intercept_rough = np.polyfit(x_all, y_all, 1)
-            residuals = y_all - (slope_rough * x_all + intercept_rough)
-            std = np.std(residuals)
-            if std > 0:
-                inlier_mask = np.abs(residuals) < OUTLIER_STD_THRESHOLD * std
-                x_fit = x_all[inlier_mask]
-                y_fit = y_all[inlier_mask]
-                if len(x_fit) < 5:
-                    x_fit, y_fit = x_all, y_all  # fall back to all data
-            else:
-                x_fit, y_fit = x_all, y_all
-
-            slope, intercept = np.polyfit(x_fit, y_fit, 1)
+            slope, intercept, inlier_mask = robust_linear_fit(x_all, y_all)
+            x_fit = x_all[inlier_mask]
             result.slope_api = float(slope)
             result.intercept_api = float(intercept)
             _LOGGER.info(
@@ -625,14 +615,8 @@ def calculate_stooklijn(
                 y = df_filtered["hpHeat"].values
 
                 # Pre-envelope outlier removal (z-score)
-                m_rough, b_rough = np.polyfit(x, y, 1)
-                resid = y - (m_rough * x + b_rough)
-                std = np.std(resid)
-                if std > 0:
-                    mask = np.abs(resid) < (OUTLIER_STD_THRESHOLD * std)
-                    df_clean = df_filtered[mask].copy()
-                else:
-                    df_clean = df_filtered.copy()
+                _, _, env_inlier_mask = robust_linear_fit(x, y)
+                df_clean = df_filtered[env_inlier_mask].copy()
 
                 # Max-envelope filter
                 df_clean["temp_bin"] = (
@@ -650,11 +634,7 @@ def calculate_stooklijn(
                     x_env = df_envelope["temperatureOutside"].values
                     y_env = df_envelope["hpHeat"].values
                     slope, intercept = np.polyfit(x_env, y_env, 1)
-
-                    y_pred = slope * x_env + intercept
-                    ss_res = np.sum((y_env - y_pred) ** 2)
-                    ss_tot = np.sum((y_env - np.mean(y_env)) ** 2)
-                    r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+                    r2 = calc_r2(y_env, slope * x_env + intercept)
 
                     result.slope_local = float(slope)
                     result.intercept_local = float(intercept)
@@ -683,26 +663,11 @@ def calculate_stooklijn(
                 # first-pass regression identifies anomalous days (e.g. test
                 # runs at unusual setpoints) so the final fit is not skewed.
                 # Scatter data still shows all valid heating days (not just inliers).
-                slope_rough, intercept_rough = np.polyfit(x_all, y_all, 1)
-                residuals = y_all - (slope_rough * x_all + intercept_rough)
-                std = np.std(residuals)
-                if std > 0:
-                    inlier_mask = np.abs(residuals) < OUTLIER_STD_THRESHOLD * std
-                else:
-                    inlier_mask = np.ones(len(x_all), dtype=bool)
+                slope, intercept, inlier_mask = robust_linear_fit(x_all, y_all)
 
-                regression_data = heating_data[inlier_mask]
-                if len(regression_data) < 5:
-                    regression_data = heating_data  # fall back to all data
-
-                x = regression_data["avg_temperatureOutside"].values
-                y = regression_data["totalHeatPerHour"].values
-                slope, intercept = np.polyfit(x, y, 1)
-
-                y_pred = slope * x + intercept
-                ss_res = np.sum((y - y_pred) ** 2)
-                ss_tot = np.sum((y - np.mean(y)) ** 2)
-                r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+                x = x_all[inlier_mask]
+                y = y_all[inlier_mask]
+                r2 = calc_r2(y, slope * x + intercept)
 
                 result.slope_optimal = float(slope)
                 result.intercept_optimal = float(intercept)

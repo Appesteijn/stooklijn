@@ -38,6 +38,7 @@ def _stub_ha():
     _ensure_module("homeassistant.helpers.storage")
     _ensure_module("homeassistant.components")
     _ensure_module("homeassistant.components.sensor")
+    _ensure_module("homeassistant.components.switch")
     _ensure_module("homeassistant.components.text")
     _ensure_module("homeassistant.components.recorder")
     _ensure_module("homeassistant.components.recorder.history")
@@ -77,6 +78,10 @@ def _stub_ha():
     sensor_mod.SensorEntityDescription = _SensorEntityDescription
     sensor_mod.SensorDeviceClass = MagicMock()
     sensor_mod.SensorStateClass = MagicMock()
+
+    # Switch stubs
+    switch_mod = sys.modules["homeassistant.components.switch"]
+    switch_mod.SwitchEntity = type("SwitchEntity", (), {})
 
     # Text stubs
     text_mod = sys.modules["homeassistant.components.text"]

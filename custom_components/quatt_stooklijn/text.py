@@ -10,11 +10,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import (
-    CONF_QUATT_START_DATE,
-    DOMAIN,
-)
+from .const import CONF_QUATT_START_DATE, DOMAIN
 from .coordinator import QuattStooklijnCoordinator
+from .helpers import get_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,12 +51,7 @@ class QuattDateText(TextEntity):
         self._attr_name = name
         self._attr_unique_id = f"{entry.entry_id}_{config_key}"
         self._attr_icon = "mdi:calendar"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Quatt Warmteanalyse",
-            "manufacturer": "Quatt",
-            "model": "Warmteanalyse",
-        }
+        self._attr_device_info = get_device_info(entry.entry_id)
 
     @property
     def native_value(self) -> str | None:

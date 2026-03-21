@@ -7,7 +7,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from ..const import MIN_HEATING_WATTS, OUTLIER_STD_THRESHOLD
+from ..const import MIN_HEATING_WATTS
+from .utils import calc_r2, robust_linear_fit
 
 
 @dataclass
@@ -59,34 +60,19 @@ def calculate_heat_loss(
     if len(heating_data) < 5:
         return result
 
-    # First-pass regression to identify outliers (e.g. test runs with unusually
-    # high thermostat settings that create anomalous heat demand points)
+    # Two-pass regression with outlier removal
     x_all = heating_data["avg_temperatureOutside"].values
     y_all = heating_data["totalHeatPerHour"].values
 
-    slope_rough, intercept_rough = np.polyfit(x_all, y_all, 1)
-    residuals = y_all - (slope_rough * x_all + intercept_rough)
-    std = np.std(residuals)
-    if std > 0:
-        inlier_mask = np.abs(residuals) < OUTLIER_STD_THRESHOLD * std
-    else:
-        inlier_mask = np.ones(len(x_all), dtype=bool)
+    slope, intercept, inlier_mask = robust_linear_fit(x_all, y_all)
 
-    regression_data = heating_data[inlier_mask]
-    x = regression_data["avg_temperatureOutside"].values
-    y = regression_data["totalHeatPerHour"].values
+    x = x_all[inlier_mask]
+    y = y_all[inlier_mask]
 
     if len(x) < 5:
         return result
 
-    # Final regression on filtered data
-    slope, intercept = np.polyfit(x, y, 1)
-
-    # R-squared
-    y_pred = slope * x + intercept
-    ss_res = np.sum((y - y_pred) ** 2)
-    ss_tot = np.sum((y - np.mean(y)) ** 2)
-    r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+    r2 = calc_r2(y, slope * x + intercept)
 
     result.slope = float(slope)
     result.intercept = float(intercept)

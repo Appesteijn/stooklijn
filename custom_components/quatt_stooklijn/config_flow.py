@@ -22,6 +22,9 @@ from .const import (
     CONF_GAS_START_DATE,
     CONF_HOT_WATER_TEMP_THRESHOLD,
     CONF_INDOOR_TEMP_ENTITY,
+    CONF_OTGW_ENABLED,
+    CONF_OTGW_MAX_OFFSET,
+    CONF_OTGW_ROOM_TEMP_OVERRIDE,
     CONF_POWER_ENTITY,
     CONF_QUATT_END_DATE,
     CONF_QUATT_START_DATE,
@@ -34,6 +37,8 @@ from .const import (
     DEFAULT_GAS_CALORIFIC_VALUE,
     DEFAULT_HOT_WATER_TEMP_THRESHOLD,
     DEFAULT_INDOOR_TEMP_ENTITY,
+    DEFAULT_OTGW_MAX_OFFSET,
+    DEFAULT_OTGW_ROOM_TEMP_OVERRIDE,
     DEFAULT_POWER_ENTITY,
     DEFAULT_RETURN_TEMP_ENTITY,
     DEFAULT_SOLAR_ENTITY,
@@ -184,6 +189,16 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         errors={"base": "invalid_stooklijn_value"},
                     )
 
+            # Store OTGW settings
+            self._data[CONF_OTGW_ENABLED] = user_input.get(CONF_OTGW_ENABLED, False)
+            if self._data[CONF_OTGW_ENABLED]:
+                self._data[CONF_OTGW_ROOM_TEMP_OVERRIDE] = user_input.get(
+                    CONF_OTGW_ROOM_TEMP_OVERRIDE, DEFAULT_OTGW_ROOM_TEMP_OVERRIDE
+                )
+                self._data[CONF_OTGW_MAX_OFFSET] = user_input.get(
+                    CONF_OTGW_MAX_OFFSET, DEFAULT_OTGW_MAX_OFFSET
+                )
+
             return self.async_create_entry(
                 title="Quatt Warmteanalyse",
                 data=self._data,
@@ -233,6 +248,21 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_INDOOR_TEMP_ENTITY,
                     default=DEFAULT_INDOOR_TEMP_ENTITY,
                 ): str,
+                # --- OTGW compensatie ---
+                # Schakel in om de warmtepomp actief bij te sturen via een
+                # OpenTherm Gateway kamertemperatuur-override.
+                vol.Optional(
+                    CONF_OTGW_ENABLED,
+                    default=False,
+                ): bool,
+                vol.Optional(
+                    CONF_OTGW_ROOM_TEMP_OVERRIDE,
+                    default=DEFAULT_OTGW_ROOM_TEMP_OVERRIDE,
+                ): str,
+                vol.Optional(
+                    CONF_OTGW_MAX_OFFSET,
+                    default=DEFAULT_OTGW_MAX_OFFSET,
+                ): vol.Coerce(float),
             }
         )
 
@@ -318,6 +348,18 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_INDOOR_TEMP_ENTITY,
                         default=data.get(CONF_INDOOR_TEMP_ENTITY, DEFAULT_INDOOR_TEMP_ENTITY),
                     ): str,
+                    vol.Optional(
+                        CONF_OTGW_ENABLED,
+                        default=data.get(CONF_OTGW_ENABLED, False),
+                    ): bool,
+                    vol.Optional(
+                        CONF_OTGW_ROOM_TEMP_OVERRIDE,
+                        default=data.get(CONF_OTGW_ROOM_TEMP_OVERRIDE, DEFAULT_OTGW_ROOM_TEMP_OVERRIDE),
+                    ): str,
+                    vol.Optional(
+                        CONF_OTGW_MAX_OFFSET,
+                        default=data.get(CONF_OTGW_MAX_OFFSET, DEFAULT_OTGW_MAX_OFFSET),
+                    ): vol.Coerce(float),
                 }
             ),
         )

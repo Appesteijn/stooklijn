@@ -45,6 +45,7 @@ from .const import (
     SOLAR_TO_HEAT_FACTOR,
 )
 from .coordinator import QuattStooklijnCoordinator, QuattStooklijnData
+from .helpers import get_device_info, get_effective_flow, get_float_state
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -245,6 +246,25 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
         if d.actual_stooklijn_slope is not None
         else None,
     ),
+    QuattSensorDescription(
+        key="openquatt_balance_point",
+        name="OpenQuatt Balance Point",
+        native_unit_of_measurement="°C",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:home-thermometer-outline",
+        value_fn=lambda d: (
+            round(d.stooklijn.balance_temp_optimal, 1)
+            if d.stooklijn.balance_temp_optimal is not None
+            else None
+        ),
+        attr_fn=lambda d: {
+            "heat_loss_coefficient": d.heat_loss_hp.heat_loss_coefficient,
+            "source": "heat_loss_model",
+        }
+        if d.heat_loss_hp.slope is not None
+        else None,
+    ),
 ]
 
 
@@ -276,6 +296,8 @@ async def async_setup_entry(
         f"sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur",
         supply_entity,
     ))
+    entities.append(QuattAdviceSensor(coordinator, entry))
+    entities.append(QuattOpenQuattCurveSensor(coordinator, entry))
 
     async_add_entities(entities)
 
@@ -298,12 +320,7 @@ class QuattStooklijnSensor(
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Quatt Warmteanalyse",
-            "manufacturer": "Quatt",
-            "model": "Warmteanalyse",
-        }
+        self._attr_device_info = get_device_info(entry.entry_id)
 
     _STATUS_ICONS = {
         "running": "mdi:progress-clock",
@@ -360,12 +377,7 @@ class QuattEstimatedCopSensor(
         super().__init__(coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_estimated_cop"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Quatt Warmteanalyse",
-            "manufacturer": "Quatt",
-            "model": "Warmteanalyse",
-        }
+        self._attr_device_info = get_device_info(entry.entry_id)
 
     @property
     def _outdoor_entity(self) -> str:
@@ -387,16 +399,6 @@ class QuattEstimatedCopSensor(
         """Recompute when outdoor temperature changes."""
         self.async_write_ha_state()
 
-    def _get_float_state(self, entity_id: str) -> float | None:
-        """Read a float value from a HA entity state."""
-        state = self.hass.states.get(entity_id)
-        if state is None or state.state in ("unknown", "unavailable", "None", ""):
-            return None
-        try:
-            return float(state.state)
-        except (ValueError, TypeError):
-            return None
-
     @property
     def native_value(self) -> float | None:
         """Interpolate COP from scatter data at current outdoor temperature."""
@@ -405,7 +407,7 @@ class QuattEstimatedCopSensor(
         cop_data = self.coordinator.data.stooklijn.cop_scatter_data
         if not cop_data or len(cop_data) < 2:
             return None
-        t_outdoor = self._get_float_state(self._outdoor_entity)
+        t_outdoor = get_float_state(self.hass, self._outdoor_entity)
         if t_outdoor is None:
             return None
 
@@ -419,7 +421,7 @@ class QuattEstimatedCopSensor(
     @property
     def extra_state_attributes(self) -> dict | None:
         """Expose inputs for transparency."""
-        t_outdoor = self._get_float_state(self._outdoor_entity)
+        t_outdoor = get_float_state(self.hass, self._outdoor_entity)
         cop_data = (self.coordinator.data.stooklijn.cop_scatter_data if self.coordinator.data else None) or []
         return {
             "outdoor_temp": t_outdoor,
@@ -451,12 +453,7 @@ class QuattSupplyTempSensor(
         super().__init__(coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_recommended_supply_temp"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Quatt Warmteanalyse",
-            "manufacturer": "Quatt",
-            "model": "Warmteanalyse",
-        }
+        self._attr_device_info = get_device_info(entry.entry_id)
 
     @property
     def _outdoor_entity(self) -> str:
@@ -475,16 +472,10 @@ class QuattSupplyTempSensor(
         """Register state listeners for live input sensors."""
         await super().async_added_to_hass()
 
-        entities_to_track = [
-            self._outdoor_entity,
-            self._flow_entity,
-            self._return_temp_entity,
-        ]
-
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass,
-                entities_to_track,
+                [self._outdoor_entity, self._flow_entity, self._return_temp_entity],
                 self._handle_state_change,
             )
         )
@@ -492,16 +483,6 @@ class QuattSupplyTempSensor(
     async def _handle_state_change(self, event) -> None:
         """Recompute when any input sensor changes."""
         self.async_write_ha_state()
-
-    def _get_float_state(self, entity_id: str) -> float | None:
-        """Read a float value from a HA entity state."""
-        state = self.hass.states.get(entity_id)
-        if state is None or state.state in ("unknown", "unavailable", "None", ""):
-            return None
-        try:
-            return float(state.state)
-        except (ValueError, TypeError):
-            return None
 
     @property
     def native_value(self) -> float | None:
@@ -513,24 +494,25 @@ class QuattSupplyTempSensor(
         if heat_loss.slope is None or heat_loss.intercept is None:
             return None
 
-        t_outdoor = self._get_float_state(self._outdoor_entity)
-        t_return = self._get_float_state(self._return_temp_entity)
-        flow_lph = self._get_float_state(self._flow_entity)
+        t_outdoor = get_float_state(self.hass, self._outdoor_entity)
+        t_return = get_float_state(self.hass, self._return_temp_entity)
+        flow_lph = get_float_state(self.hass, self._flow_entity)
 
         if t_outdoor is None or t_return is None:
             return None
 
-        effective_flow = flow_lph if (flow_lph is not None and flow_lph >= MIN_FLOW_LPH) else NOMINAL_FLOW_LPH
-        heat_demand_w = max(0.0, heat_loss.slope * t_outdoor + heat_loss.intercept)
+        from .analysis.utils import calc_heat_demand
+        effective_flow = get_effective_flow(flow_lph)
+        heat_demand_w = calc_heat_demand(heat_loss.slope, heat_loss.intercept, t_outdoor)
         t_supply = t_return + heat_demand_w / (1.16 * effective_flow)
         return round(t_supply, 1)
 
     @property
     def extra_state_attributes(self) -> dict | None:
         """Expose formula inputs for transparency."""
-        t_outdoor = self._get_float_state(self._outdoor_entity)
-        t_return = self._get_float_state(self._return_temp_entity)
-        flow_lph = self._get_float_state(self._flow_entity)
+        t_outdoor = get_float_state(self.hass, self._outdoor_entity)
+        t_return = get_float_state(self.hass, self._return_temp_entity)
+        flow_lph = get_float_state(self.hass, self._flow_entity)
 
         heat_demand_w = None
         if (
@@ -538,11 +520,12 @@ class QuattSupplyTempSensor(
             and self.coordinator.data.heat_loss_hp.slope is not None
             and t_outdoor is not None
         ):
+            from .analysis.utils import calc_heat_demand
             heat_demand_w = round(
-                max(
-                    0.0,
-                    self.coordinator.data.heat_loss_hp.slope * t_outdoor
-                    + self.coordinator.data.heat_loss_hp.intercept,
+                calc_heat_demand(
+                    self.coordinator.data.heat_loss_hp.slope,
+                    self.coordinator.data.heat_loss_hp.intercept,
+                    t_outdoor,
                 ),
                 0,
             )
@@ -553,6 +536,39 @@ class QuattSupplyTempSensor(
             "flow_lph": flow_lph,
             "heat_demand_w": heat_demand_w,
         }
+
+
+ADVICE_BREAKPOINT_TEMPS = (-10, -5, 0, 5, 10, 15)
+ADVICE_NOMINAL_RETURN_TEMP = 28.0  # °C — typical return temp for breakpoint calc
+ADVICE_STOOKGRENS_THRESHOLD = 1.0  # °C — significant difference threshold
+ADVICE_VERMOGEN_THRESHOLD = 500  # W — significant difference threshold
+
+
+def _calc_heating_curve_breakpoints(
+    heat_loss_slope: float,
+    heat_loss_intercept: float,
+    t_return_nominal: float = ADVICE_NOMINAL_RETURN_TEMP,
+    flow_nominal: float = NOMINAL_FLOW_LPH,
+    outdoor_temps: tuple = ADVICE_BREAKPOINT_TEMPS,
+) -> list[dict]:
+    """Bereken optimale aanvoertemperatuur bij standaard buitentemperaturen.
+
+    Gebruikt het heat loss model om voor elke buitentemp de benodigde
+    aanvoertemperatuur te berekenen. Hergebruikt door Quatt Advies en
+    OpenQuatt sensoren.
+    """
+    from .analysis.utils import calc_heat_demand
+
+    breakpoints = []
+    for t_out in outdoor_temps:
+        demand = calc_heat_demand(heat_loss_slope, heat_loss_intercept, t_out)
+        t_supply = t_return_nominal + demand / (1.16 * flow_nominal)
+        t_supply = max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, t_supply))
+        breakpoints.append({
+            "buiten_temp": t_out,
+            "aanvoer_temp": round(t_supply, 1),
+        })
+    return breakpoints
 
 
 def _calc_mpc_supply_temp(
@@ -604,12 +620,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         super().__init__(coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_mpc_recommended_supply_temp"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Quatt Warmteanalyse",
-            "manufacturer": "Quatt",
-            "model": "Warmteanalyse",
-        }
+        self._attr_device_info = get_device_info(entry.entry_id)
         self._forecast: list[dict] = []
         self._forecast_fetched_at: float | None = None
         self._solar_radiation: list[float] = []  # uurlijkse shortwave W/m² van Open-Meteo
@@ -636,15 +647,6 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     @property
     def _weather_entity(self) -> str:
         return self._entry.data.get(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
-
-    def _get_float_state(self, entity_id: str) -> float | None:
-        state = self.hass.states.get(entity_id)
-        if state is None or state.state in ("unknown", "unavailable", "None", ""):
-            return None
-        try:
-            return float(state.state)
-        except (ValueError, TypeError):
-            return None
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -730,15 +732,15 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         if heat_loss.slope is None or heat_loss.intercept is None or heat_loss.balance_point is None:
             return None
 
-        t_outdoor = self._get_float_state(self._outdoor_entity)
-        t_return = self._get_float_state(self._return_temp_entity)
-        flow_lph = self._get_float_state(self._flow_entity)
-        solar_w = self._get_float_state(self._solar_entity) or 0.0
+        t_outdoor = get_float_state(self.hass, self._outdoor_entity)
+        t_return = get_float_state(self.hass, self._return_temp_entity)
+        flow_lph = get_float_state(self.hass, self._flow_entity)
+        solar_w = get_float_state(self.hass, self._solar_entity) or 0.0
 
         if t_outdoor is None or t_return is None:
             return None
 
-        effective_flow = flow_lph if (flow_lph is not None and flow_lph >= MIN_FLOW_LPH) else NOMINAL_FLOW_LPH
+        effective_flow = get_effective_flow(flow_lph)
         solar_gain_w = solar_w * SOLAR_TO_HEAT_FACTOR
         return _calc_mpc_supply_temp(
             heat_loss.slope,
@@ -759,15 +761,16 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         if heat_loss.slope is None or heat_loss.intercept is None:
             return None
 
-        t_outdoor = self._get_float_state(self._outdoor_entity)
-        t_return = self._get_float_state(self._return_temp_entity)
-        flow_lph = self._get_float_state(self._flow_entity)
-        effective_flow = flow_lph if (flow_lph is not None and flow_lph >= MIN_FLOW_LPH) else NOMINAL_FLOW_LPH
-        solar_w = self._get_float_state(self._solar_entity) or 0.0
+        t_outdoor = get_float_state(self.hass, self._outdoor_entity)
+        t_return = get_float_state(self.hass, self._return_temp_entity)
+        flow_lph = get_float_state(self.hass, self._flow_entity)
+        effective_flow = get_effective_flow(flow_lph)
+        solar_w = get_float_state(self.hass, self._solar_entity) or 0.0
         solar_gain_w = solar_w * SOLAR_TO_HEAT_FACTOR
 
+        from .analysis.utils import calc_heat_demand
         raw_demand = (
-            max(0.0, heat_loss.slope * t_outdoor + heat_loss.intercept)
+            calc_heat_demand(heat_loss.slope, heat_loss.intercept, t_outdoor)
             if t_outdoor is not None
             else None
         )
@@ -815,7 +818,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                     fc_rad_wm2 = None
                     fraction = CONDITION_SOLAR_FRACTION.get(condition, 0.3)
                     fc_solar_gain = solar_w * fraction * SOLAR_TO_HEAT_FACTOR
-            fc_raw = max(0.0, heat_loss.slope * fc_temp + heat_loss.intercept)
+            fc_raw = calc_heat_demand(heat_loss.slope, heat_loss.intercept, fc_temp)
             fc_net = max(0.0, fc_raw - fc_solar_gain)
             # Forecast: gebruik stooklijn als baseline (T_retour is onbekend voor toekomstige uren).
             # De stooklijn geeft T_aanvoer direct als functie van T_buiten, gecalibreerd op
@@ -896,12 +899,7 @@ class QuattAdviceErrorSensor(
             if mode == "mpc"
             else "Stooklijn Fout Aanvoertemperatuur"
         )
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Quatt Warmteanalyse",
-            "manufacturer": "Quatt",
-            "model": "Warmteanalyse",
-        }
+        self._attr_device_info = get_device_info(entry.entry_id)
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -916,19 +914,217 @@ class QuattAdviceErrorSensor(
     async def _handle_state_change(self, event) -> None:
         self.async_write_ha_state()
 
-    def _get_float_state(self, entity_id: str) -> float | None:
-        state = self.hass.states.get(entity_id)
-        if state is None or state.state in ("unknown", "unavailable", "None", ""):
-            return None
-        try:
-            return float(state.state)
-        except (ValueError, TypeError):
-            return None
-
     @property
     def native_value(self) -> float | None:
-        advised = self._get_float_state(self._advised_entity)
-        actual = self._get_float_state(self._supply_temp_entity)
+        advised = get_float_state(self.hass, self._advised_entity)
+        actual = get_float_state(self.hass, self._supply_temp_entity)
         if advised is None or actual is None:
             return None
         return round(advised - actual, 1)
+
+
+class QuattAdviceSensor(
+    CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity
+):
+    """Statische advies-sensor: welke parameters moet Quatt aanpassen.
+
+    Toont het aantal aanbevolen aanpassingen als state, met gedetailleerde
+    advies-attributen voor stookgrens, nominaal vermogen, en stooklijnpunten.
+    Bedoeld om één keer per jaar aan Quatt door te geven.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Quatt Advies Parameters"
+    _attr_icon = "mdi:tune"
+
+    def __init__(
+        self,
+        coordinator: QuattStooklijnCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_quatt_advice"
+        self._attr_device_info = get_device_info(entry.entry_id)
+
+    @property
+    def native_value(self) -> str | None:
+        data = self.coordinator.data
+        if data is None or data.heat_loss_hp.slope is None:
+            return None
+
+        changes = self._count_changes(data)
+        if changes == 0:
+            return "Instellingen optimaal"
+        return f"{changes} aanpassing{'en' if changes != 1 else ''} aanbevolen"
+
+    def _count_changes(self, data: QuattStooklijnData) -> int:
+        """Tel het aantal significante afwijkingen."""
+        changes = 0
+
+        # Stookgrens
+        stookgrens_cur = data.stooklijn.balance_temp_api_daily
+        stookgrens_opt = data.stooklijn.balance_temp_optimal
+        if (
+            stookgrens_cur is not None
+            and stookgrens_opt is not None
+            and abs(stookgrens_cur - stookgrens_opt) > ADVICE_STOOKGRENS_THRESHOLD
+        ):
+            changes += 1
+
+        # Nominaal vermogen
+        vermogen_cur, vermogen_opt = self._calc_vermogen(data)
+        if (
+            vermogen_cur is not None
+            and vermogen_opt is not None
+            and abs(vermogen_cur - vermogen_opt) > ADVICE_VERMOGEN_THRESHOLD
+        ):
+            changes += 1
+
+        # Stooklijn breakpoints — always recommend if heat loss model available
+        if data.heat_loss_hp.slope is not None:
+            changes += 1
+
+        return changes
+
+    def _calc_vermogen(
+        self, data: QuattStooklijnData
+    ) -> tuple[float | None, float | None]:
+        """Bereken huidig en optimaal vermogen bij -10°C."""
+        from .analysis.utils import calc_heat_demand
+
+        # Huidig: uit de Quatt stooklijn config
+        vermogen_cur = None
+        if (
+            data.actual_stooklijn_slope is not None
+            and data.actual_stooklijn_intercept is not None
+        ):
+            vermogen_cur = round(
+                data.actual_stooklijn_slope * -10
+                + data.actual_stooklijn_intercept
+            )
+
+        # Optimaal: uit het heat loss model
+        vermogen_opt = None
+        if data.heat_loss_hp.slope is not None and data.heat_loss_hp.intercept is not None:
+            vermogen_opt = round(
+                calc_heat_demand(data.heat_loss_hp.slope, data.heat_loss_hp.intercept, -10)
+            )
+
+        return vermogen_cur, vermogen_opt
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        data = self.coordinator.data
+        if data is None or data.heat_loss_hp.slope is None:
+            return None
+
+        attrs: dict[str, Any] = {}
+
+        # --- Stookgrens ---
+        stookgrens_cur = data.stooklijn.balance_temp_api_daily
+        stookgrens_opt = data.stooklijn.balance_temp_optimal
+        attrs["stookgrens_huidig"] = (
+            round(stookgrens_cur, 1) if stookgrens_cur is not None else None
+        )
+        attrs["stookgrens_optimaal"] = (
+            round(stookgrens_opt, 1) if stookgrens_opt is not None else None
+        )
+        if stookgrens_cur is not None and stookgrens_opt is not None:
+            diff = stookgrens_opt - stookgrens_cur
+            if abs(diff) > ADVICE_STOOKGRENS_THRESHOLD:
+                verb = "Verhoog" if diff > 0 else "Verlaag"
+                attrs["stookgrens_advies"] = (
+                    f"{verb} stookgrens van {stookgrens_cur:.1f} naar {stookgrens_opt:.1f}°C"
+                )
+            else:
+                attrs["stookgrens_advies"] = "Stookgrens is goed ingesteld"
+        else:
+            attrs["stookgrens_advies"] = None
+
+        # --- Nominaal vermogen bij -10°C ---
+        vermogen_cur, vermogen_opt = self._calc_vermogen(data)
+        attrs["nominaal_vermogen_huidig_w"] = vermogen_cur
+        attrs["nominaal_vermogen_optimaal_w"] = vermogen_opt
+        if vermogen_cur is not None and vermogen_opt is not None:
+            diff = vermogen_opt - vermogen_cur
+            if abs(diff) > ADVICE_VERMOGEN_THRESHOLD:
+                verb = "Verhoog" if diff > 0 else "Verlaag"
+                attrs["nominaal_vermogen_advies"] = (
+                    f"{verb} nominaal vermogen naar {vermogen_opt} W"
+                )
+            else:
+                attrs["nominaal_vermogen_advies"] = "Nominaal vermogen is goed ingesteld"
+        else:
+            attrs["nominaal_vermogen_advies"] = (
+                "Vul de huidige Quatt stooklijn in bij de integratie-instellingen"
+                if vermogen_cur is None
+                else None
+            )
+
+        # --- Stooklijn breakpoints ---
+        if data.heat_loss_hp.slope is not None and data.heat_loss_hp.intercept is not None:
+            breakpoints = _calc_heating_curve_breakpoints(
+                data.heat_loss_hp.slope,
+                data.heat_loss_hp.intercept,
+            )
+            attrs["stooklijn_punten"] = breakpoints
+            punten_str = ", ".join(
+                f"{bp['buiten_temp']}°C→{bp['aanvoer_temp']}°C"
+                for bp in breakpoints
+            )
+            attrs["stooklijn_advies"] = f"Stel stooklijn in op: {punten_str}"
+        else:
+            attrs["stooklijn_punten"] = None
+            attrs["stooklijn_advies"] = None
+
+        attrs["aantal_aanpassingen"] = self._count_changes(data)
+        return attrs
+
+
+class QuattOpenQuattCurveSensor(
+    CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity
+):
+    """Passieve output sensor: optimale stooklijn breakpoints voor OpenQuatt.
+
+    State = aantal breakpoints (6).  Attributen bevatten de individuele punten
+    zodat HA-automations ze naar OpenQuatt number-entiteiten kunnen schrijven.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "OpenQuatt Stooklijn"
+    _attr_icon = "mdi:chart-bell-curve-cumulative"
+
+    def __init__(
+        self,
+        coordinator: QuattStooklijnCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_openquatt_curve"
+        self._attr_device_info = get_device_info(entry.entry_id)
+
+    @property
+    def native_value(self) -> int | None:
+        data = self.coordinator.data
+        if data is None or data.heat_loss_hp.slope is None:
+            return None
+        return len(ADVICE_BREAKPOINT_TEMPS)
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        data = self.coordinator.data
+        if data is None or data.heat_loss_hp.slope is None:
+            return None
+
+        breakpoints = _calc_heating_curve_breakpoints(
+            data.heat_loss_hp.slope,
+            data.heat_loss_hp.intercept,
+        )
+
+        attrs: dict[str, Any] = {"breakpoints": breakpoints}
+        for i, bp in enumerate(breakpoints, 1):
+            attrs[f"bp_{i}_buiten"] = bp["buiten_temp"]
+            attrs[f"bp_{i}_aanvoer"] = bp["aanvoer_temp"]
+        return attrs

@@ -80,7 +80,7 @@ async def _async_setup_dashboard(hass: HomeAssistant) -> None:
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Kon dashboard niet automatisch aanmaken: %s", err)
 
-PLATFORMS = ["sensor", "text"]
+PLATFORMS = ["sensor", "switch", "text"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

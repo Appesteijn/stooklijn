@@ -14,6 +14,9 @@ Home Assistant custom integration for analyzing your Quatt heat pump performance
 - **Knee temperature** — Detects the outdoor temperature where supplemental heating (boiler) kicks in
 - **Gas comparison** (optional) — Compare heat pump performance with historical gas consumption from before installation
 - **MPC shadow sensor** — Calculates an optimal supply temperature advice based on a 6-hour weather forecast, without touching your system
+- **Quatt advies** — Shows exactly which parameters to ask Quatt to adjust (stookgrens, nominaal vermogen, stooklijn breakpoints)
+- **OTGW compensatie** (optional) — Active supply temperature correction via OpenTherm Gateway room temperature override
+- **OpenQuatt ready** — Output sensors with optimal heating curve breakpoints and balance point, ready for OpenQuatt automations
 - **Dashboard included** — Pre-built Lovelace dashboard with interactive charts
 
 ## MPC shadow sensor
@@ -41,7 +44,109 @@ Without a PV sensor the integration falls back to a fixed conversion factor base
 
 ### Shadow mode — why no live control yet
 
-Live control requires an OpenTherm Gateway (OTGW) to write setpoints to the boiler/heat pump. The integration is designed to support this in a future release. In the meantime, shadow mode lets you collect real-world validation data: after a few weeks of data you can judge whether the MPC advice would have improved efficiency before enabling live control.
+Live control requires an OpenTherm Gateway (OTGW) to write setpoints to the boiler/heat pump. Shadow mode lets you collect real-world validation data: after a few weeks of data you can judge whether the MPC advice would have improved efficiency before enabling live control.
+
+If you have an OTGW installed, you can enable **OTGW compensatie** (see below) to actively correct the Quatt supply temperature.
+
+## Quatt advies sensor
+
+The `sensor.quatt_warmteanalyse_quatt_advies` sensor analyzes your heat pump data and tells you exactly what parameters to ask Quatt to change in their app. This is useful because Quatt support can adjust your installation settings remotely, but you need to tell them what to change.
+
+The sensor state shows how many adjustments are recommended (e.g. "3 aanpassingen aanbevolen" or "Instellingen optimaal"). The attributes contain the specific advice:
+
+| Attribute | Description |
+|-----------|-------------|
+| `stookgrens_huidig` | Current Quatt balance temperature (°C) |
+| `stookgrens_optimaal` | Recommended balance temperature based on your home's heat loss |
+| `stookgrens_advies` | Human-readable advice text |
+| `nominaal_vermogen_huidig_w` | Current Quatt rated power at -10°C (W) |
+| `nominaal_vermogen_optimaal_w` | Recommended rated power based on actual heat demand |
+| `nominaal_vermogen_advies` | Human-readable advice text |
+| `stooklijn_punten` | 6 optimal heating curve breakpoints (-10°C to +15°C) |
+| `stooklijn_advies` | All breakpoints as readable text |
+
+> **Note:** The "nominaal vermogen" comparison requires that you enter your current Quatt stooklijn setting (two points) in the integration configuration (Step 3). Without this, the sensor can only show the recommended values, not the difference.
+
+## OTGW compensatie
+
+If you have an [OpenTherm Gateway](https://otgw.tclcode.com/) installed between your thermostat and Quatt CiC, the integration can actively correct overheating by adjusting the room temperature that the CiC "sees".
+
+### How it works
+
+The Quatt CiC uses room temperature and thermostat setpoint to determine heat output. It does not accept external supply temperature setpoints. The OTGW can intercept and modify the OpenTherm messages between thermostat and CiC.
+
+When the MPC sensor detects that the CiC is overheating (supply temperature too high), the integration increases the OTGW room temperature override. The CiC thinks the room is warmer than it actually is and reduces its output.
+
+### Safety features
+
+| Safety measure | Details |
+|---------------|---------|
+| **Direction** | Only makes CiC think room is *warmer* (reduces output). Never colder (never increases output). |
+| **Max offset** | Configurable, default 2.0°C, hard maximum 3.0°C |
+| **Rate limit** | Max 0.5°C change per 5-minute cycle |
+| **Dead band** | No action when MPC error is within ±1.0°C |
+| **HP inactive** | Override resets to 0 when heat pump is off (flow < 30 l/h) |
+| **MPC timeout** | Override resets if MPC sensor is unavailable for >10 minutes |
+| **Switch off** | Override always resets to 0 when the switch is turned off |
+| **HA shutdown** | Override resets on entity removal |
+
+### Configuration
+
+Enable OTGW compensation in the integration configuration (Step 3 or Options):
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `otgw_enabled` | `false` | Enable OTGW compensation |
+| `otgw_room_temp_override` | `number.otgw_room_temperature_override` | OTGW override entity |
+| `otgw_max_offset` | `2.0` | Maximum room temperature offset (°C) |
+
+After enabling, a switch entity appears: `switch.quatt_warmteanalyse_otgw_compensatie`. Turn it on to start active compensation.
+
+The switch exposes these attributes for monitoring:
+
+| Attribute | Description |
+|-----------|-------------|
+| `current_offset` | Current room temperature offset being applied (°C) |
+| `mpc_error` | Difference between MPC advice and actual supply temp (°C) |
+| `hp_active` | Whether the heat pump is currently running |
+
+## OpenQuatt readiness
+
+If you plan to install an [OpenQuatt](https://github.com/openquatt) (ESPHome-based CiC replacement), the integration provides output sensors that OpenQuatt automations can consume directly.
+
+### Sensors
+
+**`sensor.quatt_warmteanalyse_openquatt_stooklijn`** — Optimal heating curve breakpoints
+
+State = number of breakpoints (6). Attributes:
+
+| Attribute | Description |
+|-----------|-------------|
+| `breakpoints` | Full list of `{buiten_temp, aanvoer_temp}` dicts |
+| `bp_1_buiten` .. `bp_6_buiten` | Outdoor temperature per breakpoint (°C) |
+| `bp_1_aanvoer` .. `bp_6_aanvoer` | Optimal supply temperature per breakpoint (°C) |
+
+**`sensor.quatt_warmteanalyse_openquatt_balance_point`** — Optimal balance temperature (°C)
+
+**`sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur`** — Real-time optimal supply temperature (°C), updated with weather forecast and solar gain.
+
+### Example automation
+
+To sync the balance point to OpenQuatt automatically:
+
+```yaml
+automation:
+  - alias: "Sync balance point to OpenQuatt"
+    trigger:
+      - platform: state
+        entity_id: sensor.quatt_warmteanalyse_openquatt_balance_point
+    action:
+      - service: number.set_value
+        target:
+          entity_id: number.openquatt_house_zero_power_temp_c
+        data:
+          value: "{{ states('sensor.quatt_warmteanalyse_openquatt_balance_point') }}"
+```
 
 ## Requirements
 
@@ -175,6 +280,25 @@ The MPC/shadow validation tab also uses `sensor.heatpump_flowmeter_temperature` 
 | `actual_stooklijn` | W/°C | Your configured Quatt stooklijn |
 | `last_analysis` | timestamp | When the last analysis was run |
 | `analysis_status` | — | Current analysis status |
+| `quatt_advies` | — | Number of recommended Quatt parameter changes |
+| `openquatt_balance_point` | °C | Optimal balance point for OpenQuatt |
+| `openquatt_stooklijn` | — | 6 heating curve breakpoints for OpenQuatt |
+
+**Live sensors** (update in real-time based on current conditions):
+
+| Sensor | Unit | Description |
+|--------|------|-------------|
+| `geschatte_actuele_cop` | — | Interpolated COP at current outdoor temperature |
+| `aanbevolen_aanvoertemperatuur` | °C | Recommended supply temperature (stooklijn-based) |
+| `mpc_aanbevolen_aanvoertemperatuur` | °C | MPC recommended supply temperature (with weather + solar forecast) |
+| `stooklijn_fout_aanvoertemperatuur` | °C | Error: stooklijn advice − actual supply |
+| `mpc_fout_aanvoertemperatuur` | °C | Error: MPC advice − actual supply |
+
+**Control entities** (only when OTGW compensation is enabled):
+
+| Entity | Type | Description |
+|--------|------|-------------|
+| `otgw_compensatie` | switch | Enable/disable active OTGW compensation |
 
 ## Services
 
@@ -216,6 +340,65 @@ The integration combines five data sources for the best balance of coverage, acc
 6. **Merge** — Recorder data forms the base, API data overwrites recent days (more accurate for the last 30 days).
 
 **Result:** From the first run you get months of daily data (via recorder), plus 30 days of hourly detail. Both caches grow organically over time, and knee detection improves with each cold period.
+
+## Voorspellingsmodellen
+
+De integratie gebruikt drie modellen die op elkaar voortbouwen:
+
+### Lineair model (heat loss regressie)
+
+De basis van de hele integratie. Past een rechte lijn door je historische dagdata:
+
+```
+warmtevraag (W) = slope × T_buiten + intercept
+```
+
+- **Input:** dagelijkse Quatt API data (gemiddelde buitentemperatuur vs. totaal vermogen)
+- **Output:** warmteverliescoëfficiënt (W/K), balanspunt (°C), nominaal vermogen bij elke temperatuur
+- **Gebruikt door:** MPC sensor, Quatt advies sensor, stooklijn breakpoints, OpenQuatt sensoren
+- **Methode:** twee-pass lineaire regressie met outlier-filtering (residuen > 2.5σ worden verwijderd)
+- **Beperking:** neemt aan dat de relatie temperatuur→warmtevraag een rechte lijn is — houdt geen rekening met wind, zon of thermische massa
+
+### MPC forecast (physics-based)
+
+Bouwt voort op het lineaire model en voegt real-time correcties toe:
+
+```
+T_aanvoer = T_retour + max(0, warmtevraag − zonnewarmte) / (1.16 × debiet)
+```
+
+- **Input:** live sensordata (retourtemp, debiet, buitentemp) + weersvoorspelling (6 uur) + zonnestraling (Open-Meteo)
+- **Output:** aanbevolen aanvoertemperatuur per uur, nu + 6 uur vooruit
+- **Voordeel t.o.v. lineair:** corrigeert voor zonnewinst en gebruikt actuele retourtemperatuur en debiet
+- **Solar learning:** leert dynamisch hoeveel van je PV-opwek als warmte in huis terechtkomt door SolarEdge data te vergelijken met Open-Meteo stralingsdata
+
+| | Lineair model | MPC forecast |
+|---|---|---|
+| **Databron** | Historische dagdata | Live sensors + weersvoorspelling |
+| **Zon/wind** | Nee | Zon ja, wind nee |
+| **Updatefrequentie** | Bij analyse (handmatig/opstart) | Elke sensorupdate |
+| **Doel** | Thermische karakteristiek van je woning | Real-time aanvoertemp advies |
+
+### XGBoost (experimenteel, niet actief)
+
+In de repository staan getrainde XGBoost modellen (`.ubj` bestanden) uit de Jupyter notebooks (`ml_train_baseline.ipynb`, `ml_multistep.ipynb`). Deze zijn **niet geïntegreerd** in de Home Assistant component.
+
+- **Wat het doet:** voorspelt warmtevraag met meer features dan het lineaire model (wind, zon, tijd, thermische massa)
+- **Potentieel voordeel:** nauwkeuriger voorspelling bij wisselend weer, kan het lineaire model in de MPC vervangen
+- **Status:** research-fase — de modellen zijn getraind maar nog niet aangesloten op de integratie
+
+### Hoe de modellen samenwerken
+
+```
+Historische data → [Lineair model] → slope, intercept, balanspunt
+                                          ↓
+Live sensors + weer → [MPC forecast] → optimale aanvoertemperatuur
+                                          ↓
+                          ┌───────────────┼───────────────┐
+                          ↓               ↓               ↓
+                    Quatt advies    OTGW compensatie   OpenQuatt
+                   (statisch)       (actieve sturing)  (output sensoren)
+```
 
 ## Performance & Caching
 
@@ -271,7 +454,7 @@ The knee data store (`quatt_stooklijn_knee_data`) persistently accumulates cold-
 ### Insights cache management
 
 The insights cache is stored in `.storage/quatt_stooklijn_insights_cache` and:
-- Automatically cleans up data older than 1 year
+- Automatically cleans up data older than 3 years (matching the knee data store retention)
 - Can be manually cleared by deleting the cache file and restarting HA
 - Is completely transparent (no configuration needed)
 - Survives Home Assistant restarts
