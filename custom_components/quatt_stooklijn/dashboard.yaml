@@ -276,15 +276,15 @@ views:
               |
 
               | Minuutwaarden (recorder) | **{{ minutes }} min** |
-              Knikpuntdetectie |
+              Knikpunt & helling (actueel) |
+
+              | Knie-datastore | **{{ k_pts }} ptn**{% if k_old %} ({{
+              k_old[:7] }} – {{ k_new[:7] }}){% endif %} | Knikpunt & helling
+              (historisch) |
 
               | API-cache opgeslagen | **{{ c_days }} dagen**{% if c_old %} ({{
               c_old[:7] }} – {{ c_new[:7] }}){% endif %} | Minder API-aanvragen
               |
-
-              | Knie-datastore | **{{ k_days }} dgn / {{ k_pts }} ptn**{% if
-              k_old %} ({{ k_old[:7] }} – {{ k_new[:7] }}){% endif %} | Knikpunt
-              meerdere winters |
 
 
               {% else %}

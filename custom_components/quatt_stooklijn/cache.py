@@ -92,11 +92,12 @@ class QuattInsightsCache:
         except ValueError:
             return False
 
-    async def async_cleanup(self, days_to_keep: int = 365) -> None:
+    async def async_cleanup(self, days_to_keep: int = 365 * KNEE_YEARS_TO_KEEP) -> None:
         """Remove cache entries older than specified days.
 
         Args:
-            days_to_keep: Number of days to keep in cache (default 1 year)
+            days_to_keep: Number of days to keep in cache (default matches
+                KneeDataStore retention: KNEE_YEARS_TO_KEEP years)
         """
         cutoff_date = (datetime.now() - timedelta(days=days_to_keep)).date()
         cutoff_str = cutoff_date.strftime("%Y-%m-%d")
