@@ -298,7 +298,7 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     result.pop(key, None)
             return self.async_create_entry(title="", data=result)
 
-        data = self._config_entry.data
+        data = {**self._config_entry.data, **self._config_entry.options}
 
         def _float_default(key):
             val = data.get(key)

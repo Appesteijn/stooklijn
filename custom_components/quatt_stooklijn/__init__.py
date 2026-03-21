@@ -83,14 +83,23 @@ async def _async_setup_dashboard(hass: HomeAssistant) -> None:
 PLATFORMS = ["sensor", "switch", "text"]
 
 
+async def _async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload integration when options change."""
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Quatt Stooklijn from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    coordinator = QuattStooklijnCoordinator(hass, dict(entry.data))
+    merged_config = {**entry.data, **entry.options}
+    coordinator = QuattStooklijnCoordinator(hass, merged_config)
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Update coordinator config when user changes options
+    entry.async_on_unload(entry.add_update_listener(_async_update_options))
 
     await _async_migrate_entity_ids(hass, entry)
     await _async_setup_dashboard(hass)
