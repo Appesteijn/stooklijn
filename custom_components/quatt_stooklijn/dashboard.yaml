@@ -60,154 +60,39 @@ views:
               rows: auto
             columns: 2
           - type: markdown
-            title: Stooklijn aanpassen?
+            title: Quatt advies
             content: >
-              {% set house_balance =
-              states('sensor.quatt_warmteanalyse_balance_point_temperature') |
-              float(0) %}
+              {% set advies = states('sensor.quatt_warmteanalyse_quatt_advies') %}
 
-              {% set hlc_slope =
-              state_attr('sensor.quatt_warmteanalyse_heat_loss_coefficient',
-              'slope') | float(0) %}
-
-              {% set hlc_intercept =
-              state_attr('sensor.quatt_warmteanalyse_heat_loss_coefficient',
-              'intercept') | float(0) %}
-
-              {% set act_slope =
-              states('sensor.quatt_warmteanalyse_actual_stooklijn_setting') |
-              float(0) %}
-
-              {% set act_intercept =
-              state_attr('sensor.quatt_warmteanalyse_actual_stooklijn_setting',
-              'intercept') | float(0) %}
-
-              {% set est_slope_daily =
-              state_attr('sensor.quatt_warmteanalyse_quatt_warmteanalyse_slope',
-              'slope_daily') | float(0) %}
-
-              {% set est_intercept_daily =
-              state_attr('sensor.quatt_warmteanalyse_quatt_warmteanalyse_slope',
-              'intercept_daily') | float(0) %}
-
-              {% set est_balance_daily =
-              state_attr('sensor.quatt_warmteanalyse_quatt_warmteanalyse_slope',
-              'balance_temp_daily') | float(0) %}
-
-              {% set slope_ratio =
-              state_attr('sensor.quatt_warmteanalyse_optimal_stooklijn_slope',
-              'quatt_slope_ratio') | float(0) %}
-
-              {% if hlc_slope == 0 or hlc_intercept == 0 %}
+              {% if advies in ['unknown', 'unavailable', 'None'] %}
 
               *Voer eerst een analyse uit.*
 
-              {% elif act_slope != 0 %}
+              {% else %}
 
-              {% set quatt_slope = act_slope %}
+              {% set n = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'aantal_aanpassingen') | int(0) %}
 
-              {% set quatt_intercept = act_intercept %}
+              {% if n == 0 %}
 
-              {% set quatt_source = "geconfigureerde instelling" %}
-
-              {% set quatt_balance = (-quatt_intercept / quatt_slope) | round(1)
-              %}
-
-              {% elif est_balance_daily != 0 %}
-
-              {% set quatt_slope = est_slope_daily %}
-
-              {% set quatt_intercept = est_intercept_daily %}
-
-              {% set quatt_balance = est_balance_daily | round(1) %}
-
-              {% set quatt_source = "schatting op basis van dagelijkse data" %}
+              ✅ **{{ advies }}**
 
               {% else %}
 
-              ℹ️ Geen schatting beschikbaar — voer een analyse uit of voer je
-              Quatt-instelling handmatig in via de configuratie.
+              ⚠️ **{{ advies }}**
+
+
+              {% set sg = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'stookgrens_advies') %}
+
+              {% set vg = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'nominaal_vermogen_advies') %}
+
+              {% if sg and 'goed' not in sg %}• {{ sg }}{% endif %}
+
+              {% if vg and 'goed' not in vg %}• {{ vg }}{% endif %}
 
               {% endif %}
 
-              {% if quatt_balance is defined %}
 
-              {% set diff = (quatt_balance - house_balance) | round(1) %}
-
-              {% set diff_abs = diff | abs %}
-
-              *(Gebaseerd op {{ quatt_source }})*
-
-              {% if diff_abs <= 2 %}
-
-              ✅ **Geen aanpassing nodig** — De Quatt-balanstemperatuur ({{
-              quatt_balance }}°C) sluit goed aan op de warmtevraag van jouw huis
-              ({{ house_balance | round(1) }}°C, verschil {{ diff_abs }}°C).
-
-              {% elif diff > 2 %}
-
-              ⚠️ **Aanpassing aanbevolen — Quatt verwarmt te lang door bij mild
-              weer**
-
-
-              Quatt stopt pas met verwarmen bij {{ quatt_balance }}°C, maar jouw
-              huis heeft al geen warmte meer nodig boven {{ house_balance |
-              round(1) }}°C. Bij zachte temperaturen (boven {{ house_balance |
-              round(0) | int }}°C) draait de warmtepomp dus onnodig door.
-
-              {% if quatt_slope is defined %}
-
-              {% set waste_w = (quatt_slope * house_balance + quatt_intercept) |
-              round(0) | int %}
-
-              Bij {{ house_balance | round(1) }}°C levert de warmtepomp nog **{{
-              waste_w }} W** terwijl de warmtevraag al 0 is. Dit verhoogt het
-              elektriciteitsverbruik zonder extra warmtecomfort.
-
-              {% endif %}
-
-              **Advies:** vraag Quatt de balanstemperatuur te verlagen naar ~{{
-              house_balance | round(0) | int }}°C. Gebruik de waarden in de
-              tabel *Warmtevraag bij verschillende temperaturen* als referentie.
-
-              {% if slope_ratio > 0 and slope_ratio > 1.15 %}
-
-              *Let op: de helling van Quatt's stooklijn is {{ ((slope_ratio - 1)
-              * 100) | round(0) | int }}% steiler dan optimaal — bij mild weer
-              produceert de warmtepomp meer warmte dan nodig.*
-
-              {% elif slope_ratio > 0 and slope_ratio < 0.85 %}
-
-              *Let op: de helling van Quatt's stooklijn is {{ ((1 - slope_ratio)
-              * 100) | round(0) | int }}% vlakker dan optimaal — bij strenge kou
-              kan de warmtepomp te weinig leveren.*
-
-              {% endif %}
-
-              {% else %}
-
-              ⚠️ **Aanpassing aanbevolen — Quatt verwarmt te weinig bij mild
-              weer**
-
-
-              Quatt stopt al met verwarmen bij {{ quatt_balance }}°C, maar jouw
-              huis heeft warmte nodig tot {{ house_balance | round(1) }}°C. Bij
-              temperaturen tussen {{ quatt_balance }}°C en {{ house_balance |
-              round(1) }}°C levert de warmtepomp te weinig.
-
-              {% set shortfall_w = (hlc_slope * quatt_balance + hlc_intercept) |
-              round(0) | int %}
-
-              Bij {{ quatt_balance }}°C is de warmtevraag nog **{{ shortfall_w
-              }} W**, maar de warmtepomp geeft al 0. Dit moet worden overgenomen
-              door de cv-ketel (lagere COP).
-
-
-              **Advies:** vraag Quatt de balanstemperatuur te verhogen naar ~{{
-              house_balance | round(0) | int }}°C. Gebruik de waarden in de
-              tabel *Warmtevraag bij verschillende temperaturen* als referentie.
-
-              {% endif %}
+              *Ga naar het **Quatt Advies** tabblad voor alle details en stooklijnpunten.*
 
               {% endif %}
             grid_options:
@@ -685,6 +570,222 @@ views:
             grid_options:
               columns: 24
               rows: auto
+  - title: Quatt Advies
+    icon: mdi:tune
+    type: sections
+    cards: []
+    sections:
+      - type: grid
+        column_span: 4
+        cards:
+          - square: false
+            type: grid
+            columns: 3
+            cards:
+              - type: entity
+                entity: sensor.quatt_warmteanalyse_quatt_advies
+                name: Advies Status
+                icon: mdi:tune
+              - type: entity
+                entity: sensor.quatt_warmteanalyse_balance_point_temperature
+                name: Balanspunt (optimaal)
+                icon: mdi:thermometer-check
+              - type: entity
+                entity: sensor.quatt_warmteanalyse_openquatt_balance_point
+                name: OpenQuatt Balanspunt
+                icon: mdi:home-thermometer-outline
+            grid_options:
+              columns: 24
+              rows: auto
+          - type: markdown
+            title: Stookgrens
+            content: >
+              {% set advies = states('sensor.quatt_warmteanalyse_quatt_advies') %}
+
+              {% if advies in ['unknown', 'unavailable', 'None'] %}
+
+              *Voer eerst een analyse uit.*
+
+              {% else %}
+
+              {% set cur = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'stookgrens_huidig') %}
+
+              {% set opt = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'stookgrens_optimaal') %}
+
+              {% set txt = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'stookgrens_advies') %}
+
+              | | Waarde |
+
+              |:--|--:|
+
+              | Huidig (Quatt) | {% if cur %}**{{ cur }}°C**{% else %}*onbekend*{% endif %} |
+
+              | Optimaal (analyse) | {% if opt %}**{{ opt }}°C**{% else %}*onbekend*{% endif %} |
+
+
+              {% if txt %}{{ txt }}{% endif %}
+
+              {% endif %}
+            grid_options:
+              columns: 12
+              rows: auto
+          - type: markdown
+            title: Nominaal vermogen (bij -10°C)
+            content: >
+              {% set advies = states('sensor.quatt_warmteanalyse_quatt_advies') %}
+
+              {% if advies in ['unknown', 'unavailable', 'None'] %}
+
+              *Voer eerst een analyse uit.*
+
+              {% else %}
+
+              {% set cur = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'nominaal_vermogen_huidig_w') %}
+
+              {% set opt = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'nominaal_vermogen_optimaal_w') %}
+
+              {% set txt = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'nominaal_vermogen_advies') %}
+
+              | | Waarde |
+
+              |:--|--:|
+
+              | Huidig (Quatt) | {% if cur %}**{{ cur }} W**{% else %}*niet geconfigureerd*{% endif %} |
+
+              | Optimaal (analyse) | {% if opt %}**{{ opt }} W**{% else %}*onbekend*{% endif %} |
+
+
+              {% if txt %}{{ txt }}{% endif %}
+
+              {% endif %}
+            grid_options:
+              columns: 12
+              rows: auto
+          - type: markdown
+            title: Optimale stooklijn breakpoints
+            content: >
+              {% set punten = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'stooklijn_punten') %}
+
+              {% if punten %}
+
+              {% set txt = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'stooklijn_advies') %}
+
+              Geef deze punten door aan Quatt om de stooklijn optimaal in te stellen:
+
+
+              Buitentemp | Aanvoertemp
+
+              :--|--:
+
+              {% for bp in punten -%}
+
+              **{{ bp.buiten_temp }}°C** | **{{ bp.aanvoer_temp }}°C**
+
+              {% endfor %}
+
+
+              {% if txt %}*{{ txt }}*{% endif %}
+
+              {% else %}
+
+              *Voer eerst een analyse uit.*
+
+              {% endif %}
+            grid_options:
+              columns: 14
+              rows: auto
+          - type: custom:apexcharts-card
+            header:
+              title: Stooklijn — Optimaal vs Huidig
+              show: true
+            update_interval: "00:30:00"
+            apex_config:
+              chart:
+                height: 300
+              xaxis:
+                title:
+                  text: Buitentemperatuur (°C)
+                min: -10
+                max: 20
+              yaxis:
+                title:
+                  text: Aanvoertemperatuur (°C)
+                min: 20
+                max: 55
+              markers:
+                size:
+                  - 5
+                  - 0
+              legend:
+                position: bottom
+            series:
+              - entity: sensor.quatt_warmteanalyse_openquatt_stooklijn
+                name: Optimale breakpoints
+                color: "#4CAF50"
+                type: line
+                stroke_width: 0
+                data_generator: >
+                  const attrs =
+                  hass.states['sensor.quatt_warmteanalyse_openquatt_stooklijn']?.attributes
+                  || {};
+
+                  const bps = attrs.breakpoints || [];
+
+                  if (!bps.length) return [];
+
+                  return bps.map(bp => [bp.buiten_temp, bp.aanvoer_temp]);
+              - entity: sensor.quatt_warmteanalyse_openquatt_stooklijn
+                name: Optimale curve
+                color: "#4CAF50"
+                type: line
+                stroke_width: 2
+                curve: straight
+                data_generator: >
+                  const attrs =
+                  hass.states['sensor.quatt_warmteanalyse_openquatt_stooklijn']?.attributes
+                  || {};
+
+                  const bps = attrs.breakpoints || [];
+
+                  if (!bps.length) return [];
+
+                  return bps.map(bp => [bp.buiten_temp, bp.aanvoer_temp]);
+            grid_options:
+              columns: 24
+              rows: auto
+          - type: markdown
+            title: OpenQuatt
+            content: >
+              {% set bp = states('sensor.quatt_warmteanalyse_openquatt_balance_point') %}
+
+              {% set curve = states('sensor.quatt_warmteanalyse_openquatt_stooklijn') %}
+
+              {% if bp in ['unknown', 'unavailable', 'None'] %}
+
+              *Voer eerst een analyse uit.*
+
+              {% else %}
+
+              De volgende sensoren zijn beschikbaar voor OpenQuatt automations:
+
+
+              | Sensor | Waarde |
+
+              |:--|--:|
+
+              | Balanspunt | **{{ bp }}°C** |
+
+              | Stooklijn breakpoints | **{{ curve }} punten** |
+
+              | MPC aanvoertemp | **{{ states('sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur') }}°C** |
+
+
+              Maak een HA-automation die deze waarden naar je OpenQuatt `number.*` entiteiten schrijft.
+
+              {% endif %}
+            grid_options:
+              columns: 14
+              rows: auto
   - title: Shadow Validatie
     icon: mdi:compare-horizontal
     type: sections
@@ -757,6 +858,50 @@ views:
               - entity: sensor.quatt_warmteanalyse_mpc_fout_aanvoertemperatuur
                 name: MPC fout
                 color: "#4CAF50"
+            grid_options:
+              columns: 16
+              rows: auto
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: switch.quatt_warmteanalyse_otgw_compensatie
+                state_not: unavailable
+            card:
+              type: markdown
+              title: OTGW Compensatie
+              content: >
+                {% set sw = states('switch.quatt_warmteanalyse_otgw_compensatie') %}
+
+                {% set offset = state_attr('switch.quatt_warmteanalyse_otgw_compensatie', 'current_offset') | float(0) %}
+
+                {% set mpc_err = state_attr('switch.quatt_warmteanalyse_otgw_compensatie', 'mpc_error') %}
+
+                {% set hp = state_attr('switch.quatt_warmteanalyse_otgw_compensatie', 'hp_active') %}
+
+                {% set max_off = state_attr('switch.quatt_warmteanalyse_otgw_compensatie', 'max_offset') | float(0) %}
+
+                | | Status |
+
+                |:--|:--|
+
+                | Switch | {% if sw == 'on' %}🟢 Aan{% else %}⚪ Uit{% endif %} |
+
+                | HP actief | {% if hp %}Ja{% else %}Nee{% endif %} |
+
+                | Huidig offset | **{{ offset }}°C** (max {{ max_off }}°C) |
+
+                | MPC fout | {% if mpc_err is not none %}{{ mpc_err }}°C{% else %}*n/a*{% endif %} |
+
+
+                {% if sw == 'on' and offset > 0 %}
+
+                De CiC denkt dat de kamertemperatuur {{ offset }}°C hoger is dan werkelijk → minder output.
+
+                {% elif sw == 'on' and offset == 0 %}
+
+                Compensatie actief, geen correctie nodig op dit moment.
+
+                {% endif %}
             grid_options:
               columns: 16
               rows: auto
