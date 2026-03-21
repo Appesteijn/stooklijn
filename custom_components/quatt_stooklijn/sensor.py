@@ -286,15 +286,16 @@ async def async_setup_entry(
 
     supply_entity = DEFAULT_SUPPLY_TEMP_ENTITY
     entry_slug = entry.entry_id
+    flow_entity = entry.data.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY)
     entities.append(QuattAdviceErrorSensor(
         coordinator, entry, "stooklijn",
         f"sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur",
-        supply_entity,
+        supply_entity, flow_entity,
     ))
     entities.append(QuattAdviceErrorSensor(
         coordinator, entry, "mpc",
         f"sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur",
-        supply_entity,
+        supply_entity, flow_entity,
     ))
     entities.append(QuattAdviceSensor(coordinator, entry))
     entities.append(QuattOpenQuattCurveSensor(coordinator, entry))
@@ -888,11 +889,13 @@ class QuattAdviceErrorSensor(
         mode: str,
         advised_entity: str,
         supply_temp_entity: str,
+        flow_entity: str,
     ) -> None:
         super().__init__(coordinator)
         self._entry = entry
         self._advised_entity = advised_entity
         self._supply_temp_entity = supply_temp_entity
+        self._flow_entity = flow_entity
         self._attr_unique_id = f"{entry.entry_id}_{mode}_advice_error"
         self._attr_name = (
             "MPC Fout Aanvoertemperatuur"
@@ -906,7 +909,8 @@ class QuattAdviceErrorSensor(
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass,
-                [self._advised_entity, self._supply_temp_entity],
+                [self._advised_entity, self._supply_temp_entity,
+                 self._flow_entity],
                 self._handle_state_change,
             )
         )
@@ -916,6 +920,10 @@ class QuattAdviceErrorSensor(
 
     @property
     def native_value(self) -> float | None:
+        # Fout is alleen zinvol als de HP draait
+        flow = get_float_state(self.hass, self._flow_entity)
+        if flow is None or flow < MIN_FLOW_LPH:
+            return None
         advised = get_float_state(self.hass, self._advised_entity)
         actual = get_float_state(self.hass, self._supply_temp_entity)
         if advised is None or actual is None:

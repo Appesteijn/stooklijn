@@ -598,6 +598,46 @@ views:
               columns: 24
               rows: auto
           - type: markdown
+            title: Advies samenvatting
+            content: >
+              {% set advies = states('sensor.quatt_warmteanalyse_quatt_advies_parameters') %}
+
+              {% if advies in ['unknown', 'unavailable', 'None'] %}
+
+              *Voer eerst een analyse uit.*
+
+              {% else %}
+
+              {% set sg = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'stookgrens_advies') %}
+
+              {% set vg = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'nominaal_vermogen_advies') %}
+
+              {% set sl = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'stooklijn_advies') %}
+
+              {% set n = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'aantal_aanpassingen') | int(0) %}
+
+              {% if n == 0 %}
+
+              ✅ Alle instellingen zijn optimaal.
+
+              {% else %}
+
+              Geef de volgende aanpassingen door aan Quatt:
+
+
+              {% if sg and 'goed' not in sg %}1. **Stookgrens:** {{ sg }}{% endif %}
+
+              {% if vg and 'goed' not in vg %}2. **Vermogen:** {{ vg }}{% endif %}
+
+              {% if sl %}3. **Stooklijn:** {{ sl }}{% endif %}
+
+              {% endif %}
+
+              {% endif %}
+            grid_options:
+              columns: 24
+              rows: auto
+          - type: markdown
             title: Stookgrens
             content: >
               {% set advies = states('sensor.quatt_warmteanalyse_quatt_advies_parameters') %}
