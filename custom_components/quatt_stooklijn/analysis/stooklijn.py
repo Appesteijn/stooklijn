@@ -440,15 +440,36 @@ def calculate_stooklijn(
         # recent 30-day window happens to be mild.
         # Both datasets are filtered to temp < 10°C so mild-weather modulation
         # data cannot bias the knee toward warmer temperatures.
+        df_fit = df_fit_current
         if df_knee_history is not None and not df_knee_history.empty:
-            df_fit = pd.concat([df_fit_current, df_knee_history], ignore_index=True)
+            df_fit = pd.concat([df_fit, df_knee_history], ignore_index=True)
             _LOGGER.info(
-                "Knee detection: %d current cold-weather + %d historical points",
+                "Knee detection: %d recorder + %d KneeDataStore points",
                 len(df_fit_current),
                 len(df_knee_history),
             )
-        else:
-            df_fit = df_fit_current
+
+        # Also add cold-period hourly data from the API cache.  The KneeDataStore
+        # only contains data that was in the recorder window at analysis time, so
+        # cold spells (e.g. Dec/Jan) that occurred before the integration was
+        # installed are absent.  df_hourly covers the full cache history (up to
+        # 3 years) and fills this gap.  Hourly averages are slightly diluted by
+        # defrost cycles but the physical constraints in the grid-search handle
+        # that, and the cold-side anchor is far more important than precision here.
+        if df_hourly is not None and not df_hourly.empty:
+            if "hpHeat" in df_hourly.columns and "temperatureOutside" in df_hourly.columns:
+                cold_hourly = df_hourly[
+                    (df_hourly["hpHeat"] >= MIN_POWER_FILTER)
+                    & (df_hourly["temperatureOutside"] < 10.0)
+                ][["temperatureOutside", "hpHeat"]].rename(
+                    columns={"temperatureOutside": "temp", "hpHeat": "power"}
+                ).dropna()
+                if not cold_hourly.empty:
+                    df_fit = pd.concat([df_fit, cold_hourly], ignore_index=True)
+                    _LOGGER.info(
+                        "Knee detection: added %d cold-period hourly points from API cache",
+                        len(cold_hourly),
+                    )
 
         if not df_fit.empty and len(df_fit) > 10:
             x_data = df_fit["temp"].values
@@ -461,14 +482,8 @@ def calculate_stooklijn(
                 result.knee_temperature = knee_temp
                 result.knee_power = knee_power
 
-                source = (
-                    "recorder+history"
-                    if df_knee_history is not None and not df_knee_history.empty
-                    else "recorder"
-                )
                 _LOGGER.info(
-                    "Knee detected (%s): %.2f°C, %d W (%d points total)",
-                    source,
+                    "Knee detected (recorder+KneeStore+API): %.2f°C, %d W (%d points total)",
                     result.knee_temperature,
                     result.knee_power,
                     len(df_fit),
