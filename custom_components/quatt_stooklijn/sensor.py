@@ -934,7 +934,7 @@ class QuattAdviceSensor(
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Quatt Advies"
+    _attr_name = "Quatt Advies Parameters"
     _attr_icon = "mdi:tune"
 
     def __init__(

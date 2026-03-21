@@ -62,7 +62,7 @@ views:
           - type: markdown
             title: Quatt advies
             content: >
-              {% set advies = states('sensor.quatt_warmteanalyse_quatt_advies') %}
+              {% set advies = states('sensor.quatt_warmteanalyse_quatt_advies_parameters') %}
 
               {% if advies in ['unknown', 'unavailable', 'None'] %}
 
@@ -70,7 +70,7 @@ views:
 
               {% else %}
 
-              {% set n = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'aantal_aanpassingen') | int(0) %}
+              {% set n = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'aantal_aanpassingen') | int(0) %}
 
               {% if n == 0 %}
 
@@ -81,9 +81,9 @@ views:
               ⚠️ **{{ advies }}**
 
 
-              {% set sg = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'stookgrens_advies') %}
+              {% set sg = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'stookgrens_advies') %}
 
-              {% set vg = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'nominaal_vermogen_advies') %}
+              {% set vg = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'nominaal_vermogen_advies') %}
 
               {% if sg and 'goed' not in sg %}• {{ sg }}{% endif %}
 
@@ -583,7 +583,7 @@ views:
             columns: 3
             cards:
               - type: entity
-                entity: sensor.quatt_warmteanalyse_quatt_advies
+                entity: sensor.quatt_warmteanalyse_quatt_advies_parameters
                 name: Advies Status
                 icon: mdi:tune
               - type: entity
@@ -600,7 +600,7 @@ views:
           - type: markdown
             title: Stookgrens
             content: >
-              {% set advies = states('sensor.quatt_warmteanalyse_quatt_advies') %}
+              {% set advies = states('sensor.quatt_warmteanalyse_quatt_advies_parameters') %}
 
               {% if advies in ['unknown', 'unavailable', 'None'] %}
 
@@ -608,11 +608,11 @@ views:
 
               {% else %}
 
-              {% set cur = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'stookgrens_huidig') %}
+              {% set cur = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'stookgrens_huidig') %}
 
-              {% set opt = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'stookgrens_optimaal') %}
+              {% set opt = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'stookgrens_optimaal') %}
 
-              {% set txt = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'stookgrens_advies') %}
+              {% set txt = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'stookgrens_advies') %}
 
               | | Waarde |
 
@@ -632,7 +632,7 @@ views:
           - type: markdown
             title: Nominaal vermogen (bij -10°C)
             content: >
-              {% set advies = states('sensor.quatt_warmteanalyse_quatt_advies') %}
+              {% set advies = states('sensor.quatt_warmteanalyse_quatt_advies_parameters') %}
 
               {% if advies in ['unknown', 'unavailable', 'None'] %}
 
@@ -640,11 +640,11 @@ views:
 
               {% else %}
 
-              {% set cur = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'nominaal_vermogen_huidig_w') %}
+              {% set cur = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'nominaal_vermogen_huidig_w') %}
 
-              {% set opt = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'nominaal_vermogen_optimaal_w') %}
+              {% set opt = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'nominaal_vermogen_optimaal_w') %}
 
-              {% set txt = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'nominaal_vermogen_advies') %}
+              {% set txt = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'nominaal_vermogen_advies') %}
 
               | | Waarde |
 
@@ -664,11 +664,11 @@ views:
           - type: markdown
             title: Optimale stooklijn breakpoints
             content: >
-              {% set punten = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'stooklijn_punten') %}
+              {% set punten = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'stooklijn_punten') %}
 
               {% if punten %}
 
-              {% set txt = state_attr('sensor.quatt_warmteanalyse_quatt_advies', 'stooklijn_advies') %}
+              {% set txt = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'stooklijn_advies') %}
 
               Geef deze punten door aan Quatt om de stooklijn optimaal in te stellen:
 
@@ -703,15 +703,22 @@ views:
               chart:
                 height: 300
               xaxis:
+                min: EVAL:Date.now() - 30 * 3600000
+                max: EVAL:Date.now()
                 title:
                   text: Buitentemperatuur (°C)
-                min: -10
-                max: 20
+                labels:
+                  formatter: >-
+                    EVAL:function(val) { return Math.round(20 - (new Date().getTime() - val) / 3600000) + '°C'; }
               yaxis:
                 title:
                   text: Aanvoertemperatuur (°C)
                 min: 20
                 max: 55
+              tooltip:
+                x:
+                  formatter: >-
+                    EVAL:function(val) { return Math.round(20 - (new Date().getTime() - val) / 3600000) + '°C'; }
               markers:
                 size:
                   - 5
@@ -733,7 +740,9 @@ views:
 
                   if (!bps.length) return [];
 
-                  return bps.map(bp => [bp.buiten_temp, bp.aanvoer_temp]);
+                  const now = Date.now();
+
+                  return bps.map(bp => [now - (20 - bp.buiten_temp) * 3600000, bp.aanvoer_temp]);
               - entity: sensor.quatt_warmteanalyse_openquatt_stooklijn
                 name: Optimale curve
                 color: "#4CAF50"
@@ -749,7 +758,9 @@ views:
 
                   if (!bps.length) return [];
 
-                  return bps.map(bp => [bp.buiten_temp, bp.aanvoer_temp]);
+                  const now = Date.now();
+
+                  return bps.map(bp => [now - (20 - bp.buiten_temp) * 3600000, bp.aanvoer_temp]);
             grid_options:
               columns: 24
               rows: auto
