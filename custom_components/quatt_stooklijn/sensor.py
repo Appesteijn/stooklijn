@@ -710,6 +710,27 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 # the heat loss coefficient U = -slope
                 model.initialise_from_batch(-heat_loss.slope)
 
+        # Prime the model with current sensor values so the first hourly
+        # update (1h from now) can already produce an RLS update instead
+        # of only storing prev values.
+        if model._prev_timestamp is None:
+            t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
+            t_outdoor = get_float_state(self.hass, self._outdoor_entity)
+            q_hp = get_float_state(self.hass, self._power_entity) or 0.0
+            solar_w = get_float_state(self.hass, self._solar_entity) or 0.0
+            if t_indoor is not None and t_outdoor is not None:
+                model.update(t_indoor, t_outdoor, q_hp, solar_w, dt_util.utcnow())
+                _LOGGER.info(
+                    "RC model primed with initial values: T_in=%.1f, T_out=%.1f",
+                    t_indoor, t_outdoor,
+                )
+            else:
+                _LOGGER.warning(
+                    "RC model: cannot prime, missing sensors: indoor=%s (%s), outdoor=%s (%s)",
+                    t_indoor, self._indoor_temp_entity,
+                    t_outdoor, self._outdoor_entity,
+                )
+
     async def _async_hourly_update(self, _now=None) -> None:
         """Hourly: update thermal model with new measurement, then refresh forecast."""
         # Update thermal model
@@ -725,9 +746,24 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 )
                 if updated:
                     await self._thermal_store.async_save()
-                    _LOGGER.debug(
-                        "RC model updated: %s", self._thermal_store.model.params
+                    _LOGGER.info(
+                        "RC model update #%d: %s",
+                        self._thermal_store.model._rls.n_updates,
+                        self._thermal_store.model.params,
                     )
+                else:
+                    _LOGGER.info(
+                        "RC model update skipped (n=%d, T_in=%.1f, T_out=%.1f, dt_prev=%s)",
+                        self._thermal_store.model._rls.n_updates,
+                        t_indoor, t_outdoor,
+                        self._thermal_store.model._prev_timestamp,
+                    )
+            else:
+                _LOGGER.warning(
+                    "RC model: missing sensor data — indoor=%s (%s), outdoor=%s (%s)",
+                    t_indoor, self._indoor_temp_entity,
+                    t_outdoor, self._outdoor_entity,
+                )
 
         # Refresh forecasts (previously separate timers, now combined)
         await self._async_refresh_forecast()

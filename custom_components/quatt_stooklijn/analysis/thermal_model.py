@@ -157,8 +157,8 @@ class OnlineRCModel:
 
         # Guard: only accept roughly hourly samples (0.5–2h)
         if dt_hours < 0.5 or dt_hours > 2.0:
-            _LOGGER.debug(
-                "RC model: skipping sample, dt=%.1f hours (expected ~1h)",
+            _LOGGER.info(
+                "RC model: skipping, dt=%.1f hours (need 0.5–2h)",
                 dt_hours,
             )
             self._prev_t_indoor = t_indoor
@@ -171,6 +171,10 @@ class OnlineRCModel:
         # Guard: need meaningful temperature difference for identification
         dt_indoor_outdoor = abs(self._prev_t_indoor - self._prev_t_outdoor)
         if dt_indoor_outdoor < MIN_DT_INDOOR_OUTDOOR:
+            _LOGGER.info(
+                "RC model: skipping, |T_in-T_out|=%.1f°C < %.1f°C minimum",
+                dt_indoor_outdoor, MIN_DT_INDOOR_OUTDOOR,
+            )
             self._prev_t_indoor = t_indoor
             self._prev_t_outdoor = t_outdoor
             self._prev_q_hp = q_hp_w
