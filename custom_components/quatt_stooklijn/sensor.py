@@ -22,14 +22,19 @@ from homeassistant.helpers.event import async_track_state_change_event, async_tr
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
+from .analysis.thermal_model import OnlineRCModel, simulate_6h
 from .const import (
     CONDITION_SOLAR_FRACTION,
     CONF_FLOW_ENTITY,
+    CONF_INDOOR_TEMP_ENTITY,
+    CONF_POWER_ENTITY,
     CONF_RETURN_TEMP_ENTITY,
     CONF_SOLAR_ENTITY,
     CONF_TEMP_ENTITIES,
     CONF_WEATHER_ENTITY,
     DEFAULT_FLOW_ENTITY,
+    DEFAULT_INDOOR_TEMP_ENTITY,
+    DEFAULT_POWER_ENTITY,
     DEFAULT_RETURN_TEMP_ENTITY,
     DEFAULT_SOLAR_ENTITY,
     DEFAULT_SUPPLY_TEMP_ENTITY,
@@ -46,6 +51,7 @@ from .const import (
 )
 from .coordinator import QuattStooklijnCoordinator, QuattStooklijnData
 from .helpers import get_device_info, get_effective_flow, get_float_state
+from .thermal_store import ThermalModelStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -625,6 +631,9 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         self._forecast: list[dict] = []
         self._forecast_fetched_at: float | None = None
         self._solar_radiation: list[float] = []  # uurlijkse shortwave W/m² van Open-Meteo
+        # Online thermal model
+        self._thermal_store = ThermalModelStore(coordinator.hass)
+        self._thermal_loaded = False
 
     # ------------------------------------------------------------------ helpers
 
@@ -649,6 +658,16 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     def _weather_entity(self) -> str:
         return self._entry.data.get(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
 
+    @property
+    def _indoor_temp_entity(self) -> str:
+        cfg = {**self._entry.data, **self._entry.options}
+        return cfg.get(CONF_INDOOR_TEMP_ENTITY, DEFAULT_INDOOR_TEMP_ENTITY)
+
+    @property
+    def _power_entity(self) -> str:
+        cfg = {**self._entry.data, **self._entry.options}
+        return cfg.get(CONF_POWER_ENTITY, DEFAULT_POWER_ENTITY)
+
     # ------------------------------------------------------------------ lifecycle
 
     async def async_added_to_hass(self) -> None:
@@ -665,23 +684,54 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         self.async_on_remove(
             async_track_time_interval(
                 self.hass,
-                self._async_refresh_forecast,
+                self._async_hourly_update,
                 timedelta(hours=1),
             )
         )
-        self.async_on_remove(
-            async_track_time_interval(
-                self.hass,
-                self._async_refresh_solar_radiation,
-                timedelta(hours=1),
-            )
-        )
-        # Laad forecast direct bij opstarten
+        # Laad thermal model + forecast direct bij opstarten
+        await self._async_load_thermal_model()
         await self._async_refresh_forecast()
         await self._async_refresh_solar_radiation()
 
     async def _handle_state_change(self, event) -> None:
         self.async_write_ha_state()
+
+    async def _async_load_thermal_model(self) -> None:
+        """Load persisted thermal model and initialise from batch if needed."""
+        await self._thermal_store.async_load()
+        self._thermal_loaded = True
+
+        # If model has no updates yet, seed with batch heat loss coefficient
+        model = self._thermal_store.model
+        if model._rls.n_updates == 0 and self.coordinator.data:
+            heat_loss = self.coordinator.data.heat_loss_hp
+            if heat_loss.slope is not None:
+                # heat_loss.slope is negative (W per °C increase),
+                # the heat loss coefficient U = -slope
+                model.initialise_from_batch(-heat_loss.slope)
+
+    async def _async_hourly_update(self, _now=None) -> None:
+        """Hourly: update thermal model with new measurement, then refresh forecast."""
+        # Update thermal model
+        if self._thermal_loaded:
+            t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
+            t_outdoor = get_float_state(self.hass, self._outdoor_entity)
+            q_hp = get_float_state(self.hass, self._power_entity) or 0.0
+            solar_w = get_float_state(self.hass, self._solar_entity) or 0.0
+
+            if t_indoor is not None and t_outdoor is not None:
+                updated = self._thermal_store.model.update(
+                    t_indoor, t_outdoor, q_hp, solar_w, dt_util.utcnow()
+                )
+                if updated:
+                    await self._thermal_store.async_save()
+                    _LOGGER.debug(
+                        "RC model updated: %s", self._thermal_store.model.params
+                    )
+
+        # Refresh forecasts (previously separate timers, now combined)
+        await self._async_refresh_forecast()
+        await self._async_refresh_solar_radiation()
 
     async def _async_refresh_forecast(self, _now=None) -> None:
         """Haal hourly weersverwachting op via HA weather service."""
@@ -727,12 +777,6 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     @property
     def native_value(self) -> float | None:
         """Aanbevolen aanvoertemp voor het huidige moment."""
-        if self.coordinator.data is None:
-            return None
-        heat_loss = self.coordinator.data.heat_loss_hp
-        if heat_loss.slope is None or heat_loss.intercept is None or heat_loss.balance_point is None:
-            return None
-
         t_outdoor = get_float_state(self.hass, self._outdoor_entity)
         t_return = get_float_state(self.hass, self._return_temp_entity)
         flow_lph = get_float_state(self.hass, self._flow_entity)
@@ -742,6 +786,30 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             return None
 
         effective_flow = get_effective_flow(flow_lph)
+
+        # Online RC model: use learned parameters when converged
+        model = self._thermal_store.model
+        if self._thermal_loaded and model.is_converged:
+            t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
+            if t_indoor is not None:
+                q_needed = model.calc_required_power(
+                    t_indoor, t_outdoor, solar_w, t_setpoint=20.0,
+                )
+                if q_needed <= 0:
+                    return None  # no heating needed
+                t_supply = t_return + q_needed / (1.16 * effective_flow)
+                return round(
+                    max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, t_supply)),
+                    1,
+                )
+
+        # Fallback: batch heat loss model
+        if self.coordinator.data is None:
+            return None
+        heat_loss = self.coordinator.data.heat_loss_hp
+        if heat_loss.slope is None or heat_loss.intercept is None or heat_loss.balance_point is None:
+            return None
+
         solar_gain_w = solar_w * SOLAR_TO_HEAT_FACTOR
         return _calc_mpc_supply_temp(
             heat_loss.slope,
@@ -756,12 +824,6 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     @property
     def extra_state_attributes(self) -> dict | None:
         """Attribuut met 6-uurs voorspelling + huidige inputs."""
-        if self.coordinator.data is None:
-            return None
-        heat_loss = self.coordinator.data.heat_loss_hp
-        if heat_loss.slope is None or heat_loss.intercept is None:
-            return None
-
         t_outdoor = get_float_state(self.hass, self._outdoor_entity)
         t_return = get_float_state(self.hass, self._return_temp_entity)
         flow_lph = get_float_state(self.hass, self._flow_entity)
@@ -769,18 +831,12 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         solar_w = get_float_state(self.hass, self._solar_entity) or 0.0
         solar_gain_w = solar_w * SOLAR_TO_HEAT_FACTOR
 
-        from .analysis.utils import calc_heat_demand
-        raw_demand = (
-            calc_heat_demand(heat_loss.slope, heat_loss.intercept, t_outdoor)
-            if t_outdoor is not None
-            else None
-        )
-        net_demand = max(0.0, raw_demand - solar_gain_w) if raw_demand is not None else None
+        # Thermal model parameters
+        model = self._thermal_store.model
+        model_params = model.params
+        model_source = "online" if model.is_converged else "batch_fallback"
 
-        # Dynamische kalibratie: bereken radiation_factor uit live solar + Open-Meteo uur 0.
-        # Als de zon schijnt (solar_w > 50) én Open-Meteo data beschikbaar is:
-        #   factor = (solaredge_W × SOLAR_TO_HEAT_FACTOR) / shortwave_radiation_Wm2
-        # Dit geeft het effectieve warmtewinst-oppervlak gecalibreerd op het huidige huis.
+        # Dynamische kalibratie: radiation_factor uit live solar + Open-Meteo
         now_hour = dt_util.now().hour
         radiation_factor = SOLAR_RADIATION_DEFAULT_FACTOR
         radiation_source = "default"
@@ -798,16 +854,18 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             else:
                 radiation_source = "open_meteo_default"
 
-        # Bouw 6-uurs forecast
-        forecast_out: list[dict] = []
+        # Build solar gain forecasts for simulate_6h
+        fc_temps: list[float] = []
+        fc_solar: list[float] = []
+        fc_meta: list[dict] = []  # condition, datetime, shortwave per hour
         for i, point in enumerate(self._forecast[:MPC_FORECAST_HOURS]):
             fc_temp = point.get("temperature")
             if fc_temp is None:
-                continue
+                break
+            fc_temps.append(fc_temp)
             condition = point.get("condition", "")
             if i == 0:
-                # Uur 0: altijd live solaredge meting (meest nauwkeurig)
-                fc_solar_gain = solar_gain_w
+                fc_solar_gain = solar_w  # live measurement (raw W, not × factor)
                 fc_rad_wm2 = None
             else:
                 rad_idx = now_hour + i
@@ -815,43 +873,63 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                     fc_rad_wm2 = self._solar_radiation[rad_idx]
                     fc_solar_gain = fc_rad_wm2 * radiation_factor
                 else:
-                    # Fallback: condition-fractie × huidige solar
                     fc_rad_wm2 = None
                     fraction = CONDITION_SOLAR_FRACTION.get(condition, 0.3)
                     fc_solar_gain = solar_w * fraction * SOLAR_TO_HEAT_FACTOR
-            fc_raw = calc_heat_demand(heat_loss.slope, heat_loss.intercept, fc_temp)
-            fc_net = max(0.0, fc_raw - fc_solar_gain)
-            # Forecast: gebruik stooklijn als baseline (T_retour is onbekend voor toekomstige uren).
-            # De stooklijn geeft T_aanvoer direct als functie van T_buiten, gecalibreerd op
-            # het echte warmtepomp-gedrag (inclusief T_retour + ΔT in steady state).
-            # Solar correctie: lagere warmtevraag → lagere aanvoertemperatuur nodig.
-            fc_supply = None
-            # Kies de beste beschikbare stooklijn: eerst de geanalyseerde optimale,
-            # dan de Quatt-app instelling als fallback.
-            sl = self.coordinator.data.stooklijn
-            if sl.slope_optimal is not None and sl.intercept_optimal is not None:
-                sl_slope, sl_intercept = sl.slope_optimal, sl.intercept_optimal
-            else:
-                sl_slope = self.coordinator.data.actual_stooklijn_slope
-                sl_intercept = self.coordinator.data.actual_stooklijn_intercept
-            if sl_slope is not None and sl_intercept is not None:
-                fc_stooklijn = sl_slope * fc_temp + sl_intercept
-                fc_solar_correction = fc_solar_gain / (1.16 * effective_flow)
-                fc_supply = round(
-                    max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX,
-                        fc_stooklijn - fc_solar_correction)), 1
-                )
-            forecast_out.append({
-                "hour": i,
+            fc_solar.append(fc_solar_gain)
+            fc_meta.append({
                 "datetime": point.get("datetime"),
                 "condition": condition,
-                "temp_forecast": fc_temp,
                 "shortwave_wm2": fc_rad_wm2,
-                "solar_gain_w": round(fc_solar_gain),
-                "heat_demand_w": round(fc_raw),
-                "net_demand_w": round(fc_net),
-                "supply_temp": fc_supply,
             })
+
+        # Build 6-hour forecast
+        forecast_out: list[dict] = []
+        if model.is_converged and fc_temps:
+            # Online model: forward simulation
+            t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
+            if t_indoor is not None:
+                sim = simulate_6h(
+                    model,
+                    t_indoor_now=t_indoor,
+                    t_return=t_return or 28.0,
+                    flow_lph=effective_flow,
+                    forecast_t_outdoor=fc_temps,
+                    forecast_q_solar=fc_solar,
+                )
+                for i, step in enumerate(sim):
+                    entry = {**step, **fc_meta[i]} if i < len(fc_meta) else step
+                    entry["temp_forecast"] = fc_temps[i] if i < len(fc_temps) else None
+                    entry["solar_gain_w"] = round(fc_solar[i]) if i < len(fc_solar) else None
+                    forecast_out.append(entry)
+
+        if not forecast_out:
+            # Fallback: batch stooklijn-based forecast
+            forecast_out = self._build_batch_forecast(
+                effective_flow, solar_w, solar_gain_w,
+                radiation_factor, fc_temps, fc_solar, fc_meta,
+            )
+
+        # Current demand (from whichever model is active)
+        raw_demand = None
+        net_demand = None
+        if model.is_converged and t_outdoor is not None:
+            t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
+            if t_indoor is not None:
+                raw_demand = model.calc_required_power(
+                    t_indoor, t_outdoor, 0.0, t_setpoint=20.0,
+                )
+                net_demand = model.calc_required_power(
+                    t_indoor, t_outdoor, solar_w, t_setpoint=20.0,
+                )
+        elif self.coordinator.data is not None:
+            heat_loss = self.coordinator.data.heat_loss_hp
+            if heat_loss.slope is not None and t_outdoor is not None:
+                from .analysis.utils import calc_heat_demand
+                raw_demand = calc_heat_demand(
+                    heat_loss.slope, heat_loss.intercept, t_outdoor,
+                )
+                net_demand = max(0.0, raw_demand - solar_gain_w)
 
         return {
             "outdoor_temp": t_outdoor,
@@ -863,8 +941,65 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             "net_demand_w": round(net_demand) if net_demand is not None else None,
             "radiation_factor": round(radiation_factor, 3),
             "radiation_source": radiation_source,
+            "model_source": model_source,
+            **{f"model_{k}": v for k, v in model_params.items()},
             "forecast_6h": forecast_out,
         }
+
+    def _build_batch_forecast(
+        self,
+        effective_flow: float,
+        solar_w: float,
+        solar_gain_w: float,
+        radiation_factor: float,
+        fc_temps: list[float],
+        fc_solar: list[float],
+        fc_meta: list[dict],
+    ) -> list[dict]:
+        """Build 6h forecast using batch stooklijn model (fallback)."""
+        if self.coordinator.data is None:
+            return []
+        heat_loss = self.coordinator.data.heat_loss_hp
+        if heat_loss.slope is None or heat_loss.intercept is None:
+            return []
+
+        from .analysis.utils import calc_heat_demand
+
+        sl = self.coordinator.data.stooklijn
+        if sl.slope_optimal is not None and sl.intercept_optimal is not None:
+            sl_slope, sl_intercept = sl.slope_optimal, sl.intercept_optimal
+        else:
+            sl_slope = self.coordinator.data.actual_stooklijn_slope
+            sl_intercept = self.coordinator.data.actual_stooklijn_intercept
+
+        forecast_out: list[dict] = []
+        for i, fc_temp in enumerate(fc_temps):
+            fc_sg = fc_solar[i] if i < len(fc_solar) else 0.0
+            fc_raw = calc_heat_demand(heat_loss.slope, heat_loss.intercept, fc_temp)
+            fc_net = max(0.0, fc_raw - fc_sg)
+
+            fc_supply = None
+            if sl_slope is not None and sl_intercept is not None:
+                fc_stooklijn = sl_slope * fc_temp + sl_intercept
+                fc_solar_correction = fc_sg / (1.16 * effective_flow)
+                fc_supply = round(
+                    max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX,
+                        fc_stooklijn - fc_solar_correction)), 1
+                )
+
+            entry = {
+                "hour": i,
+                "temp_forecast": fc_temp,
+                "solar_gain_w": round(fc_sg),
+                "heat_demand_w": round(fc_raw),
+                "net_demand_w": round(fc_net),
+                "supply_temp": fc_supply,
+            }
+            if i < len(fc_meta):
+                entry.update(fc_meta[i])
+            forecast_out.append(entry)
+
+        return forecast_out
 
 
 class QuattAdviceErrorSensor(

@@ -975,6 +975,131 @@ views:
             icon: mdi:thermometer-alert
             color: green
 
+      # ── Thermisch model (volle breedte) ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: markdown
+            title: Thermisch model (online learning)
+            content: >
+              {% set mpc =
+              'sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur' %}
+
+              {% set src = state_attr(mpc, 'model_source') %}
+
+              {% if src %}
+
+              {% set conv = state_attr(mpc, 'model_converged') %}
+
+              {% set n = state_attr(mpc, 'model_n_updates') | int(0) %}
+
+              {% set U = state_attr(mpc, 'model_U_wk') %}
+
+              {% set C = state_attr(mpc, 'model_C_whk') %}
+
+              {% set g = state_attr(mpc, 'model_g_solar') %}
+
+              {% set tau = state_attr(mpc, 'model_tau_hours') %}
+
+              {% if conv %}
+
+              | Parameter | Waarde | Betekenis |
+
+              |:--|--:|:--|
+
+              | Warmteverlies | **{{ U }} W/K** | Per °C kouder verliest
+              je huis {{ U }} W |
+
+              | Thermische massa | **{{ C }} Wh/K** | Hoe traag reageert
+              je huis op veranderingen |
+
+              | Tijdconstante | **{{ tau }} uur** | Tijd om 63% af te
+              koelen zonder verwarming |
+
+              | Zonnewinst | **{{ g }}** | Fractie van PV-output die je
+              huis verwarmt |
+
+              | Updates | **{{ n }}** ({{ (n / 24) | round(0) | int }}
+              dagen) | |
+
+
+              Bron: **{{ src }}** — het model leert elk uur bij.
+
+              {% else %}
+
+              Model is aan het leren... **{{ n }}/48 updates** (nog {{
+              48 - n }} uur).
+
+
+              Gebruikt nu het batch warmteverliesmodel als fallback.
+
+              {% endif %}
+
+              {% else %}
+
+              *Model nog niet geladen. Start een analyse of wacht op het
+              volgende uur.*
+
+              {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
+
+      # ── 6-uurs forecast (volle breedte) ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: markdown
+            title: 6-uurs forecast
+            content: >
+              {% set mpc =
+              'sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur' %}
+
+              {% set fc = state_attr(mpc, 'forecast_6h') %}
+
+              {% if fc and fc | length > 0 %}
+
+              {% set src = state_attr(mpc, 'model_source') %}
+
+              Uur | T buiten | T binnen | HP nodig | Vermogen | Aanvoer
+
+              :--|--:|--:|:--:|--:|--:
+
+              {% for h in fc -%}
+
+              {% set hp = h.get('hp_needed') %}
+
+              {% set t_in = h.get('t_indoor_predicted') %}
+
+              **+{{ h.hour }}** | {{ h.temp_forecast }}°C | {% if t_in
+              is not none %}{{ t_in }}°C{% else %}-{% endif %} | {% if
+              hp is not none %}{% if hp %}🔥{% else %}⏸️{% endif %}{%
+              else %}-{% endif %} | {% if h.get('q_hp_needed_w') is not
+              none %}{{ h.q_hp_needed_w }} W{% else %}-{% endif %} | {%
+              if h.supply_temp is not none %}{{ h.supply_temp }}°C{%
+              else %}-{% endif %}
+
+              {% endfor %}
+
+
+              {% if h.get('solar_gain_w', 0) > 100 %}
+
+              ☀️ Zonnewinst verlaagt de warmtevraag.
+
+              {% endif %}
+
+
+              *Bron: {{ src | default('batch') }}*
+
+              {% else %}
+
+              *Geen forecast beschikbaar. Wacht op weersverwachting.*
+
+              {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
+
       # ── Aanvoertemperatuur vergelijking (volle breedte) ──
       - type: grid
         column_span: 2
