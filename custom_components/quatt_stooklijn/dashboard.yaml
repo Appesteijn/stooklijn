@@ -1,265 +1,173 @@
 title: Quatt Warmteanalyse
 views:
-  - title: Warmteanalyse
-    icon: mdi:chart-line
-    cards: []
+  # ─── VIEW 1: OVERZICHT ───────────────────────────────────────────────
+  # Beantwoordt: "Hoe doet mijn warmtepomp het?"
+  # Desktop: 2 kolommen | Mobiel: 1 kolom, alles gestapeld
+  - title: Overzicht
+    icon: mdi:home-thermometer
     type: sections
+    max_columns: 2
+    cards: []
     sections:
+      # ── Linkerkolom: COP & status ──
       - type: grid
-        column_span: 4
         cards:
-          - square: false
-            type: grid
-            cards:
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_average_cop
-                name: Gemiddelde COP
-                icon: mdi:gauge
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_geschatte_actuele_cop
-                name: Actuele COP (schatting)
-                icon: mdi:gauge-low
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_heat_loss_coefficient
-                name: Warmteverlies
-                icon: mdi:home-thermometer
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_balance_point_temperature
-                name: Balans Temperatuur
-                icon: mdi:thermometer-check
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_knee_temperature
-                name: Knikpunt
-                icon: mdi:thermometer-alert
-              - type: entity
-                entity: sensor.heatpump_thermostat_control_setpoint
-                name: Quatt Setpoint
-                icon: mdi:thermometer-chevron-up
-              - type: entity
-                entity: text.quatt_warmteanalyse_analyse_startdatum
-                name: Startdatum
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_last_analysis
-                name: Laatste Analyse
-                icon: mdi:clock-check-outline
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_analysis_status
-                name: Status
-                icon: mdi:information-outline
-              - show_name: true
-                show_icon: true
-                type: button
-                name: Analyse Starten
-                icon: mdi:play-circle
-                tap_action:
-                  action: call-service
-                  service: quatt_stooklijn.run_analysis
-                icon_height: 48px
+          - type: gauge
+            entity: sensor.quatt_warmteanalyse_geschatte_actuele_cop
+            name: COP nu
+            min: 0
+            max: 6
+            severity:
+              green: 3
+              yellow: 2
+              red: 0
+            needle: true
+            grid_options:
+              columns: full
+              rows: 3
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_average_cop
+            name: Gemiddelde COP
+            icon: mdi:gauge
+            color: green
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_analysis_status
+            name: Status
+            icon: mdi:information-outline
+          - type: button
+            name: Analyse starten
+            icon: mdi:play-circle
+            tap_action:
+              action: call-service
+              service: quatt_stooklijn.run_analysis
+            show_name: true
+            show_icon: true
+            icon_height: 28px
+            grid_options:
+              columns: full
+              rows: 1
+
+      # ── Rechterkolom: kengetallen ──
+      - type: grid
+        cards:
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_heat_loss_coefficient
+            name: Warmteverlies (W/K)
+            icon: mdi:home-thermometer
+            color: orange
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_balance_point_temperature
+            name: Balanspunt
+            icon: mdi:thermometer-check
+            color: cyan
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_knee_temperature
+            name: Knikpunt
+            icon: mdi:chart-line-variant
+            color: amber
+          - type: tile
+            entity: sensor.heatpump_thermostat_control_setpoint
+            name: Quatt Setpoint
+            icon: mdi:thermometer-chevron-up
+            color: red
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_last_analysis
+            name: Laatste analyse
+            icon: mdi:clock-check-outline
+          - type: tile
+            entity: text.quatt_warmteanalyse_analyse_startdatum
+            name: Startdatum
+            icon: mdi:calendar-start
+
+      # ── Comfort chart (volle breedte) ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: custom:mini-graph-card
+            name: Comfort & Temperaturen (7 dagen)
+            hours_to_show: 168
+            points_per_hour: 2
+            line_width: 2
+            show:
+              labels: true
+              points: false
+            entities:
+              - entity: sensor.heatpump_thermostat_room_temperature
+                name: Kamer
+                color: "#E53935"
+              - entity: sensor.heatpump_thermostat_room_setpoint
+                name: Setpoint
+                color: "#FF8A80"
+              - entity: sensor.thermostat_temperature_outside
+                name: Buiten
+                color: "#78909C"
             grid_options:
               columns: full
               rows: auto
-            columns: 2
+
+      # ── Snel advies (volle breedte) ──
+      - type: grid
+        column_span: 2
+        cards:
           - type: markdown
             title: Quatt advies
             content: >
-              {% set advies = states('sensor.quatt_warmteanalyse_quatt_advies_parameters') %}
+              {% set advies =
+              states('sensor.quatt_warmteanalyse_quatt_advies_parameters') %}
 
               {% if advies in ['unknown', 'unavailable', 'None'] %}
 
-              *Voer eerst een analyse uit.*
+              *Voer eerst een analyse uit om advies te zien.*
 
               {% else %}
 
-              {% set n = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'aantal_aanpassingen') | int(0) %}
+              {% set n =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'aantal_aanpassingen') | int(0) %}
 
               {% if n == 0 %}
 
-              ✅ **{{ advies }}**
+              ✅ **Alle Quatt-instellingen zijn optimaal.**
 
               {% else %}
 
               ⚠️ **{{ advies }}**
 
 
-              {% set sg = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'stookgrens_advies') %}
+              {% set sg =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'stookgrens_advies') %}
 
-              {% set vg = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'nominaal_vermogen_advies') %}
+              {% set vg =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'nominaal_vermogen_advies') %}
 
               {% if sg and 'goed' not in sg %}• {{ sg }}{% endif %}
 
               {% if vg and 'goed' not in vg %}• {{ vg }}{% endif %}
 
+
+              *Ga naar het **Advies** tabblad voor alle details en
+              stooklijnpunten.*
+
               {% endif %}
-
-
-              *Ga naar het **Quatt Advies** tabblad voor alle details en stooklijnpunten.*
-
-              {% endif %}
-            grid_options:
-              columns: 14
-              rows: auto
-          - type: markdown
-            title: Databeschikbaarheid
-            content: >
-              {% set s =
-              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
-              'daily_days') %}
-
-
-              {% if s is not none %}
-
-
-              {% set daily   =
-              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
-              'daily_days') | int(0) %}
-
-              {% set hourly  =
-              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
-              'hourly_hours') | int(0) %}
-
-              {% set minutes =
-              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
-              'minute_minutes') | int(0) %}
-
-              {% set c_days  =
-              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
-              'cache_days') | int(0) %}
-
-              {% set c_old   =
-              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
-              'cache_oldest') %}
-
-              {% set c_new   =
-              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
-              'cache_newest') %}
-
-              {% set k_days  =
-              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
-              'knee_store_days') | int(0) %}
-
-              {% set k_pts   =
-              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
-              'knee_store_points') | int(0) %}
-
-              {% set k_old   =
-              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
-              'knee_store_oldest') %}
-
-              {% set k_new   =
-              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
-              'knee_store_newest') %}
-
-
-              | Dataset | Omvang | Gebruik |
-
-              |:--------|-------:|:--------|
-
-              | Daggemiddeldes | **{{ daily }} dagen** | Warmteverlies &
-              stooklijn |
-
-              | Uurwaarden (API/cache) | **{{ hourly }} uur** | COP & stooklijn
-              |
-
-              | Minuutwaarden (recorder) | **{{ minutes }} min** |
-              Knikpunt & helling (actueel) |
-
-              | Knie-datastore | **{{ k_pts }} ptn**{% if k_old %} ({{
-              k_old[:7] }} – {{ k_new[:7] }}){% endif %} | Knikpunt & helling
-              (historisch) |
-
-              | API-cache opgeslagen | **{{ c_days }} dagen**{% if c_old %} ({{
-              c_old[:7] }} – {{ c_new[:7] }}){% endif %} | Minder API-aanvragen
-              |
-
-
-              {% else %}
-
-
-              *Voer eerst een analyse uit.*
-
 
               {% endif %}
             grid_options:
-              columns: 10
+              columns: full
               rows: auto
-          - type: markdown
-            title: Warmtevraag bij verschillende temperaturen
-            content: >
-              {% set temps =
-              state_attr('sensor.quatt_warmteanalyse_heat_loss_coefficient',
-              'heat_at_temps') %}
 
-              {% if temps %}
-
-              Buitentemp | Vermogen | Warmte/dag | COP | Stroom/dag
-
-              :--|--:|--:|--:|--:
-
-              {% for t, data in temps.items() -%}
-
-              **{{ t }}°C** | **{{ data.heat | round(0) | int }} W** | {{
-              (data.heat * 24 / 1000) | round(1) }} kWh | {% if data.cop %}{{
-              data.cop | round(2) }}{% else %}-{% endif %} | {% if data.cop and
-              data.cop > 0 %}{{ ((data.heat * 24 / 1000) / data.cop) | round(1)
-              }} kWh{% else %}-{% endif %}
-
-              {% endfor %}
-
-              {% else %}
-
-              *Voer eerst een analyse uit*
-
-              {% endif %}
-            grid_options:
-              columns: 12
-              rows: auto
-          - type: markdown
-            title: Wat betekenen deze waarden?
-            content: >
-              {% set hlc =
-              states('sensor.quatt_warmteanalyse_heat_loss_coefficient') %}
-
-              {% set bp =
-              states('sensor.quatt_warmteanalyse_balance_point_temperature') %}
-
-              {% set knee =
-              states('sensor.quatt_warmteanalyse_knee_temperature') %}
-
-              {% set cop = states('sensor.quatt_warmteanalyse_average_cop') %}
-
-              {% if hlc not in ['unknown', 'unavailable', 'None'] %}
-
-              **Warmteverlies ({{ hlc }} W/K)** — Per graad dat het buiten
-              kouder is dan de balanstemperatuur, verliest je huis {{ hlc }}
-              Watt aan warmte. Hoe lager dit getal, hoe beter je huis is
-              geïsoleerd.
-
-
-              **Balanstemperatuur ({{ bp }}°C)** — De buitentemperatuur waarbij
-              je huis geen verwarming nodig heeft. Boven deze temperatuur levert
-              interne warmte (apparaten, zonlicht, bewoners) voldoende energie.
-
-
-              **Knikpunt ({{ knee }}°C)** — De buitentemperatuur waaronder de
-              warmtepomp het alleen niet meer redt en de cv-ketel moet
-              bijspringen. Hoe lager dit punt, hoe groter het werkgebied van je
-              warmtepomp.
-
-
-              **Gemiddelde COP ({{ cop }})** — De efficiëntie van de warmtepomp:
-              hoeveel kWh warmte je krijgt per kWh elektriciteit. Een COP van {{
-              cop }} betekent dat elke kWh stroom {{ cop }} kWh warmte oplevert.
-
-              {% else %}
-
-              *Voer eerst een analyse uit om uitleg bij de waarden te zien.*
-
-              {% endif %}
-            grid_options:
-              columns: 12
-              rows: auto
+  # ─── VIEW 2: ANALYSE ─────────────────────────────────────────────────
+  # Beantwoordt: "Wat zijn de details van mijn warmteprestaties?"
+  - title: Analyse
+    icon: mdi:chart-scatter-plot-hexbin
+    type: sections
+    max_columns: 2
+    cards: []
+    sections:
+      # ── Thermisch profiel (volle breedte) ──
       - type: grid
-        column_span: 4
+        column_span: 2
         cards:
           - type: custom:apexcharts-card
             header:
@@ -283,7 +191,8 @@ views:
                   text: Vermogen (W)
                 min: 0
                 labels:
-                  formatter: EVAL:function(val) { return Math.round(val) + ' W'; }
+                  formatter: >-
+                    EVAL:function(val) { return Math.round(val) + ' W'; }
               tooltip:
                 x:
                   formatter: >-
@@ -465,26 +374,13 @@ views:
 
                   return pts;
             grid_options:
-              columns: 24
+              columns: full
               rows: auto
-          - type: custom:mini-graph-card
-            name: Comfort & Klimaat (laatste 7 dagen)
-            hours_to_show: 168
-            points_per_hour: 2
-            line_width: 2
-            entities:
-              - entity: sensor.heatpump_thermostat_room_temperature
-                name: Kamertemperatuur
-                color: "#2196F3"
-              - entity: sensor.heatpump_thermostat_room_setpoint
-                name: Setpoint
-                color: "#F44336"
-              - entity: sensor.thermostat_temperature_outside
-                name: Buitentemperatuur
-                color: "#90A4AE"
-            grid_options:
-              columns: 24
-              rows: auto
+
+      # ── COP chart (volle breedte) ──
+      - type: grid
+        column_span: 2
+        cards:
           - type: custom:apexcharts-card
             header:
               title: COP vs Buitentemperatuur
@@ -492,7 +388,7 @@ views:
             update_interval: "00:30:00"
             apex_config:
               chart:
-                height: 350
+                height: 300
               xaxis:
                 min: EVAL:Date.now() - 36 * 3600000
                 max: EVAL:Date.now()
@@ -520,7 +416,7 @@ views:
             series:
               - entity: sensor.quatt_warmteanalyse_average_cop
                 name: Dagelijkse COP
-                color: "#2196F3"
+                color: "#42A5F5"
                 type: line
                 stroke_width: 0
                 data_generator: >
@@ -535,7 +431,7 @@ views:
                   return d.map(p => [now - (20 - p.temp) * 3600000, p.cop]);
               - entity: sensor.quatt_warmteanalyse_average_cop
                 name: COP trendlijn
-                color: "#90CAF9"
+                color: "#1565C0"
                 type: line
                 stroke_width: 2
                 curve: straight
@@ -568,39 +464,188 @@ views:
 
                   return pts;
             grid_options:
-              columns: 24
+              columns: full
               rows: auto
-  - title: Quatt Advies
-    icon: mdi:tune
+
+      # ── Warmtevraag tabel ──
+      - type: grid
+        cards:
+          - type: markdown
+            title: Warmtevraag per temperatuur
+            content: >
+              {% set temps =
+              state_attr('sensor.quatt_warmteanalyse_heat_loss_coefficient',
+              'heat_at_temps') %}
+
+              {% if temps %}
+
+              Buiten | Vermogen | Warmte/dag | COP | Stroom/dag
+
+              :--|--:|--:|--:|--:
+
+              {% for t, data in temps.items() -%}
+
+              **{{ t }}°C** | **{{ data.heat | round(0) | int }} W** | {{
+              (data.heat * 24 / 1000) | round(1) }} kWh | {% if data.cop %}{{
+              data.cop | round(2) }}{% else %}-{% endif %} | {% if data.cop and
+              data.cop > 0 %}{{ ((data.heat * 24 / 1000) / data.cop) | round(1)
+              }} kWh{% else %}-{% endif %}
+
+              {% endfor %}
+
+              {% else %}
+
+              *Voer eerst een analyse uit.*
+
+              {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
+
+      # ── Data & uitleg ──
+      - type: grid
+        cards:
+          - type: markdown
+            title: Databeschikbaarheid
+            content: >
+              {% set s =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'daily_days') %}
+
+              {% if s is not none %}
+
+              {% set daily =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'daily_days') | int(0) %}
+
+              {% set hourly =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'hourly_hours') | int(0) %}
+
+              {% set minutes =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'minute_minutes') | int(0) %}
+
+              {% set c_days =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'cache_days') | int(0) %}
+
+              {% set c_old =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'cache_oldest') %}
+
+              {% set c_new =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'cache_newest') %}
+
+              {% set k_pts =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'knee_store_points') | int(0) %}
+
+              {% set k_old =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'knee_store_oldest') %}
+
+              {% set k_new =
+              state_attr('sensor.quatt_warmteanalyse_data_statistieken',
+              'knee_store_newest') %}
+
+              | Dataset | Omvang |
+
+              |:--------|-------:|
+
+              | Daggemiddeldes | **{{ daily }} dagen** |
+
+              | Uurwaarden | **{{ hourly }} uur** |
+
+              | Minuutwaarden | **{{ minutes }} min** |
+
+              | Knie-datastore | **{{ k_pts }} ptn**{% if k_old %} ({{
+              k_old[:7] }} – {{ k_new[:7] }}){% endif %} |
+
+              | API-cache | **{{ c_days }} dagen**{% if c_old %} ({{
+              c_old[:7] }} – {{ c_new[:7] }}){% endif %} |
+
+              {% else %}
+
+              *Voer eerst een analyse uit.*
+
+              {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
+          - type: markdown
+            title: Wat betekenen de waarden?
+            content: >
+              {% set hlc =
+              states('sensor.quatt_warmteanalyse_heat_loss_coefficient') %}
+
+              {% set bp =
+              states('sensor.quatt_warmteanalyse_balance_point_temperature') %}
+
+              {% set knee =
+              states('sensor.quatt_warmteanalyse_knee_temperature') %}
+
+              {% set cop = states('sensor.quatt_warmteanalyse_average_cop') %}
+
+              {% if hlc not in ['unknown', 'unavailable', 'None'] %}
+
+              **Warmteverlies ({{ hlc }} W/K)** — Per graad kouder verliest
+              je huis {{ hlc }} W. Lager = beter geïsoleerd.
+
+
+              **Balanspunt ({{ bp }}°C)** — Boven deze buitentemp is geen
+              verwarming nodig.
+
+
+              **Knikpunt ({{ knee }}°C)** — Onder deze temp moet de
+              cv-ketel bijspringen.
+
+
+              **COP ({{ cop }})** — Elke kWh stroom levert {{ cop }} kWh
+              warmte.
+
+              {% else %}
+
+              *Voer eerst een analyse uit.*
+
+              {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
+
+  # ─── VIEW 3: ADVIES ──────────────────────────────────────────────────
+  # Beantwoordt: "Wat moet ik bij Quatt laten aanpassen?"
+  - title: Advies
+    icon: mdi:lightbulb-on-outline
     type: sections
+    max_columns: 2
     cards: []
     sections:
+      # ── Samenvatting (volle breedte) ──
       - type: grid
-        column_span: 4
+        column_span: 2
         cards:
-          - square: false
-            type: grid
-            columns: 3
-            cards:
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_quatt_advies_parameters
-                name: Advies Status
-                icon: mdi:tune
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_balance_point_temperature
-                name: Balanspunt (optimaal)
-                icon: mdi:thermometer-check
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_openquatt_balance_point
-                name: OpenQuatt Balanspunt
-                icon: mdi:home-thermometer-outline
-            grid_options:
-              columns: 24
-              rows: auto
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_quatt_advies_parameters
+            name: Advies status
+            icon: mdi:tune
+            color: amber
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_balance_point_temperature
+            name: Balanspunt (optimaal)
+            icon: mdi:thermometer-check
+            color: cyan
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_openquatt_balance_point
+            name: OpenQuatt Balanspunt
+            icon: mdi:home-thermometer-outline
+            color: teal
           - type: markdown
             title: Advies samenvatting
             content: >
-              {% set advies = states('sensor.quatt_warmteanalyse_quatt_advies_parameters') %}
+              {% set advies =
+              states('sensor.quatt_warmteanalyse_quatt_advies_parameters') %}
 
               {% if advies in ['unknown', 'unavailable', 'None'] %}
 
@@ -608,13 +653,21 @@ views:
 
               {% else %}
 
-              {% set sg = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'stookgrens_advies') %}
+              {% set sg =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'stookgrens_advies') %}
 
-              {% set vg = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'nominaal_vermogen_advies') %}
+              {% set vg =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'nominaal_vermogen_advies') %}
 
-              {% set sl = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'stooklijn_advies') %}
+              {% set sl =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'stooklijn_advies') %}
 
-              {% set n = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'aantal_aanpassingen') | int(0) %}
+              {% set n =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'aantal_aanpassingen') | int(0) %}
 
               {% if n == 0 %}
 
@@ -625,9 +678,11 @@ views:
               Geef de volgende aanpassingen door aan Quatt:
 
 
-              {% if sg and 'goed' not in sg %}1. **Stookgrens:** {{ sg }}{% endif %}
+              {% if sg and 'goed' not in sg %}1. **Stookgrens:** {{ sg }}{%
+              endif %}
 
-              {% if vg and 'goed' not in vg %}2. **Vermogen:** {{ vg }}{% endif %}
+              {% if vg and 'goed' not in vg %}2. **Vermogen:** {{ vg }}{%
+              endif %}
 
               {% if sl %}3. **Stooklijn:** {{ sl }}{% endif %}
 
@@ -635,12 +690,17 @@ views:
 
               {% endif %}
             grid_options:
-              columns: 24
+              columns: full
               rows: auto
+
+      # ── Stookgrens detail ──
+      - type: grid
+        cards:
           - type: markdown
             title: Stookgrens
             content: >
-              {% set advies = states('sensor.quatt_warmteanalyse_quatt_advies_parameters') %}
+              {% set advies =
+              states('sensor.quatt_warmteanalyse_quatt_advies_parameters') %}
 
               {% if advies in ['unknown', 'unavailable', 'None'] %}
 
@@ -648,31 +708,44 @@ views:
 
               {% else %}
 
-              {% set cur = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'stookgrens_huidig') %}
+              {% set cur =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'stookgrens_huidig') %}
 
-              {% set opt = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'stookgrens_optimaal') %}
+              {% set opt =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'stookgrens_optimaal') %}
 
-              {% set txt = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'stookgrens_advies') %}
+              {% set txt =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'stookgrens_advies') %}
 
               | | Waarde |
 
               |:--|--:|
 
-              | Huidig (Quatt) | {% if cur %}**{{ cur }}°C**{% else %}*onbekend*{% endif %} |
+              | Huidig (Quatt) | {% if cur %}**{{ cur }}°C**{% else
+              %}*onbekend*{% endif %} |
 
-              | Optimaal (analyse) | {% if opt %}**{{ opt }}°C**{% else %}*onbekend*{% endif %} |
+              | Optimaal | {% if opt %}**{{ opt }}°C**{% else %}*onbekend*{%
+              endif %} |
 
 
               {% if txt %}{{ txt }}{% endif %}
 
               {% endif %}
             grid_options:
-              columns: 12
+              columns: full
               rows: auto
+
+      # ── Nominaal vermogen detail ──
+      - type: grid
+        cards:
           - type: markdown
             title: Nominaal vermogen (bij -10°C)
             content: >
-              {% set advies = states('sensor.quatt_warmteanalyse_quatt_advies_parameters') %}
+              {% set advies =
+              states('sensor.quatt_warmteanalyse_quatt_advies_parameters') %}
 
               {% if advies in ['unknown', 'unavailable', 'None'] %}
 
@@ -680,37 +753,54 @@ views:
 
               {% else %}
 
-              {% set cur = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'nominaal_vermogen_huidig_w') %}
+              {% set cur =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'nominaal_vermogen_huidig_w') %}
 
-              {% set opt = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'nominaal_vermogen_optimaal_w') %}
+              {% set opt =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'nominaal_vermogen_optimaal_w') %}
 
-              {% set txt = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'nominaal_vermogen_advies') %}
+              {% set txt =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'nominaal_vermogen_advies') %}
 
               | | Waarde |
 
               |:--|--:|
 
-              | Huidig (Quatt) | {% if cur %}**{{ cur }} W**{% else %}*niet geconfigureerd*{% endif %} |
+              | Huidig (Quatt) | {% if cur %}**{{ cur }} W**{% else %}*niet
+              geconfigureerd*{% endif %} |
 
-              | Optimaal (analyse) | {% if opt %}**{{ opt }} W**{% else %}*onbekend*{% endif %} |
+              | Optimaal | {% if opt %}**{{ opt }} W**{% else %}*onbekend*{%
+              endif %} |
 
 
               {% if txt %}{{ txt }}{% endif %}
 
               {% endif %}
             grid_options:
-              columns: 12
+              columns: full
               rows: auto
+
+      # ── Stooklijn breakpoints + chart (volle breedte) ──
+      - type: grid
+        column_span: 2
+        cards:
           - type: markdown
             title: Optimale stooklijn breakpoints
             content: >
-              {% set punten = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'stooklijn_punten') %}
+              {% set punten =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'stooklijn_punten') %}
 
               {% if punten %}
 
-              {% set txt = state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters', 'stooklijn_advies') %}
+              {% set txt =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'stooklijn_advies') %}
 
-              Geef deze punten door aan Quatt om de stooklijn optimaal in te stellen:
+              Geef deze punten door aan Quatt:
 
 
               Buitentemp | Aanvoertemp
@@ -732,7 +822,7 @@ views:
 
               {% endif %}
             grid_options:
-              columns: 14
+              columns: 12
               rows: auto
           - type: custom:apexcharts-card
             header:
@@ -749,7 +839,8 @@ views:
                   text: Buitentemperatuur (°C)
                 labels:
                   formatter: >-
-                    EVAL:function(val) { return Math.round(20 - (new Date().getTime() - val) / 3600000) + '°C'; }
+                    EVAL:function(val) { return Math.round(20 - (new
+                    Date().getTime() - val) / 3600000) + '°C'; }
               yaxis:
                 title:
                   text: Aanvoertemperatuur (°C)
@@ -758,7 +849,8 @@ views:
               tooltip:
                 x:
                   formatter: >-
-                    EVAL:function(val) { return Math.round(20 - (new Date().getTime() - val) / 3600000) + '°C'; }
+                    EVAL:function(val) { return Math.round(20 - (new
+                    Date().getTime() - val) / 3600000) + '°C'; }
               markers:
                 size:
                   - 5
@@ -782,7 +874,8 @@ views:
 
                   const now = Date.now();
 
-                  return bps.map(bp => [now - (20 - bp.buiten_temp) * 3600000, bp.aanvoer_temp]);
+                  return bps.map(bp => [now - (20 - bp.buiten_temp) * 3600000,
+                  bp.aanvoer_temp]);
               - entity: sensor.quatt_warmteanalyse_openquatt_stooklijn
                 name: Optimale curve
                 color: "#4CAF50"
@@ -800,16 +893,24 @@ views:
 
                   const now = Date.now();
 
-                  return bps.map(bp => [now - (20 - bp.buiten_temp) * 3600000, bp.aanvoer_temp]);
+                  return bps.map(bp => [now - (20 - bp.buiten_temp) * 3600000,
+                  bp.aanvoer_temp]);
             grid_options:
-              columns: 24
+              columns: 12
               rows: auto
-          - type: markdown
-            title: OpenQuatt
-            content: >
-              {% set bp = states('sensor.quatt_warmteanalyse_openquatt_balance_point') %}
 
-              {% set curve = states('sensor.quatt_warmteanalyse_openquatt_stooklijn') %}
+      # ── OpenQuatt info (volle breedte) ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: markdown
+            title: OpenQuatt integratie
+            content: >
+              {% set bp =
+              states('sensor.quatt_warmteanalyse_openquatt_balance_point') %}
+
+              {% set curve =
+              states('sensor.quatt_warmteanalyse_openquatt_stooklijn') %}
 
               {% if bp in ['unknown', 'unavailable', 'None'] %}
 
@@ -817,7 +918,7 @@ views:
 
               {% else %}
 
-              De volgende sensoren zijn beschikbaar voor OpenQuatt automations:
+              Sensoren beschikbaar voor OpenQuatt automations:
 
 
               | Sensor | Waarde |
@@ -828,62 +929,64 @@ views:
 
               | Stooklijn breakpoints | **{{ curve }} punten** |
 
-              | MPC aanvoertemp | **{{ states('sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur') }}°C** |
+              | MPC aanvoertemp | **{{
+              states('sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur')
+              }}°C** |
 
 
-              Maak een HA-automation die deze waarden naar je OpenQuatt `number.*` entiteiten schrijft.
+              Maak een HA-automation die deze waarden naar je OpenQuatt
+              entiteiten schrijft.
 
               {% endif %}
             grid_options:
-              columns: 14
+              columns: full
               rows: auto
-  - title: Shadow Validatie
-    icon: mdi:compare-horizontal
+
+  # ─── VIEW 4: MPC VALIDATIE ───────────────────────────────────────────
+  # Beantwoordt: "Is het MPC-advies beter dan de vaste stooklijn?"
+  - title: MPC
+    icon: mdi:brain
     type: sections
+    max_columns: 2
+    cards: []
     sections:
+      # ── Status tegels (volle breedte) ──
       - type: grid
-        column_span: 4
+        column_span: 2
         cards:
-          - square: false
-            type: grid
-            columns: 2
-            cards:
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_stooklijn_fout_aanvoertemperatuur
-                name: Stooklijn fout nu
-                icon: mdi:thermometer-check
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_mpc_fout_aanvoertemperatuur
-                name: MPC fout nu
-                icon: mdi:thermometer-check
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-                name: Stooklijn advies
-                icon: mdi:thermometer-water
-              - type: entity
-                entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
-                name: MPC advies
-                icon: mdi:brain
-            grid_options:
-              columns: 24
-              rows: auto
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
+            name: Stooklijn advies
+            icon: mdi:thermometer-water
+            color: blue
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
+            name: MPC advies
+            icon: mdi:brain
+            color: green
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_stooklijn_fout_aanvoertemperatuur
+            name: Stooklijn fout
+            icon: mdi:thermometer-alert
+            color: blue
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_mpc_fout_aanvoertemperatuur
+            name: MPC fout
+            icon: mdi:thermometer-alert
+            color: green
+
+      # ── Aanvoertemperatuur vergelijking (volle breedte) ──
+      - type: grid
+        column_span: 2
+        cards:
           - type: custom:mini-graph-card
-            name: Buitentemperatuur (context)
-            hours_to_show: 168
-            points_per_hour: 1
-            line_width: 1
-            entities:
-              - entity: sensor.heatpump_hp1_temperature_outside
-                name: Buitentemp
-                color: "#78909C"
-            grid_options:
-              columns: 16
-              rows: auto
-          - type: custom:mini-graph-card
-            name: Aanvoertemperatuur — Advies vs Werkelijk (7 dagen)
+            name: Aanvoertemperatuur — Advies vs Werkelijk (24 uur)
             hours_to_show: 24
-            points_per_hour: 2
+            points_per_hour: 4
             line_width: 1.5
+            show:
+              labels: true
+              points: false
             entities:
               - entity: sensor.heatpump_flowmeter_temperature
                 name: Werkelijk
@@ -895,23 +998,72 @@ views:
                 name: MPC advies
                 color: "#4CAF50"
             grid_options:
-              columns: 24
+              columns: full
               rows: auto
-          - type: custom:mini-graph-card
-            name: Fout — Advies minus Werkelijk (7 dagen)
-            hours_to_show: 24
-            points_per_hour: 2
-            line_width: 2
-            entities:
+
+      # ── Foutmeting (volle breedte) ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: custom:apexcharts-card
+            header:
+              title: Fout — Advies minus Werkelijk (24 uur)
+              show: true
+            graph_span: 24h
+            apex_config:
+              chart:
+                height: 200
+              yaxis:
+                min: -10
+                max: 10
+                tickAmount: 4
+              stroke:
+                width: [2, 2]
+                curve: smooth
+                dashArray: [0, 4]
+              annotations:
+                yaxis:
+                  - y: 0
+                    borderColor: "#999"
+                    strokeDashArray: 4
+                    borderWidth: 1
+              legend:
+                position: bottom
+            series:
               - entity: sensor.quatt_warmteanalyse_stooklijn_fout_aanvoertemperatuur
-                name: Stooklijn fout (+ = te hoog, − = te laag)
+                name: Stooklijn fout
                 color: "#2196F3"
+                stroke_width: 2
               - entity: sensor.quatt_warmteanalyse_mpc_fout_aanvoertemperatuur
                 name: MPC fout
-                color: "#4CAF50"
+                color: "#FF9800"
+                stroke_width: 2
             grid_options:
-              columns: 16
+              columns: full
               rows: auto
+
+      # ── Buitentemperatuur context ──
+      - type: grid
+        cards:
+          - type: custom:mini-graph-card
+            name: Buitentemperatuur (7 dagen)
+            hours_to_show: 168
+            points_per_hour: 1
+            line_width: 1
+            show:
+              labels: true
+              points: false
+            entities:
+              - entity: sensor.heatpump_hp1_temperature_outside
+                name: Buitentemp
+                color: "#78909C"
+            grid_options:
+              columns: full
+              rows: auto
+
+      # ── OTGW compensatie (alleen zichtbaar als geconfigureerd) ──
+      - type: grid
+        cards:
           - type: conditional
             conditions:
               - condition: state
@@ -921,38 +1073,49 @@ views:
               type: markdown
               title: OTGW Compensatie
               content: >
-                {% set sw = states('switch.quatt_warmteanalyse_otgw_compensatie') %}
+                {% set sw =
+                states('switch.quatt_warmteanalyse_otgw_compensatie') %}
 
-                {% set offset = state_attr('switch.quatt_warmteanalyse_otgw_compensatie', 'current_offset') | float(0) %}
+                {% set offset =
+                state_attr('switch.quatt_warmteanalyse_otgw_compensatie',
+                'current_offset') | float(0) %}
 
-                {% set mpc_err = state_attr('switch.quatt_warmteanalyse_otgw_compensatie', 'mpc_error') %}
+                {% set mpc_err =
+                state_attr('switch.quatt_warmteanalyse_otgw_compensatie',
+                'mpc_error') %}
 
-                {% set hp = state_attr('switch.quatt_warmteanalyse_otgw_compensatie', 'hp_active') %}
+                {% set hp =
+                state_attr('switch.quatt_warmteanalyse_otgw_compensatie',
+                'hp_active') %}
 
-                {% set max_off = state_attr('switch.quatt_warmteanalyse_otgw_compensatie', 'max_offset') | float(0) %}
+                {% set max_off =
+                state_attr('switch.quatt_warmteanalyse_otgw_compensatie',
+                'max_offset') | float(0) %}
 
                 | | Status |
 
                 |:--|:--|
 
-                | Switch | {% if sw == 'on' %}🟢 Aan{% else %}⚪ Uit{% endif %} |
+                | Switch | {% if sw == 'on' %}Aan{% else %}Uit{% endif %} |
 
                 | HP actief | {% if hp %}Ja{% else %}Nee{% endif %} |
 
                 | Huidig offset | **{{ offset }}°C** (max {{ max_off }}°C) |
 
-                | MPC fout | {% if mpc_err is not none %}{{ mpc_err }}°C{% else %}*n/a*{% endif %} |
+                | MPC fout | {% if mpc_err is not none %}{{ mpc_err }}°C{%
+                else %}*n/a*{% endif %} |
 
 
                 {% if sw == 'on' and offset > 0 %}
 
-                De CiC denkt dat de kamertemperatuur {{ offset }}°C hoger is dan werkelijk → minder output.
+                De CiC denkt dat de kamertemperatuur {{ offset }}°C hoger is
+                dan werkelijk — minder output.
 
                 {% elif sw == 'on' and offset == 0 %}
 
-                Compensatie actief, geen correctie nodig op dit moment.
+                Compensatie actief, geen correctie nodig.
 
                 {% endif %}
             grid_options:
-              columns: 16
+              columns: full
               rows: auto
