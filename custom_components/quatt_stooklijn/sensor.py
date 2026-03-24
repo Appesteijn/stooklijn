@@ -41,6 +41,7 @@ from .const import (
     DEFAULT_WEATHER_ENTITY,
     DOMAIN,
     MIN_FLOW_LPH,
+    MIN_HEATING_WATTS,
     NOMINAL_FLOW_LPH,
     MPC_FORECAST_HOURS,
     MPC_SUPPLY_TEMP_MAX,
@@ -1029,6 +1030,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 "solar_gain_w": round(fc_sg),
                 "heat_demand_w": round(fc_raw),
                 "net_demand_w": round(fc_net),
+                "q_hp_needed_w": round(fc_net),
+                "hp_needed": fc_net > MIN_HEATING_WATTS,
                 "supply_temp": fc_supply,
             }
             if i < len(fc_meta):
