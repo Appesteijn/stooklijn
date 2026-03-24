@@ -1025,13 +1025,32 @@ views:
 
               Bron: **{{ src }}** — het model leert elk uur bij.
 
-              {% else %}
+              {% elif n < 48 %}
 
               Model is aan het leren... **{{ n }}/48 updates** (nog {{
               48 - n }} uur).
 
 
               Gebruikt nu het batch warmteverliesmodel als fallback.
+
+              {% else %}
+
+              Model heeft genoeg data (**{{ n }} updates**), maar de
+              geleerde parameters zijn nog buiten fysisch bereik:
+
+              | Parameter | Huidig | Verwacht |
+
+              |:--|--:|--:|
+
+              | Warmteverlies | {{ U }} W/K | 50–400 W/K |
+
+              | Thermische massa | {{ C }} Wh/K | 500–20000 Wh/K |
+
+              | Zonnewinst | {{ g }} | 0.05–0.5 |
+
+
+              Wacht op meer koude uren waarbij de warmtepomp actief is —
+              dan leert het model betrouwbare waarden.
 
               {% endif %}
 
