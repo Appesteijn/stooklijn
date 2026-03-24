@@ -1065,11 +1065,14 @@ views:
 
               :--|--:|--:|:--:|--:|--:
 
+              {% set ns = namespace(has_solar=false) %}
               {% for h in fc -%}
 
               {% set hp = h.get('hp_needed') %}
 
               {% set t_in = h.get('t_indoor_predicted') %}
+
+              {% if h.get('solar_gain_w', 0) > 100 %}{% set ns.has_solar = true %}{% endif %}
 
               **+{{ h.hour }}** | {{ h.temp_forecast }}°C | {% if t_in
               is not none %}{{ t_in }}°C{% else %}-{% endif %} | {% if
@@ -1082,7 +1085,7 @@ views:
               {% endfor %}
 
 
-              {% if h.get('solar_gain_w', 0) > 100 %}
+              {% if ns.has_solar %}
 
               ☀️ Zonnewinst verlaagt de warmtevraag.
 

@@ -367,7 +367,7 @@ def simulate_6h(
             "q_hp_needed_w": round(q_hp_needed),
             "t_indoor_predicted": round(t_in_next, 1),
             "supply_temp": supply_temp,
-            "hp_needed": q_hp_needed > 200,  # MIN_HEATING_WATTS
+            "hp_needed": bool(q_hp_needed > 200),  # MIN_HEATING_WATTS
         })
 
         t_in = t_in_next

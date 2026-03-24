@@ -1031,7 +1031,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 "heat_demand_w": round(fc_raw),
                 "net_demand_w": round(fc_net),
                 "q_hp_needed_w": round(fc_net),
-                "hp_needed": fc_net > MIN_HEATING_WATTS,
+                "hp_needed": bool(fc_net > MIN_HEATING_WATTS),
                 "supply_temp": fc_supply,
             }
             if i < len(fc_meta):
