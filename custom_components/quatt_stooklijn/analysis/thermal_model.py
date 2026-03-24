@@ -253,7 +253,7 @@ class OnlineRCModel:
         p = self.raw_params
         if p is None:
             return False
-        return (
+        return bool(
             U_MIN <= p["U"] <= U_MAX
             and C_MIN <= p["C"] <= C_MAX
             and G_MIN <= p["g"] <= G_MAX
