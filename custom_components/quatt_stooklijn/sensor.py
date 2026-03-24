@@ -943,8 +943,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         if not forecast_out:
             # Fallback: batch stooklijn-based forecast
             forecast_out = self._build_batch_forecast(
-                effective_flow, solar_w, solar_gain_w,
-                radiation_factor, fc_temps, fc_solar, fc_meta,
+                effective_flow, t_return, fc_temps, fc_solar, fc_meta,
             )
 
         # Current demand (from whichever model is active)
@@ -986,9 +985,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     def _build_batch_forecast(
         self,
         effective_flow: float,
-        solar_w: float,
-        solar_gain_w: float,
-        radiation_factor: float,
+        t_return: float | None,
         fc_temps: list[float],
         fc_solar: list[float],
         fc_meta: list[dict],
@@ -1016,13 +1013,13 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             fc_net = max(0.0, fc_raw - fc_sg)
 
             fc_supply = None
-            if sl_slope is not None and sl_intercept is not None:
-                fc_stooklijn = sl_slope * fc_temp + sl_intercept
-                fc_solar_correction = fc_sg / (1.16 * effective_flow)
-                fc_supply = round(
-                    max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX,
-                        fc_stooklijn - fc_solar_correction)), 1
-                )
+            if sl_slope is not None and sl_intercept is not None and t_return is not None:
+                fc_sl_demand = max(0.0, sl_slope * fc_temp + sl_intercept - fc_sg)
+                if fc_sl_demand > MIN_HEATING_WATTS:
+                    raw_supply = t_return + fc_sl_demand / (1.16 * effective_flow)
+                    fc_supply = round(
+                        max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, raw_supply)), 1
+                    )
 
             entry = {
                 "hour": i,

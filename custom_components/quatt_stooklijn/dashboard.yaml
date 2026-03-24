@@ -1076,40 +1076,19 @@ views:
 
               {% set fc = state_attr(mpc, 'forecast_6h') %}
 
-              {% if fc and fc | length > 0 %}
-
               {% set src = state_attr(mpc, 'model_source') %}
 
-              Uur | T buiten | T binnen | HP nodig | Vermogen | Aanvoer
+              {% if fc and fc | length > 0 %}
 
-              :--|--:|--:|:--:|--:|--:
+              {% set ns = namespace(tbl='| Uur | T buiten | T binnen | HP | Vermogen | Aanvoer |\n|:--|--:|--:|:--:|--:|--:|\n', has_solar=false) %}{% for h in fc %}{% set t_in = h.get('t_indoor_predicted') %}{% if h.get('solar_gain_w', 0) > 100 %}{% set ns.has_solar = true %}{% endif %}{% set ns.tbl = ns.tbl + '| **+' + h.hour|string + '** | ' + h.temp_forecast|string + '°C | ' + (t_in|string + '°C' if t_in is not none else '-') + ' | ' + ('🔥' if h.get('hp_needed') else '⏸️') + ' | ' + (h.get('q_hp_needed_w')|string + ' W' if h.get('q_hp_needed_w') is not none else '-') + ' | ' + (h.supply_temp|string + '°C' if h.supply_temp is not none else '-') + ' |\n' %}{% endfor %}
 
-              {% set ns = namespace(has_solar=false) %}
-              {% for h in fc -%}
-
-              {% set hp = h.get('hp_needed') %}
-
-              {% set t_in = h.get('t_indoor_predicted') %}
-
-              {% if h.get('solar_gain_w', 0) > 100 %}{% set ns.has_solar = true %}{% endif %}
-
-              **+{{ h.hour }}** | {{ h.temp_forecast }}°C | {% if t_in
-              is not none %}{{ t_in }}°C{% else %}-{% endif %} | {% if
-              hp is not none %}{% if hp %}🔥{% else %}⏸️{% endif %}{%
-              else %}-{% endif %} | {% if h.get('q_hp_needed_w') is not
-              none %}{{ h.q_hp_needed_w }} W{% else %}-{% endif %} | {%
-              if h.supply_temp is not none %}{{ h.supply_temp }}°C{%
-              else %}-{% endif %}
-
-              {% endfor %}
-
+              {{ ns.tbl }}
 
               {% if ns.has_solar %}
 
               ☀️ Zonnewinst verlaagt de warmtevraag.
 
               {% endif %}
-
 
               *Bron: {{ src | default('batch') }}*
 
