@@ -724,10 +724,10 @@ views:
 
               |:--|--:|
 
-              | Huidig (Quatt) | {% if cur %}**{{ cur }}°C**{% else
+              | Quatt stooklijn (gemeten) | {% if cur %}**{{ cur }}°C**{% else
               %}*onbekend*{% endif %} |
 
-              | Optimaal | {% if opt %}**{{ opt }}°C**{% else %}*onbekend*{%
+              | Huis optimaal (lineair) | {% if opt %}**{{ opt }}°C**{% else %}*onbekend*{%
               endif %} |
 
 

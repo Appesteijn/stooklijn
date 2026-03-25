@@ -97,7 +97,7 @@ class TestQuattAdviceSensorLogic:
         return QuattStooklijnData(
             stooklijn=StooklijnResult(
                 balance_temp_optimal=balance_opt,
-                balance_temp_api_daily=balance_api,
+                balance_temp_api=balance_api,
             ),
             heat_loss_hp=HeatLossResult(
                 slope=slope, intercept=intercept,

@@ -1141,8 +1141,8 @@ class QuattAdviceSensor(
         """Tel het aantal significante afwijkingen."""
         changes = 0
 
-        # Stookgrens
-        stookgrens_cur = data.stooklijn.balance_temp_api_daily
+        # Stookgrens: vergelijk recorder-gebaseerde Quatt stooklijn vs huis-optimaal
+        stookgrens_cur = data.stooklijn.balance_temp_api
         stookgrens_opt = data.stooklijn.balance_temp_optimal
         if (
             stookgrens_cur is not None
@@ -1201,7 +1201,9 @@ class QuattAdviceSensor(
         attrs: dict[str, Any] = {}
 
         # --- Stookgrens ---
-        stookgrens_cur = data.stooklijn.balance_temp_api_daily
+        # "huidig" = nulpunt van de recorder-gebaseerde Quatt stooklijn
+        # "optimaal" = nulpunt van de huis-optimale regressie op dagdata
+        stookgrens_cur = data.stooklijn.balance_temp_api
         stookgrens_opt = data.stooklijn.balance_temp_optimal
         attrs["stookgrens_huidig"] = (
             round(stookgrens_cur, 1) if stookgrens_cur is not None else None

@@ -38,9 +38,11 @@ class StooklijnResult:
     knee_temperature: float | None = None
     knee_power: float | None = None
 
-    # API-based stooklijn (right of knee, from recorder minute data)
+    # Quatt stooklijn (right of knee, from recorder minute data)
+    # This is the best estimate of what Quatt is currently doing.
     slope_api: float | None = None
     intercept_api: float | None = None
+    balance_temp_api: float | None = None  # = -intercept_api / slope_api
 
     # Daily-based stooklijn (warm side, from daily API data — like notebook)
     slope_api_daily: float | None = None
@@ -589,6 +591,8 @@ def calculate_stooklijn(
             x_fit = x_all[inlier_mask]
             result.slope_api = float(slope)
             result.intercept_api = float(intercept)
+            if slope != 0:
+                result.balance_temp_api = float(-intercept / slope)
             _LOGGER.info(
                 "Quatt stooklijn estimated from recorder: slope=%.1f W/°C, "
                 "intercept=%.0f W, zero at %.1f°C (%d/%d data points after outlier removal)",
