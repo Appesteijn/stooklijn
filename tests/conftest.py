@@ -165,13 +165,8 @@ from custom_components.quatt_stooklijn.analysis.stooklijn import (
 )
 from custom_components.quatt_stooklijn.coordinator import (
     QuattStooklijnData,
-    _calc_stooklijn_from_points,
 )
 from custom_components.quatt_stooklijn.const import (
-    CONF_ACTUAL_STOOKLIJN_TEMP1,
-    CONF_ACTUAL_STOOKLIJN_POWER1,
-    CONF_ACTUAL_STOOKLIJN_TEMP2,
-    CONF_ACTUAL_STOOKLIJN_POWER2,
     CONF_QUATT_START_DATE,
     CONF_QUATT_END_DATE,
     CONF_TEMP_ENTITIES,
@@ -294,17 +289,3 @@ def mock_config():
     }
 
 
-@pytest.fixture
-def mock_config_with_points():
-    """Config dict with stooklijn comparison points."""
-    return {
-        CONF_QUATT_START_DATE: "2024-01-01",
-        CONF_QUATT_END_DATE: "2024-06-30",
-        CONF_TEMP_ENTITIES: ["sensor.temp_outside"],
-        CONF_POWER_ENTITY: "sensor.hp_power",
-        CONF_GAS_ENABLED: False,
-        CONF_ACTUAL_STOOKLIJN_TEMP1: -5.0,
-        CONF_ACTUAL_STOOKLIJN_POWER1: 8000.0,
-        CONF_ACTUAL_STOOKLIJN_TEMP2: 15.0,
-        CONF_ACTUAL_STOOKLIJN_POWER2: 2000.0,
-    }

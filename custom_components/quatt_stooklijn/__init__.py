@@ -15,7 +15,6 @@ from .const import DOMAIN, SERVICE_CLEAR_DATA, SERVICE_RUN_ANALYSIS
 from .coordinator import (
     QuattStooklijnCoordinator,
     QuattStooklijnData,
-    _calc_stooklijn_from_points,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -174,11 +173,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for coord in hass.data[DOMAIN].values():
                 if isinstance(coord, QuattStooklijnCoordinator):
                     _LOGGER.info("Clearing Quatt Stooklijn analysis data")
-                    slope, intercept = _calc_stooklijn_from_points(coord.config)
-                    coord.data = QuattStooklijnData(
-                        actual_stooklijn_slope=slope,
-                        actual_stooklijn_intercept=intercept,
-                    )
+                    coord.data = QuattStooklijnData()
                     coord.async_set_updated_data(coord.data)
 
         hass.services.async_register(

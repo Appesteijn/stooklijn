@@ -11,10 +11,6 @@ from datetime import date
 import pytest
 
 from custom_components.quatt_stooklijn.const import (
-    CONF_ACTUAL_STOOKLIJN_TEMP1,
-    CONF_ACTUAL_STOOKLIJN_POWER1,
-    CONF_ACTUAL_STOOKLIJN_TEMP2,
-    CONF_ACTUAL_STOOKLIJN_POWER2,
     CONF_QUATT_START_DATE,
     CONF_QUATT_END_DATE,
     CONF_TEMP_ENTITIES,
@@ -89,72 +85,6 @@ class TestTempEntityParsing:
     def test_trailing_comma(self):
         result = self.parse_temp_entities("sensor.a, sensor.b,")
         assert result == ["sensor.a", "sensor.b"]
-
-
-class TestStooklijnPointsValidation:
-    """Test stooklijn points validation (all 4 or none)."""
-
-    @staticmethod
-    def validate_stooklijn_points(user_input: dict) -> tuple[dict | None, str | None]:
-        """Reproduce validation from async_step_options.
-
-        Returns (parsed_points, error) where parsed_points is a dict of
-        float values if all 4 are filled, None if all empty, and error
-        is set if values are invalid.
-        """
-        fields = [
-            (CONF_ACTUAL_STOOKLIJN_TEMP1, user_input.get(CONF_ACTUAL_STOOKLIJN_TEMP1, "")),
-            (CONF_ACTUAL_STOOKLIJN_POWER1, user_input.get(CONF_ACTUAL_STOOKLIJN_POWER1, "")),
-            (CONF_ACTUAL_STOOKLIJN_TEMP2, user_input.get(CONF_ACTUAL_STOOKLIJN_TEMP2, "")),
-            (CONF_ACTUAL_STOOKLIJN_POWER2, user_input.get(CONF_ACTUAL_STOOKLIJN_POWER2, "")),
-        ]
-        filled = [(k, v) for k, v in fields if str(v).strip()]
-
-        if len(filled) == 0:
-            return None, None
-
-        if len(filled) == 4:
-            try:
-                return {k: float(v) for k, v in filled}, None
-            except ValueError:
-                return None, "invalid_stooklijn_value"
-
-        # Partial fill — the actual flow doesn't error here, it just ignores
-        return None, None
-
-    def test_all_four_filled(self):
-        points, error = self.validate_stooklijn_points({
-            CONF_ACTUAL_STOOKLIJN_TEMP1: "-5",
-            CONF_ACTUAL_STOOKLIJN_POWER1: "8000",
-            CONF_ACTUAL_STOOKLIJN_TEMP2: "15",
-            CONF_ACTUAL_STOOKLIJN_POWER2: "2000",
-        })
-        assert error is None
-        assert points[CONF_ACTUAL_STOOKLIJN_TEMP1] == -5.0
-        assert points[CONF_ACTUAL_STOOKLIJN_POWER2] == 2000.0
-
-    def test_all_empty(self):
-        points, error = self.validate_stooklijn_points({})
-        assert error is None
-        assert points is None
-
-    def test_invalid_float(self):
-        points, error = self.validate_stooklijn_points({
-            CONF_ACTUAL_STOOKLIJN_TEMP1: "abc",
-            CONF_ACTUAL_STOOKLIJN_POWER1: "8000",
-            CONF_ACTUAL_STOOKLIJN_TEMP2: "15",
-            CONF_ACTUAL_STOOKLIJN_POWER2: "2000",
-        })
-        assert error == "invalid_stooklijn_value"
-
-    def test_partial_fill(self):
-        """Partial fill (< 4) should be silently ignored."""
-        points, error = self.validate_stooklijn_points({
-            CONF_ACTUAL_STOOKLIJN_TEMP1: "-5",
-            CONF_ACTUAL_STOOKLIJN_POWER1: "8000",
-        })
-        assert error is None
-        assert points is None
 
 
 class TestGasStepValidation:

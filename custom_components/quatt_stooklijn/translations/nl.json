@@ -28,10 +28,6 @@
         "title": "Extra opties",
         "description": "Configureer sensoren en stooklijn. De zonnepanelen-sensor mag elke sensor zijn die het actuele vermogen in Watt (W) rapporteert — bijv. SolarEdge, Enphase, Huawei, SMA of een template-sensor. Laat leeg als je geen zonnepanelen hebt.",
         "data": {
-          "actual_stooklijn_temp1": "Stooklijn punt 1: temperatuur (°C, bijv. -10)",
-          "actual_stooklijn_power1": "Stooklijn punt 1: vermogen (W, bijv. 10000)",
-          "actual_stooklijn_temp2": "Stooklijn punt 2: temperatuur (°C, bijv. 16)",
-          "actual_stooklijn_power2": "Stooklijn punt 2: vermogen (W, bijv. 0)",
           "flow_entity": "Debietmeter sensor (L/h)",
           "return_temp_entity": "Retourtemperatuur sensor (°C)",
           "solar_entity": "Zonnepanelen vermogen sensor (W) — bijv. SolarEdge, Enphase, of template",
@@ -58,10 +54,6 @@
         "data": {
           "quatt_start_date": "Quatt startdatum (JJJJ-MM-DD)",
           "quatt_end_date": "Quatt einddatum (JJJJ-MM-DD)",
-          "actual_stooklijn_temp1": "Stooklijn punt 1: temperatuur (°C, bijv. -10)",
-          "actual_stooklijn_power1": "Stooklijn punt 1: vermogen (W, bijv. 10000)",
-          "actual_stooklijn_temp2": "Stooklijn punt 2: temperatuur (°C, bijv. 16)",
-          "actual_stooklijn_power2": "Stooklijn punt 2: vermogen (W, bijv. 0)",
           "flow_entity": "Debietmeter sensor (L/h)",
           "return_temp_entity": "Retourtemperatuur sensor (°C)",
           "solar_entity": "Zonnepanelen vermogen sensor (W) — bijv. SolarEdge, Enphase, of template",

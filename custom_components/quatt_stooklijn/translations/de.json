@@ -28,10 +28,6 @@
         "title": "Weitere Optionen",
         "description": "Sensoren und Heizkurve konfigurieren. Der Solaranlagen-Sensor kann jeder Sensor sein, der die aktuelle Leistung in Watt (W) meldet — z.B. SolarEdge, Enphase, Huawei, SMA oder ein Template-Sensor. Leer lassen wenn keine Solaranlage vorhanden.",
         "data": {
-          "actual_stooklijn_temp1": "Heizkurve Punkt 1: Temperatur (°C, z.B. -10)",
-          "actual_stooklijn_power1": "Heizkurve Punkt 1: Leistung (W, z.B. 10000)",
-          "actual_stooklijn_temp2": "Heizkurve Punkt 2: Temperatur (°C, z.B. 16)",
-          "actual_stooklijn_power2": "Heizkurve Punkt 2: Leistung (W, z.B. 0)",
           "flow_entity": "Durchflussmesser-Sensor (L/h)",
           "return_temp_entity": "Rücklauftemperatur-Sensor (°C)",
           "solar_entity": "Solaranlagen-Leistungssensor (W) — z.B. SolarEdge, Enphase oder Template",
@@ -58,10 +54,6 @@
         "data": {
           "quatt_start_date": "Quatt Startdatum (JJJJ-MM-TT)",
           "quatt_end_date": "Quatt Enddatum (JJJJ-MM-TT)",
-          "actual_stooklijn_temp1": "Heizkurve Punkt 1: Temperatur (°C, z.B. -10)",
-          "actual_stooklijn_power1": "Heizkurve Punkt 1: Leistung (W, z.B. 10000)",
-          "actual_stooklijn_temp2": "Heizkurve Punkt 2: Temperatur (°C, z.B. 16)",
-          "actual_stooklijn_power2": "Heizkurve Punkt 2: Leistung (W, z.B. 0)",
           "flow_entity": "Durchflussmesser-Sensor (L/h)",
           "return_temp_entity": "Rücklauftemperatur-Sensor (°C)",
           "solar_entity": "Solaranlagen-Leistungssensor (W) — z.B. SolarEdge, Enphase oder Template",

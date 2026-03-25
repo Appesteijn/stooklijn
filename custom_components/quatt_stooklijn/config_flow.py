@@ -9,10 +9,6 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 
 from .const import (
-    CONF_ACTUAL_STOOKLIJN_POWER1,
-    CONF_ACTUAL_STOOKLIJN_POWER2,
-    CONF_ACTUAL_STOOKLIJN_TEMP1,
-    CONF_ACTUAL_STOOKLIJN_TEMP2,
     CONF_BOILER_EFFICIENCY,
     CONF_FLOW_ENTITY,
     CONF_GAS_ENABLED,
@@ -169,25 +165,6 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_options(self, user_input=None):
         """Step 3: Optional settings for stooklijn comparison."""
         if user_input is not None:
-            # Store actual stooklijn points (optional, all 4 must be filled)
-            stooklijn_fields = [
-                (CONF_ACTUAL_STOOKLIJN_TEMP1, user_input.get(CONF_ACTUAL_STOOKLIJN_TEMP1, "")),
-                (CONF_ACTUAL_STOOKLIJN_POWER1, user_input.get(CONF_ACTUAL_STOOKLIJN_POWER1, "")),
-                (CONF_ACTUAL_STOOKLIJN_TEMP2, user_input.get(CONF_ACTUAL_STOOKLIJN_TEMP2, "")),
-                (CONF_ACTUAL_STOOKLIJN_POWER2, user_input.get(CONF_ACTUAL_STOOKLIJN_POWER2, "")),
-            ]
-            filled = [(k, v) for k, v in stooklijn_fields if str(v).strip()]
-            if len(filled) == 4:
-                try:
-                    for key, val in filled:
-                        self._data[key] = float(val)
-                except ValueError:
-                    return self.async_show_form(
-                        step_id="options",
-                        data_schema=self._options_schema(),
-                        errors={"base": "invalid_stooklijn_value"},
-                    )
-
             # Store OTGW settings
             self._data[CONF_OTGW_ENABLED] = user_input.get(CONF_OTGW_ENABLED, False)
             if self._data[CONF_OTGW_ENABLED]:
@@ -213,10 +190,6 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Return schema for options step."""
         return vol.Schema(
             {
-                vol.Optional(CONF_ACTUAL_STOOKLIJN_TEMP1, default=""): str,
-                vol.Optional(CONF_ACTUAL_STOOKLIJN_POWER1, default=""): str,
-                vol.Optional(CONF_ACTUAL_STOOKLIJN_TEMP2, default=""): str,
-                vol.Optional(CONF_ACTUAL_STOOKLIJN_POWER2, default=""): str,
                 vol.Optional(
                     CONF_FLOW_ENTITY,
                     default=DEFAULT_FLOW_ENTITY,
@@ -282,19 +255,7 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None):
         """Manage the options."""
         if user_input is not None:
-            # Parse optional stooklijn point strings to float
             result = dict(user_input)
-            for key in (
-                CONF_ACTUAL_STOOKLIJN_TEMP1,
-                CONF_ACTUAL_STOOKLIJN_POWER1,
-                CONF_ACTUAL_STOOKLIJN_TEMP2,
-                CONF_ACTUAL_STOOKLIJN_POWER2,
-            ):
-                val = str(result.get(key, "")).strip()
-                if val:
-                    result[key] = float(val)
-                else:
-                    result.pop(key, None)
             return self.async_create_entry(title="", data=result)
 
         data = {**self._config_entry.data, **self._config_entry.options}
@@ -310,22 +271,6 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     vol.Required(
                         CONF_QUATT_START_DATE,
                         default=data.get(CONF_QUATT_START_DATE, ""),
-                    ): str,
-                    vol.Optional(
-                        CONF_ACTUAL_STOOKLIJN_TEMP1,
-                        default=_float_default(CONF_ACTUAL_STOOKLIJN_TEMP1),
-                    ): str,
-                    vol.Optional(
-                        CONF_ACTUAL_STOOKLIJN_POWER1,
-                        default=_float_default(CONF_ACTUAL_STOOKLIJN_POWER1),
-                    ): str,
-                    vol.Optional(
-                        CONF_ACTUAL_STOOKLIJN_TEMP2,
-                        default=_float_default(CONF_ACTUAL_STOOKLIJN_TEMP2),
-                    ): str,
-                    vol.Optional(
-                        CONF_ACTUAL_STOOKLIJN_POWER2,
-                        default=_float_default(CONF_ACTUAL_STOOKLIJN_POWER2),
                     ): str,
                     vol.Optional(
                         CONF_FLOW_ENTITY,

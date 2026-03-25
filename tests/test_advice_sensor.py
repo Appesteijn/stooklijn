@@ -98,14 +98,14 @@ class TestQuattAdviceSensorLogic:
             stooklijn=StooklijnResult(
                 balance_temp_optimal=balance_opt,
                 balance_temp_api=balance_api,
+                slope_api=actual_slope,
+                intercept_api=actual_intercept,
             ),
             heat_loss_hp=HeatLossResult(
                 slope=slope, intercept=intercept,
                 heat_loss_coefficient=abs(slope),
                 balance_point=balance_opt,
             ),
-            actual_stooklijn_slope=actual_slope,
-            actual_stooklijn_intercept=actual_intercept,
         )
 
     def test_count_changes_all_different(self):

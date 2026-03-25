@@ -279,31 +279,6 @@ views:
                   null]);
 
                   return pts;
-              - entity: sensor.quatt_warmteanalyse_actual_stooklijn_setting
-                name: Geconfigureerde instelling
-                color: "#2196F3"
-                type: line
-                stroke_width: 2
-                curve: straight
-                data_generator: >
-                  const st =
-                  hass.states['sensor.quatt_warmteanalyse_actual_stooklijn_setting'];
-
-                  const s = parseFloat(st?.state), ic =
-                  st?.attributes?.intercept;
-
-                  if (isNaN(s) || s === 0 || ic == null) return [];
-
-                  const now = Date.now(), pts = [];
-
-                  for (let t = -10; t <= 19; t += 0.5) {
-                    const v = s*t+ic; if (v>0) pts.push([now - (20 - t) * 3600000, Math.round(v)]);
-                  }
-
-                  if (pts.length > 0) pts.push([now - (20 - 19) * 3600000,
-                  null]);
-
-                  return pts;
               - entity: sensor.quatt_warmteanalyse_freezing_performance_slope
                 name: HP capaciteit (vorst)
                 color: "#1E88E5"

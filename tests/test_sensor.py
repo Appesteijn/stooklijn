@@ -110,17 +110,6 @@ class TestSensorValueFunctions:
         desc = _find_desc("analysis_status")
         assert desc.value_fn(data) == "completed"
 
-    def test_actual_stooklijn(self):
-        data = _make_data(actual_stooklijn_slope=-300.0)
-        desc = _find_desc("actual_stooklijn")
-        assert desc.value_fn(data) == -300.0
-
-    def test_actual_stooklijn_none(self):
-        data = _make_data()
-        desc = _find_desc("actual_stooklijn")
-        assert desc.value_fn(data) is None
-
-
 class TestSensorAttrFunctions:
     """Test each sensor's attr_fn."""
 
@@ -217,23 +206,6 @@ class TestSensorAttrFunctions:
         assert attrs is not None
         assert attrs["r2"] == 0.91
         assert attrs["balance_point"] == 18.0
-
-    def test_actual_stooklijn_attrs(self):
-        data = _make_data(
-            actual_stooklijn_slope=-300.0,
-            actual_stooklijn_intercept=6500.0,
-        )
-        desc = _find_desc("actual_stooklijn")
-        attrs = desc.attr_fn(data)
-        assert attrs is not None
-        assert attrs["intercept"] == 6500.0
-
-    def test_actual_stooklijn_attrs_none(self):
-        data = _make_data()
-        desc = _find_desc("actual_stooklijn")
-        attrs = desc.attr_fn(data)
-        assert attrs is None
-
 
 class TestAllSensorsWithEmptyData:
     """Verify no sensor crashes with default empty data."""

@@ -237,23 +237,6 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
         attr_fn=lambda d: d.data_stats if d.data_stats else None,
     ),
     QuattSensorDescription(
-        key="actual_stooklijn",
-        name="Actual Stooklijn Setting",
-        native_unit_of_measurement="W/°C",
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:tune-vertical",
-        value_fn=lambda d: (
-            round(d.actual_stooklijn_slope, 1)
-            if d.actual_stooklijn_slope is not None
-            else None
-        ),
-        attr_fn=lambda d: {
-            "intercept": d.actual_stooklijn_intercept,
-        }
-        if d.actual_stooklijn_slope is not None
-        else None,
-    ),
-    QuattSensorDescription(
         key="openquatt_balance_point",
         name="OpenQuatt Balance Point",
         native_unit_of_measurement="°C",
@@ -1003,8 +986,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         if sl.slope_optimal is not None and sl.intercept_optimal is not None:
             sl_slope, sl_intercept = sl.slope_optimal, sl.intercept_optimal
         else:
-            sl_slope = self.coordinator.data.actual_stooklijn_slope
-            sl_intercept = self.coordinator.data.actual_stooklijn_intercept
+            sl_slope = sl.slope_api
+            sl_intercept = sl.intercept_api
 
         forecast_out: list[dict] = []
         for i, fc_temp in enumerate(fc_temps):
@@ -1172,16 +1155,11 @@ class QuattAdviceSensor(
         """Bereken huidig en optimaal vermogen bij -10°C."""
         from .analysis.utils import calc_heat_demand
 
-        # Huidig: uit de Quatt stooklijn config
+        # Huidig: uit de recorder-gebaseerde Quatt stooklijn
         vermogen_cur = None
-        if (
-            data.actual_stooklijn_slope is not None
-            and data.actual_stooklijn_intercept is not None
-        ):
-            vermogen_cur = round(
-                data.actual_stooklijn_slope * -10
-                + data.actual_stooklijn_intercept
-            )
+        sl = data.stooklijn
+        if sl.slope_api is not None and sl.intercept_api is not None:
+            vermogen_cur = round(sl.slope_api * -10 + sl.intercept_api)
 
         # Optimaal: uit het heat loss model
         vermogen_opt = None

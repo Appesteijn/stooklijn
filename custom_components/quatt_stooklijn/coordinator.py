@@ -23,10 +23,6 @@ from .analysis.stooklijn import (
 )
 from .cache import KneeDataStore
 from .const import (
-    CONF_ACTUAL_STOOKLIJN_POWER1,
-    CONF_ACTUAL_STOOKLIJN_POWER2,
-    CONF_ACTUAL_STOOKLIJN_TEMP1,
-    CONF_ACTUAL_STOOKLIJN_TEMP2,
     CONF_BOILER_EFFICIENCY,
     CONF_GAS_CALORIFIC_VALUE,
     CONF_GAS_ENABLED,
@@ -46,21 +42,6 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def _calc_stooklijn_from_points(config: dict) -> tuple[float | None, float | None]:
-    """Calculate slope and intercept from two config points, if all are set."""
-    t1 = config.get(CONF_ACTUAL_STOOKLIJN_TEMP1)
-    p1 = config.get(CONF_ACTUAL_STOOKLIJN_POWER1)
-    t2 = config.get(CONF_ACTUAL_STOOKLIJN_TEMP2)
-    p2 = config.get(CONF_ACTUAL_STOOKLIJN_POWER2)
-    if any(v is None for v in (t1, p1, t2, p2)):
-        return None, None
-    if t1 == t2:
-        return None, None
-    slope = (p2 - p1) / (t2 - t1)
-    intercept = p1 - slope * t1
-    return slope, intercept
-
-
 @dataclass
 class QuattStooklijnData:
     """Container for all analysis results."""
@@ -73,10 +54,6 @@ class QuattStooklijnData:
     analysis_status: str = "idle"
 
     # Period scatter data for time-split comparison
-
-    # Actual Quatt stooklijn settings (calculated from config points)
-    actual_stooklijn_slope: float | None = None
-    actual_stooklijn_intercept: float | None = None
 
     # Data availability stats (populated after each analysis run)
     data_stats: dict = field(default_factory=dict)
@@ -95,11 +72,7 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
         )
         self.config = config
         self._knee_store = KneeDataStore(hass)
-        slope, intercept = _calc_stooklijn_from_points(config)
-        self.data = QuattStooklijnData(
-            actual_stooklijn_slope=slope,
-            actual_stooklijn_intercept=intercept,
-        )
+        self.data = QuattStooklijnData()
 
     async def _async_update_data(self) -> QuattStooklijnData:
         """Run the full analysis pipeline."""
@@ -281,8 +254,6 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             average_cop=average_cop,
             last_analysis=datetime.now(timezone.utc),
             analysis_status="completed",
-            actual_stooklijn_slope=self.data.actual_stooklijn_slope,
-            actual_stooklijn_intercept=self.data.actual_stooklijn_intercept,
             data_stats=computed_data_stats,
         )
 

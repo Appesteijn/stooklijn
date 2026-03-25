@@ -14,10 +14,6 @@ CONF_GAS_END_DATE = "gas_end_date"
 CONF_GAS_CALORIFIC_VALUE = "gas_calorific_value"
 CONF_BOILER_EFFICIENCY = "boiler_efficiency"
 CONF_HOT_WATER_TEMP_THRESHOLD = "hot_water_temp_threshold"
-CONF_ACTUAL_STOOKLIJN_TEMP1 = "actual_stooklijn_temp1"
-CONF_ACTUAL_STOOKLIJN_POWER1 = "actual_stooklijn_power1"
-CONF_ACTUAL_STOOKLIJN_TEMP2 = "actual_stooklijn_temp2"
-CONF_ACTUAL_STOOKLIJN_POWER2 = "actual_stooklijn_power2"
 
 # Default values
 DEFAULT_GAS_CALORIFIC_VALUE = 9.77  # kWh/m³ (Dutch gas)
