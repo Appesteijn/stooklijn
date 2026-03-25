@@ -109,14 +109,14 @@ class TestQuattAdviceSensorLogic:
         )
 
     def test_count_changes_all_different(self):
-        """When everything differs, expect 3 changes."""
+        """When stookgrens and vermogen both differ, expect 2 changes."""
         data = self._make_data()
         sensor = QuattAdviceSensor.__new__(QuattAdviceSensor)
         sensor.coordinator = type("C", (), {"data": data})()
-        assert sensor._count_changes(data) == 3
+        assert sensor._count_changes(data) == 2
 
     def test_count_changes_optimal(self):
-        """When stookgrens matches and vermogen matches → only stooklijn breakpoints."""
+        """When stookgrens matches and vermogen matches → 0 changes."""
         data = self._make_data(
             balance_opt=17.0,  # matches api
             balance_api=17.0,
@@ -124,8 +124,8 @@ class TestQuattAdviceSensorLogic:
             actual_intercept=4000,  # matches heat loss at -10°C
         )
         sensor = QuattAdviceSensor.__new__(QuattAdviceSensor)
-        # Stookgrens diff = 0, vermogen diff = 0 → only breakpoints = 1
-        assert sensor._count_changes(data) == 1
+        # Stookgrens diff = 0, vermogen diff = 0, breakpoints niet meegeteld
+        assert sensor._count_changes(data) == 0
 
     def test_vermogen_calculation(self):
         """Check nominal power at -10°C."""

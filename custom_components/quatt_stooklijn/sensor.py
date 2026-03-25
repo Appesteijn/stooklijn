@@ -1143,9 +1143,7 @@ class QuattAdviceSensor(
         ):
             changes += 1
 
-        # Stooklijn breakpoints — always recommend if heat loss model available
-        if data.heat_loss_hp.slope is not None:
-            changes += 1
+        # Stooklijn breakpoints zijn informatief, niet meegeteld in changes
 
         return changes
 
@@ -1216,7 +1214,7 @@ class QuattAdviceSensor(
                 attrs["nominaal_vermogen_advies"] = "Nominaal vermogen is goed ingesteld"
         else:
             attrs["nominaal_vermogen_advies"] = (
-                "Vul de huidige Quatt stooklijn in bij de integratie-instellingen"
+                "Wacht tot de Quatt stooklijn is geschat uit recorder data"
                 if vermogen_cur is None
                 else None
             )
