@@ -141,19 +141,40 @@ class KneeDataStore:
     from previous winters.
 
     Storage format (HA .storage JSON):
-        {"days": {"2025-12-01": [[temp, power], ...], "2025-12-02": [...], ...}}
+        {"days": {"2025-12-01": [[temp, power], ...], "2025-12-02": [...], ...},
+         "best_knee_temp": -1.8}
 
     Each [temp, power] pair is a 1-hour average: temp rounded to 1 decimal,
     power rounded to the nearest Watt.  Only temperatures below 10 °C are stored
     (warmer hours are irrelevant for knee detection).  Entries older than
     KNEE_YEARS_TO_KEEP years are purged automatically on load.
+
+    best_knee_temp stores the coldest reliable knee temperature ever detected.
+    The knee is a physical property of the heat pump and can only move to colder
+    temperatures as more cold-weather data is collected — never warmer (seasonal
+    drift in mild weather must be ignored).
     """
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialise the store (does not load from disk yet)."""
         self._store = Store(hass, STORAGE_VERSION, KNEE_STORAGE_KEY)
         self._days: dict[str, list[list[float]]] = {}
+        self._best_knee_temp: float | None = None
         self._loaded = False
+
+    @property
+    def best_knee_temp(self) -> float | None:
+        """Return the coldest reliable knee temperature seen so far."""
+        return self._best_knee_temp
+
+    def update_best_knee(self, knee_temp: float | None) -> bool:
+        """Update best knee if new value is colder. Returns True if updated."""
+        if knee_temp is None:
+            return False
+        if self._best_knee_temp is None or knee_temp < self._best_knee_temp:
+            self._best_knee_temp = float(knee_temp)
+            return True
+        return False
 
     async def async_load(self) -> None:
         """Load data from HA storage and purge old entries."""
@@ -163,6 +184,7 @@ class KneeDataStore:
         raw = await self._store.async_load()
         if raw:
             self._days = raw.get("days", {})
+            self._best_knee_temp = raw.get("best_knee_temp")
             total_pts = sum(len(v) for v in self._days.values())
             _LOGGER.info(
                 "Knee data store loaded: %d days, %d hourly points",
@@ -178,7 +200,10 @@ class KneeDataStore:
 
     async def async_save(self) -> None:
         """Persist current data to HA storage."""
-        await self._store.async_save({"days": self._days})
+        payload: dict = {"days": self._days}
+        if self._best_knee_temp is not None:
+            payload["best_knee_temp"] = self._best_knee_temp
+        await self._store.async_save(payload)
         _LOGGER.debug(
             "Knee data store saved: %d days, %d hourly points",
             len(self._days),
