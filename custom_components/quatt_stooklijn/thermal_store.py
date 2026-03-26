@@ -16,27 +16,25 @@ STORAGE_VERSION = 2  # bumped to reset model after solar input changed from PV w
 STORAGE_KEY = f"{DOMAIN}.thermal_model"
 
 
-async def _migrate_store(old_major_version: int, old_minor_version: int, old_data: dict) -> dict:
-    """Discard stale model data when the storage version increases."""
-    _LOGGER.info(
-        "Thermal model storage migrated from v%d → v%d, starting fresh",
-        old_major_version,
-        STORAGE_VERSION,
-    )
-    return {}
+class _MigratingStore(Store):
+    """Store subclass that discards stale data on version upgrade."""
+
+    async def _async_migrate_func(
+        self, old_major_version: int, old_minor_version: int, old_data: dict
+    ) -> dict:
+        _LOGGER.info(
+            "Thermal model storage migrated from v%d → v%d, starting fresh",
+            old_major_version,
+            STORAGE_VERSION,
+        )
+        return {}
 
 
 class ThermalModelStore:
     """Persist OnlineRCModel state across HA restarts."""
 
     def __init__(self, hass: HomeAssistant) -> None:
-        self._store = Store(
-            hass,
-            STORAGE_VERSION,
-            STORAGE_KEY,
-            minor_version=1,
-            async_migrate_func=_migrate_store,
-        )
+        self._store = _MigratingStore(hass, STORAGE_VERSION, STORAGE_KEY)
         self.model = OnlineRCModel()
 
     async def async_load(self) -> None:
