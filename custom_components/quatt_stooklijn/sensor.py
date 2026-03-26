@@ -720,8 +720,9 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                     t_indoor, t_outdoor,
                 )
             else:
-                _LOGGER.warning(
-                    "RC model: cannot prime, missing sensors: indoor=%s (%s), outdoor=%s (%s)",
+                _LOGGER.debug(
+                    "RC model: cannot prime at startup (sensors not yet available): "
+                    "indoor=%s (%s), outdoor=%s (%s) — will update on next hourly tick",
                     t_indoor, self._indoor_temp_entity,
                     t_outdoor, self._outdoor_entity,
                 )
