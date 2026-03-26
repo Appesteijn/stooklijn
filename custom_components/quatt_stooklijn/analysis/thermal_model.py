@@ -27,7 +27,7 @@ _LOGGER = logging.getLogger(__name__)
 # Defaults for cold start (typical Dutch terraced house)
 DEFAULT_U = 200.0       # W/K — heat loss coefficient
 DEFAULT_C = 5000.0      # Wh/K — thermal capacity
-DEFAULT_G_SOLAR = 0.30  # dimensionless — solar gain factor
+DEFAULT_G_SOLAR = 5.0   # W/(W/m²) — effective window area × SHGC
 
 # RLS tuning
 RLS_FORGETTING = 0.998       # effective window ≈ 500 samples ≈ 3 weeks
@@ -37,7 +37,9 @@ RLS_MIN_UPDATES = 48         # 2 days before model is considered converged
 # Sanity bounds for learned parameters
 U_MIN, U_MAX = 30.0, 800.0     # W/K
 C_MIN, C_MAX = 500.0, 30000.0  # Wh/K
-G_MIN, G_MAX = 0.0, 1.0        # dimensionless
+# g_solar: W heat gain per W/m² irradiance = effective_window_area_m2 × SHGC
+# Typical house: 5-20 m² windows × 0.3-0.6 SHGC = 1.5-12 W/(W/m²)
+G_MIN, G_MAX = 0.0, 20.0       # W/(W/m²)
 
 # Minimum delta-T between indoor/outdoor to include a sample (avoids
 # numerical issues when the temperature difference is too small)

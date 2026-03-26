@@ -991,8 +991,8 @@ views:
               | Tijdconstante | **{{ tau }} uur** | Tijd om 63% af te
               koelen zonder verwarming |
 
-              | Zonnewinst | **{{ g }}** | Fractie van PV-output die je
-              huis verwarmt |
+              | Zonnewinst | **{{ g }} W/(W/m²)** | Effectief
+              raamoppervlak × glastransmissie |
 
               | Updates | **{{ n }}** ({{ (n / 24) | round(0) | int }}
               dagen) | |
@@ -1017,11 +1017,11 @@ views:
 
               |:--|--:|--:|
 
-              | Warmteverlies | {{ U }} W/K | 50–400 W/K |
+              | Warmteverlies | {{ U }} W/K | 30–800 W/K |
 
-              | Thermische massa | {{ C }} Wh/K | 500–20000 Wh/K |
+              | Thermische massa | {{ C }} Wh/K | 500–30000 Wh/K |
 
-              | Zonnewinst | {{ g }} | 0.05–0.5 |
+              | Zonnewinst | {{ g }} W/(W/m²) | 0–20 |
 
 
               Wacht op meer koude uren waarbij de warmtepomp actief is —

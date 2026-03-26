@@ -12,7 +12,7 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-STORAGE_VERSION = 1
+STORAGE_VERSION = 2  # bumped to reset model after solar input changed from PV watts to W/m²
 STORAGE_KEY = f"{DOMAIN}.thermal_model"
 
 
