@@ -114,18 +114,9 @@ SOLAR_RADIATION_DEFAULT_FACTOR = 8.0  # W per W/m²
 # Zonproductie-fractie per HA weather condition (proxy voor shortwave_radiation).
 # Waarde × huidige solaredge_ac_power = geschatte zonproductie dat uur.
 # Bron: HA weather condition strings (https://www.home-assistant.io/integrations/weather/)
-# OTGW compensatie — actieve bijsturing via kamertemperatuur-override
-CONF_OTGW_ENABLED = "otgw_enabled"
-CONF_OTGW_ROOM_TEMP_OVERRIDE = "otgw_room_temp_override"
-CONF_OTGW_MAX_OFFSET = "otgw_max_offset"
-
-DEFAULT_OTGW_ROOM_TEMP_OVERRIDE = "number.otgw_room_temperature_override"
-DEFAULT_OTGW_MAX_OFFSET = 2.0  # °C — max kamertemp offset
-OTGW_HARD_MAX_OFFSET = 3.0  # °C — absolute max, ongeacht config
-OTGW_GAIN_FACTOR = 0.3  # 1°C supply fout → 0.3°C kamertemp offset
-OTGW_DEAD_BAND = 1.0  # °C — geen actie binnen deze marge
-OTGW_MAX_RATE = 0.5  # °C — max verandering per cyclus
-OTGW_CYCLE_SECONDS = 300  # 5 minuten
+# Geluidsniveau compensatie — actieve bijsturing via CiC sound level
+CONF_SOUND_LEVEL_ENABLED = "sound_level_enabled"
+OTGW_CYCLE_SECONDS = 300   # 5 minuten — interval compensatiecyclus
 OTGW_UNAVAILABLE_TIMEOUT = 600  # 10 minuten — reset na MPC timeout
 
 CONDITION_SOLAR_FRACTION: dict[str, float] = {

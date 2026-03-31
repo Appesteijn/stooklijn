@@ -1,16 +1,21 @@
-"""OTGW compensation switch for Quatt Stooklijn integration.
+"""Sound level compensation switch for Quatt Stooklijn integration.
 
-Stuurt de Quatt CiC indirect bij door via een OpenTherm Gateway de
-kamertemperatuur te overriden.  Als de MPC-sensor zegt dat de CiC te veel
-levert (aanvoertemperatuur te hoog), wordt de kamertemperatuur-override
-verhoogd zodat de CiC denkt dat het warmer is en zijn output verlaagt.
+Beïnvloedt het maximale geluidsniveau (en daarmee het vermogen) van de
+warmtepomp op basis van de MPC-aanbeveling en gasketelactiviteit.
 
-Safety:
-- Alleen positieve kamertemp offsets (nooit meer output forceren)
-- Max offset: configureerbaar, hard max 3.0°C
-- Dead band: ±1.0°C (geen actie)
-- Rate limit: max 0.5°C per cyclus (5 min)
-- Reset naar 0 bij: switch off, HA shutdown, HP uit, MPC unavailable
+Logica (elke 5 min):
+1. HP inactief (debiet < MIN_FLOW_LPH)
+   → reset naar 'normal', stop
+2. Gas actief (sensor.heatpump_boiler_heat_power > drempel)
+   → één stap omhoog (HP mag harder draaien zodat ketel minder nodig is)
+3. Aanvoertemp > MPC-advies + dead band
+   → één stap omlaag (te veel warmte)
+4. Aanvoertemp < MPC-advies − dead band
+   → één stap omhoog (te weinig warmte)
+5. Binnen dead band → geen actie
+
+Niveauvolgorde (zwak → sterk): building87 → silent → library → normal
+Reset naar 'normal' bij: switch off, HA shutdown, HP inactief.
 """
 
 from __future__ import annotations
@@ -20,31 +25,18 @@ from datetime import datetime, timedelta, timezone
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import (
-    async_track_state_change_event,
-    async_track_time_interval,
-)
+from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
     CONF_FLOW_ENTITY,
-    CONF_INDOOR_TEMP_ENTITY,
-    CONF_OTGW_ENABLED,
-    CONF_OTGW_MAX_OFFSET,
-    CONF_OTGW_ROOM_TEMP_OVERRIDE,
+    CONF_SOUND_LEVEL_ENABLED,
     DEFAULT_FLOW_ENTITY,
-    DEFAULT_INDOOR_TEMP_ENTITY,
-    DEFAULT_OTGW_MAX_OFFSET,
-    DEFAULT_OTGW_ROOM_TEMP_OVERRIDE,
     DEFAULT_SUPPLY_TEMP_ENTITY,
     DOMAIN,
     MIN_FLOW_LPH,
     OTGW_CYCLE_SECONDS,
-    OTGW_DEAD_BAND,
-    OTGW_GAIN_FACTOR,
-    OTGW_HARD_MAX_OFFSET,
-    OTGW_MAX_RATE,
     OTGW_UNAVAILABLE_TIMEOUT,
 )
 from .coordinator import QuattStooklijnCoordinator
@@ -52,8 +44,17 @@ from .helpers import get_device_info, get_float_state
 
 _LOGGER = logging.getLogger(__name__)
 
-# Entity IDs for the sensors we read
-_MPC_ENTITY_SUFFIX = "mpc_aanbevolen_aanvoertemperatuur"
+# Niveauvolgorde: index 0 = zwakst, index 3 = sterkst
+_SOUND_LEVELS = ["building87", "silent", "library", "normal"]
+_NORMAL_IDX = len(_SOUND_LEVELS) - 1
+
+_MPC_ENTITY = "sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur"
+_DAY_SOUND_ENTITY = "select.cic_day_max_sound_level"
+_NIGHT_SOUND_ENTITY = "select.cic_night_max_sound_level"
+_BOILER_HEAT_ENTITY = "sensor.heatpump_boiler_heat_power"
+
+_GAS_THRESHOLD_W = 200.0  # W: boven deze waarde is de gasketel actief
+_DEAD_BAND = 2.0           # °C: geen actie binnen deze marge rond MPC-advies
 
 
 async def async_setup_entry(
@@ -61,20 +62,20 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up OTGW switch from config entry."""
-    if not entry.data.get(CONF_OTGW_ENABLED, False):
+    """Set up sound level switch from config entry."""
+    if not {**entry.data, **entry.options}.get(CONF_SOUND_LEVEL_ENABLED, False):
         return
 
     coordinator: QuattStooklijnCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([QuattOtgwCompensationSwitch(coordinator, entry)])
+    async_add_entities([QuattSoundLevelSwitch(coordinator, entry)])
 
 
-class QuattOtgwCompensationSwitch(SwitchEntity):
-    """Switch om OTGW kamertemperatuur-compensatie aan/uit te zetten."""
+class QuattSoundLevelSwitch(SwitchEntity):
+    """Switch om geluidsniveau-compensatie aan/uit te zetten."""
 
     _attr_has_entity_name = True
-    _attr_name = "OTGW Compensatie"
-    _attr_icon = "mdi:thermostat"
+    _attr_name = "Geluidsniveau Compensatie"
+    _attr_icon = "mdi:volume-high"
 
     def __init__(
         self,
@@ -83,24 +84,17 @@ class QuattOtgwCompensationSwitch(SwitchEntity):
     ) -> None:
         self._coordinator = coordinator
         self._entry = entry
-        self._attr_unique_id = f"{entry.entry_id}_otgw_compensation"
+        self._attr_unique_id = f"{entry.entry_id}_sound_level_compensation"
         self._attr_device_info = get_device_info(entry.entry_id)
 
         self._is_on = False
-        self._current_offset: float = 0.0
+        self._current_level_idx: int = _NORMAL_IDX
         self._last_mpc_available: datetime | None = None
 
-        # Config
-        self._override_entity = entry.data.get(
-            CONF_OTGW_ROOM_TEMP_OVERRIDE, DEFAULT_OTGW_ROOM_TEMP_OVERRIDE
-        )
-        max_offset = entry.data.get(CONF_OTGW_MAX_OFFSET, DEFAULT_OTGW_MAX_OFFSET)
-        self._max_offset = min(float(max_offset), OTGW_HARD_MAX_OFFSET)
-
-        # Entity IDs we monitor
-        self._mpc_entity = "sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur"
         self._supply_entity = DEFAULT_SUPPLY_TEMP_ENTITY
-        self._flow_entity = {**entry.data, **entry.options}.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY)
+        self._flow_entity = {**entry.data, **entry.options}.get(
+            CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY
+        )
 
     @property
     def is_on(self) -> bool:
@@ -110,17 +104,16 @@ class QuattOtgwCompensationSwitch(SwitchEntity):
         self._is_on = True
         self._last_mpc_available = datetime.now(timezone.utc)
         self.async_write_ha_state()
-        _LOGGER.info("OTGW compensatie ingeschakeld")
+        _LOGGER.info("Geluidsniveau compensatie ingeschakeld")
 
     async def async_turn_off(self, **kwargs) -> None:
         self._is_on = False
-        await self._async_reset_override()
+        await self._async_reset_level()
         self.async_write_ha_state()
-        _LOGGER.info("OTGW compensatie uitgeschakeld")
+        _LOGGER.info("Geluidsniveau compensatie uitgeschakeld")
 
     async def async_added_to_hass(self) -> None:
-        """Register listeners."""
-        # Periodic compensation loop
+        """Registreer periodieke cyclus."""
         self.async_on_remove(
             async_track_time_interval(
                 self.hass,
@@ -129,53 +122,51 @@ class QuattOtgwCompensationSwitch(SwitchEntity):
             )
         )
 
-        # React to MPC and supply temp changes
-        self.async_on_remove(
-            async_track_state_change_event(
-                self.hass,
-                [self._mpc_entity, self._supply_entity],
-                self._async_on_state_change,
-            )
-        )
-
     async def async_will_remove_from_hass(self) -> None:
-        """Reset override when entity is removed."""
-        await self._async_reset_override()
-
-    @callback
-    async def _async_on_state_change(self, event) -> None:
-        """React to MPC or supply temp state changes."""
-        if self._is_on:
-            await self._async_compensation_cycle()
+        await self._async_reset_level()
 
     async def _async_compensation_cycle(self, _now=None) -> None:
-        """Run one compensation cycle."""
+        """Voer één compensatiecyclus uit."""
         if not self._is_on:
             return
-
         try:
             await self._async_do_compensation()
         except Exception:
-            _LOGGER.exception("OTGW compensatie cyclus gefaald, reset offset")
-            await self._async_reset_override()
-
+            _LOGGER.exception("Geluidsniveau compensatie cyclus gefaald, reset")
+            await self._async_reset_level()
         self.async_write_ha_state()
 
     async def _async_do_compensation(self) -> None:
-        """Core compensation logic."""
-        # Check if HP is active
-        flow = get_float_state(self.hass,self._flow_entity)
+        """Kernlogica: bepaal of het geluidsniveau omhoog of omlaag moet."""
+
+        # 1. HP actief?
+        flow = get_float_state(self.hass, self._flow_entity)
         if flow is None or flow < MIN_FLOW_LPH:
-            if self._current_offset != 0.0:
-                _LOGGER.debug("HP inactief, reset offset")
-                await self._async_reset_override()
+            if self._current_level_idx != _NORMAL_IDX:
+                _LOGGER.debug("HP inactief, reset geluidsniveau naar 'normal'")
+                await self._async_reset_level()
             return
 
-        # Read MPC recommended and actual supply temp
-        mpc_advised = get_float_state(self.hass,self._mpc_entity)
-        actual_supply = get_float_state(self.hass,self._supply_entity)
+        # 2. Gas actief? → stap omhoog zodat HP meer kan leveren
+        boiler_heat = get_float_state(self.hass, _BOILER_HEAT_ENTITY)
+        if boiler_heat is not None and boiler_heat > _GAS_THRESHOLD_W:
+            if self._current_level_idx < _NORMAL_IDX:
+                self._current_level_idx += 1
+                _LOGGER.info(
+                    "Gas actief (%.0f W) → geluidsniveau omhoog naar '%s'",
+                    boiler_heat,
+                    _SOUND_LEVELS[self._current_level_idx],
+                )
+                await self._async_apply_level()
+            else:
+                _LOGGER.debug("Gas actief maar geluidsniveau al op 'normal'")
+            return
 
-        # Watchdog: reset if MPC unavailable too long
+        # 3. MPC feedback
+        mpc_advised = get_float_state(self.hass, _MPC_ENTITY)
+        actual_supply = get_float_state(self.hass, self._supply_entity)
+
+        # Watchdog: reset als MPC te lang unavailable
         if mpc_advised is not None:
             self._last_mpc_available = datetime.now(timezone.utc)
         elif self._last_mpc_available is not None:
@@ -184,110 +175,73 @@ class QuattOtgwCompensationSwitch(SwitchEntity):
             ).total_seconds()
             if elapsed > OTGW_UNAVAILABLE_TIMEOUT:
                 _LOGGER.warning(
-                    "MPC sensor >%d sec unavailable, reset offset",
+                    "MPC sensor >%d sec unavailable, reset geluidsniveau",
                     OTGW_UNAVAILABLE_TIMEOUT,
                 )
-                await self._async_reset_override()
+                await self._async_reset_level()
                 return
 
         if mpc_advised is None or actual_supply is None:
             return
 
-        # MPC error: negative = CiC overheats (supply too high)
-        mpc_error = mpc_advised - actual_supply
+        mpc_error = mpc_advised - actual_supply  # negatief = te heet
 
-        # Within dead band: gradually return to 0
-        if abs(mpc_error) <= OTGW_DEAD_BAND:
-            if self._current_offset != 0.0:
-                self._current_offset = self._move_toward_zero(
-                    self._current_offset, 0.1
+        if mpc_error < -_DEAD_BAND:
+            # Aanvoer te hoog → stap omlaag
+            if self._current_level_idx > 0:
+                self._current_level_idx -= 1
+                _LOGGER.info(
+                    "Aanvoer te hoog (fout=%.1f°C) → geluidsniveau omlaag naar '%s'",
+                    mpc_error,
+                    _SOUND_LEVELS[self._current_level_idx],
                 )
-                await self._async_apply_offset()
-            return
+                await self._async_apply_level()
 
-        # CiC overheats (mpc_error < 0): increase positive room temp offset
-        if mpc_error < -OTGW_DEAD_BAND:
-            # Target offset proportional to error (positive = room seems warmer)
-            target_offset = min(
-                self._max_offset,
-                abs(mpc_error) * OTGW_GAIN_FACTOR,
-            )
-            # Rate limit
-            new_offset = min(
-                target_offset,
-                self._current_offset + OTGW_MAX_RATE,
-            )
-            new_offset = min(new_offset, self._max_offset)
-            self._current_offset = round(new_offset, 1)
-            await self._async_apply_offset()
-            return
+        elif mpc_error > _DEAD_BAND:
+            # Aanvoer te laag → stap omhoog
+            if self._current_level_idx < _NORMAL_IDX:
+                self._current_level_idx += 1
+                _LOGGER.info(
+                    "Aanvoer te laag (fout=%.1f°C) → geluidsniveau omhoog naar '%s'",
+                    mpc_error,
+                    _SOUND_LEVELS[self._current_level_idx],
+                )
+                await self._async_apply_level()
 
-        # CiC underheats (mpc_error > DEAD_BAND): reduce offset toward 0
-        # We never make CiC think room is colder — only reduce our override
-        if mpc_error > OTGW_DEAD_BAND and self._current_offset > 0:
-            self._current_offset = self._move_toward_zero(
-                self._current_offset, OTGW_MAX_RATE
-            )
-            await self._async_apply_offset()
-
-    async def _async_apply_offset(self) -> None:
-        """Write the room temperature override to OTGW."""
-        if self._current_offset <= 0.0:
-            await self._async_reset_override()
-            return
-
-        # Read actual room temperature to calculate override value
-        room_temp_entity = {**self._entry.data, **self._entry.options}.get(
-            CONF_INDOOR_TEMP_ENTITY, DEFAULT_INDOOR_TEMP_ENTITY
-        )
-        room_temp = get_float_state(self.hass,room_temp_entity)
-        if room_temp is None:
-            _LOGGER.warning("Kan kamertemperatuur niet lezen, skip override")
-            return
-
-        override_value = round(room_temp + self._current_offset, 1)
-        _LOGGER.debug(
-            "OTGW override: kamer=%.1f + offset=%.1f → override=%.1f",
-            room_temp,
-            self._current_offset,
-            override_value,
-        )
-
-        await self.hass.services.async_call(
-            "number",
-            "set_value",
-            {"entity_id": self._override_entity, "value": override_value},
-        )
-
-    async def _async_reset_override(self) -> None:
-        """Reset OTGW room temperature override to 0 (disabled)."""
-        self._current_offset = 0.0
-        try:
+    async def _async_apply_level(self) -> None:
+        """Schrijf het huidige geluidsniveau naar dag- en nacht-entiteit."""
+        level = _SOUND_LEVELS[self._current_level_idx]
+        for entity_id in (_DAY_SOUND_ENTITY, _NIGHT_SOUND_ENTITY):
             await self.hass.services.async_call(
-                "number",
-                "set_value",
-                {"entity_id": self._override_entity, "value": 0},
+                "select",
+                "select_option",
+                {"entity_id": entity_id, "option": level},
             )
-            _LOGGER.debug("OTGW override reset naar 0")
-        except Exception:
-            _LOGGER.warning("Kon OTGW override niet resetten")
+        _LOGGER.debug("Geluidsniveau ingesteld: %s", level)
 
-    @staticmethod
-    def _move_toward_zero(value: float, step: float) -> float:
-        """Move value toward zero by step."""
-        if value > 0:
-            return round(max(0.0, value - step), 1)
-        return round(min(0.0, value + step), 1)
+    async def _async_reset_level(self) -> None:
+        """Reset dag- en nacht-geluidsniveau naar 'normal'."""
+        self._current_level_idx = _NORMAL_IDX
+        try:
+            for entity_id in (_DAY_SOUND_ENTITY, _NIGHT_SOUND_ENTITY):
+                await self.hass.services.async_call(
+                    "select",
+                    "select_option",
+                    {"entity_id": entity_id, "option": "normal"},
+                )
+            _LOGGER.debug("Geluidsniveau gereset naar 'normal'")
+        except Exception:
+            _LOGGER.warning("Kon geluidsniveau niet resetten naar 'normal'")
 
     @property
     def extra_state_attributes(self) -> dict:
-        mpc_advised = get_float_state(self.hass, self._mpc_entity) if self.hass else None
+        mpc_advised = get_float_state(self.hass, _MPC_ENTITY) if self.hass else None
         actual_supply = get_float_state(self.hass, self._supply_entity) if self.hass else None
         flow = get_float_state(self.hass, self._flow_entity) if self.hass else None
+        boiler_heat = get_float_state(self.hass, _BOILER_HEAT_ENTITY) if self.hass else None
 
         return {
-            "current_offset": self._current_offset,
-            "max_offset": self._max_offset,
+            "current_level": _SOUND_LEVELS[self._current_level_idx],
             "mpc_advised": mpc_advised,
             "actual_supply": actual_supply,
             "mpc_error": (
@@ -296,5 +250,6 @@ class QuattOtgwCompensationSwitch(SwitchEntity):
                 else None
             ),
             "hp_active": flow is not None and flow >= MIN_FLOW_LPH,
-            "override_entity": self._override_entity,
+            "gas_active": boiler_heat is not None and boiler_heat > _GAS_THRESHOLD_W,
+            "boiler_heat_w": round(boiler_heat) if boiler_heat is not None else None,
         }

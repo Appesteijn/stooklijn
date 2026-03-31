@@ -18,9 +18,7 @@ from .const import (
     CONF_GAS_START_DATE,
     CONF_HOT_WATER_TEMP_THRESHOLD,
     CONF_INDOOR_TEMP_ENTITY,
-    CONF_OTGW_ENABLED,
-    CONF_OTGW_MAX_OFFSET,
-    CONF_OTGW_ROOM_TEMP_OVERRIDE,
+    CONF_SOUND_LEVEL_ENABLED,
     CONF_POWER_ENTITY,
     CONF_QUATT_START_DATE,
     CONF_RETURN_TEMP_ENTITY,
@@ -32,8 +30,6 @@ from .const import (
     DEFAULT_GAS_CALORIFIC_VALUE,
     DEFAULT_HOT_WATER_TEMP_THRESHOLD,
     DEFAULT_INDOOR_TEMP_ENTITY,
-    DEFAULT_OTGW_MAX_OFFSET,
-    DEFAULT_OTGW_ROOM_TEMP_OVERRIDE,
     DEFAULT_POWER_ENTITY,
     DEFAULT_RETURN_TEMP_ENTITY,
     DEFAULT_SOLAR_ENTITY,
@@ -165,15 +161,7 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_options(self, user_input=None):
         """Step 3: Optional settings for stooklijn comparison."""
         if user_input is not None:
-            # Store OTGW settings
-            self._data[CONF_OTGW_ENABLED] = user_input.get(CONF_OTGW_ENABLED, False)
-            if self._data[CONF_OTGW_ENABLED]:
-                self._data[CONF_OTGW_ROOM_TEMP_OVERRIDE] = user_input.get(
-                    CONF_OTGW_ROOM_TEMP_OVERRIDE, DEFAULT_OTGW_ROOM_TEMP_OVERRIDE
-                )
-                self._data[CONF_OTGW_MAX_OFFSET] = user_input.get(
-                    CONF_OTGW_MAX_OFFSET, DEFAULT_OTGW_MAX_OFFSET
-                )
+            self._data[CONF_SOUND_LEVEL_ENABLED] = user_input.get(CONF_SOUND_LEVEL_ENABLED, False)
 
             return self.async_create_entry(
                 title="Quatt Warmteanalyse",
@@ -220,21 +208,13 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_INDOOR_TEMP_ENTITY,
                     default=DEFAULT_INDOOR_TEMP_ENTITY,
                 ): str,
-                # --- OTGW compensatie ---
-                # Schakel in om de warmtepomp actief bij te sturen via een
-                # OpenTherm Gateway kamertemperatuur-override.
+                # --- Geluidsniveau compensatie ---
+                # Schakel in om de warmtepomp actief bij te sturen via
+                # select.cic_day_max_sound_level en select.cic_night_max_sound_level.
                 vol.Optional(
-                    CONF_OTGW_ENABLED,
+                    CONF_SOUND_LEVEL_ENABLED,
                     default=False,
                 ): bool,
-                vol.Optional(
-                    CONF_OTGW_ROOM_TEMP_OVERRIDE,
-                    default=DEFAULT_OTGW_ROOM_TEMP_OVERRIDE,
-                ): str,
-                vol.Optional(
-                    CONF_OTGW_MAX_OFFSET,
-                    default=DEFAULT_OTGW_MAX_OFFSET,
-                ): vol.Coerce(float),
             }
         )
 
@@ -293,17 +273,9 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         default=data.get(CONF_INDOOR_TEMP_ENTITY, DEFAULT_INDOOR_TEMP_ENTITY),
                     ): str,
                     vol.Optional(
-                        CONF_OTGW_ENABLED,
-                        default=data.get(CONF_OTGW_ENABLED, False),
+                        CONF_SOUND_LEVEL_ENABLED,
+                        default=data.get(CONF_SOUND_LEVEL_ENABLED, False),
                     ): bool,
-                    vol.Optional(
-                        CONF_OTGW_ROOM_TEMP_OVERRIDE,
-                        default=data.get(CONF_OTGW_ROOM_TEMP_OVERRIDE, DEFAULT_OTGW_ROOM_TEMP_OVERRIDE),
-                    ): str,
-                    vol.Optional(
-                        CONF_OTGW_MAX_OFFSET,
-                        default=data.get(CONF_OTGW_MAX_OFFSET, DEFAULT_OTGW_MAX_OFFSET),
-                    ): vol.Coerce(float),
                 }
             ),
         )
