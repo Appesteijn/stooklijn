@@ -274,7 +274,7 @@ async def async_setup_entry(
 
     supply_entity = DEFAULT_SUPPLY_TEMP_ENTITY
     entry_slug = entry.entry_id
-    flow_entity = entry.data.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY)
+    flow_entity = {**entry.data, **entry.options}.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY)
     entities.append(QuattAdviceErrorSensor(
         coordinator, entry, "stooklijn",
         f"sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur",
@@ -370,7 +370,7 @@ class QuattEstimatedCopSensor(
 
     @property
     def _outdoor_entity(self) -> str:
-        temp_entities = self._entry.data.get(CONF_TEMP_ENTITIES, [])
+        temp_entities = {**self._entry.data, **self._entry.options}.get(CONF_TEMP_ENTITIES, [])
         return temp_entities[0] if temp_entities else "sensor.heatpump_hp1_temperature_outside"
 
     async def async_added_to_hass(self) -> None:
@@ -446,16 +446,16 @@ class QuattSupplyTempSensor(
 
     @property
     def _outdoor_entity(self) -> str:
-        temp_entities = self._entry.data.get(CONF_TEMP_ENTITIES, [])
+        temp_entities = {**self._entry.data, **self._entry.options}.get(CONF_TEMP_ENTITIES, [])
         return temp_entities[0] if temp_entities else "sensor.heatpump_hp1_temperature_outside"
 
     @property
     def _flow_entity(self) -> str:
-        return self._entry.data.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY)
+        return {**self._entry.data, **self._entry.options}.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY)
 
     @property
     def _return_temp_entity(self) -> str:
-        return self._entry.data.get(CONF_RETURN_TEMP_ENTITY, DEFAULT_RETURN_TEMP_ENTITY)
+        return {**self._entry.data, **self._entry.options}.get(CONF_RETURN_TEMP_ENTITY, DEFAULT_RETURN_TEMP_ENTITY)
 
     async def async_added_to_hass(self) -> None:
         """Register state listeners for live input sensors."""
@@ -621,24 +621,24 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
 
     @property
     def _outdoor_entity(self) -> str:
-        temp_entities = self._entry.data.get(CONF_TEMP_ENTITIES, [])
+        temp_entities = {**self._entry.data, **self._entry.options}.get(CONF_TEMP_ENTITIES, [])
         return temp_entities[0] if temp_entities else "sensor.heatpump_hp1_temperature_outside"
 
     @property
     def _flow_entity(self) -> str:
-        return self._entry.data.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY)
+        return {**self._entry.data, **self._entry.options}.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY)
 
     @property
     def _return_temp_entity(self) -> str:
-        return self._entry.data.get(CONF_RETURN_TEMP_ENTITY, DEFAULT_RETURN_TEMP_ENTITY)
+        return {**self._entry.data, **self._entry.options}.get(CONF_RETURN_TEMP_ENTITY, DEFAULT_RETURN_TEMP_ENTITY)
 
     @property
     def _solar_entity(self) -> str:
-        return self._entry.data.get(CONF_SOLAR_ENTITY, DEFAULT_SOLAR_ENTITY)
+        return {**self._entry.data, **self._entry.options}.get(CONF_SOLAR_ENTITY, DEFAULT_SOLAR_ENTITY)
 
     @property
     def _weather_entity(self) -> str:
-        return self._entry.data.get(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
+        return {**self._entry.data, **self._entry.options}.get(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
 
     @property
     def _indoor_temp_entity(self) -> str:

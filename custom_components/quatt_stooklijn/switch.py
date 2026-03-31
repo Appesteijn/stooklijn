@@ -28,9 +28,13 @@ from homeassistant.helpers.event import (
 )
 
 from .const import (
+    CONF_FLOW_ENTITY,
+    CONF_INDOOR_TEMP_ENTITY,
     CONF_OTGW_ENABLED,
     CONF_OTGW_MAX_OFFSET,
     CONF_OTGW_ROOM_TEMP_OVERRIDE,
+    DEFAULT_FLOW_ENTITY,
+    DEFAULT_INDOOR_TEMP_ENTITY,
     DEFAULT_OTGW_MAX_OFFSET,
     DEFAULT_OTGW_ROOM_TEMP_OVERRIDE,
     DEFAULT_SUPPLY_TEMP_ENTITY,
@@ -50,7 +54,6 @@ _LOGGER = logging.getLogger(__name__)
 
 # Entity IDs for the sensors we read
 _MPC_ENTITY_SUFFIX = "mpc_aanbevolen_aanvoertemperatuur"
-_FLOW_ENTITY_DEFAULT = "sensor.heatpump_flowmeter_flowrate"
 
 
 async def async_setup_entry(
@@ -97,7 +100,7 @@ class QuattOtgwCompensationSwitch(SwitchEntity):
         # Entity IDs we monitor
         self._mpc_entity = "sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur"
         self._supply_entity = DEFAULT_SUPPLY_TEMP_ENTITY
-        self._flow_entity = entry.data.get("flow_entity", _FLOW_ENTITY_DEFAULT)
+        self._flow_entity = {**entry.data, **entry.options}.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY)
 
     @property
     def is_on(self) -> bool:
@@ -234,9 +237,8 @@ class QuattOtgwCompensationSwitch(SwitchEntity):
             return
 
         # Read actual room temperature to calculate override value
-        room_temp_entity = self._entry.data.get(
-            "indoor_temp_entity",
-            "sensor.heatpump_thermostat_room_temperature",
+        room_temp_entity = {**self._entry.data, **self._entry.options}.get(
+            CONF_INDOOR_TEMP_ENTITY, DEFAULT_INDOOR_TEMP_ENTITY
         )
         room_temp = get_float_state(self.hass,room_temp_entity)
         if room_temp is None:
