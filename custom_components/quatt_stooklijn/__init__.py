@@ -125,18 +125,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
     else:
         # HA still starting, wait for full startup
+        _startup_fired = False
+
+        async def _async_startup_analysis_once(_event=None) -> None:
+            nonlocal _startup_fired
+            _startup_fired = True
+            await _async_startup_analysis(_event)
+
         cancel = hass.bus.async_listen_once(
-            EVENT_HOMEASSISTANT_STARTED, _async_startup_analysis
+            EVENT_HOMEASSISTANT_STARTED, _async_startup_analysis_once
         )
 
         def _cancel_if_pending() -> None:
-            # async_listen_once removes the listener itself when it fires.
-            # If the entry is unloaded after the event already fired, calling
-            # cancel() raises ValueError ("list.remove(x): x not in list").
-            try:
+            # Alleen annuleren als het event nog niet afgevuurd is.
+            # Als het event al afgevuurd is, heeft async_listen_once de
+            # listener al verwijderd — cancel() aanroepen zou dan een
+            # ValueError + log-melding in HA's core triggeren.
+            if not _startup_fired:
                 cancel()
-            except Exception:  # noqa: BLE001
-                pass  # Listener already fired, nothing to cancel
 
         entry.async_on_unload(_cancel_if_pending)
 
