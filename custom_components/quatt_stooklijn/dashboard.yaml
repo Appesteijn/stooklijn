@@ -1162,36 +1162,40 @@ views:
               columns: full
               rows: auto
 
-      # ── OTGW compensatie (alleen zichtbaar als geconfigureerd) ──
+      # ── Geluidsniveau compensatie (alleen zichtbaar als geconfigureerd) ──
       - type: grid
         cards:
           - type: conditional
             conditions:
               - condition: state
-                entity: switch.quatt_warmteanalyse_otgw_compensatie
+                entity: switch.quatt_warmteanalyse_geluidsniveau_compensatie
                 state_not: unavailable
             card:
               type: markdown
-              title: OTGW Compensatie
+              title: Geluidsniveau Compensatie
               content: >
                 {% set sw =
-                states('switch.quatt_warmteanalyse_otgw_compensatie') %}
+                states('switch.quatt_warmteanalyse_geluidsniveau_compensatie') %}
 
-                {% set offset =
-                state_attr('switch.quatt_warmteanalyse_otgw_compensatie',
-                'current_offset') | float(0) %}
+                {% set level =
+                state_attr('switch.quatt_warmteanalyse_geluidsniveau_compensatie',
+                'current_level') %}
 
                 {% set mpc_err =
-                state_attr('switch.quatt_warmteanalyse_otgw_compensatie',
+                state_attr('switch.quatt_warmteanalyse_geluidsniveau_compensatie',
                 'mpc_error') %}
 
                 {% set hp =
-                state_attr('switch.quatt_warmteanalyse_otgw_compensatie',
+                state_attr('switch.quatt_warmteanalyse_geluidsniveau_compensatie',
                 'hp_active') %}
 
-                {% set max_off =
-                state_attr('switch.quatt_warmteanalyse_otgw_compensatie',
-                'max_offset') | float(0) %}
+                {% set gas =
+                state_attr('switch.quatt_warmteanalyse_geluidsniveau_compensatie',
+                'gas_active') %}
+
+                {% set boiler =
+                state_attr('switch.quatt_warmteanalyse_geluidsniveau_compensatie',
+                'boiler_heat_w') %}
 
                 | | Status |
 
@@ -1201,22 +1205,59 @@ views:
 
                 | HP actief | {% if hp %}Ja{% else %}Nee{% endif %} |
 
-                | Huidig offset | **{{ offset }}°C** (max {{ max_off }}°C) |
+                | Gas actief | {% if gas %}Ja ({{ boiler }} W){% else %}Nee{% endif %} |
+
+                | Geluidsniveau | **{{ level | default('—') }}** |
 
                 | MPC fout | {% if mpc_err is not none %}{{ mpc_err }}°C{%
                 else %}*n/a*{% endif %} |
 
 
-                {% if sw == 'on' and offset > 0 %}
+                {% if sw == 'on' %}
 
-                De CiC denkt dat de kamertemperatuur {{ offset }}°C hoger is
-                dan werkelijk — minder output.
+                {% if not hp %}
 
-                {% elif sw == 'on' and offset == 0 %}
+                HP inactief — geluidsniveau gereset naar 'normal'.
 
-                Compensatie actief, geen correctie nodig.
+                {% elif gas %}
+
+                Gas actief ({{ boiler }} W) — geluidsniveau omhoog naar
+                **{{ level }}**.
+
+                {% elif mpc_err is not none and mpc_err < -2 %}
+
+                Aanvoer te hoog (fout={{ mpc_err }}°C) — geluidsniveau omlaag
+                naar **{{ level }}**.
+
+                {% elif mpc_err is not none and mpc_err > 2 %}
+
+                Aanvoer te laag (fout={{ mpc_err }}°C) — geluidsniveau staat al
+                op **{{ level }}** (max).
+
+                {% else %}
+
+                Aanvoer op schema — geluidsniveau op **{{ level }}**.
+
+                {% endif %}
 
                 {% endif %}
             grid_options:
               columns: full
               rows: auto
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: switch.quatt_warmteanalyse_geluidsniveau_compensatie
+                state_not: unavailable
+            card:
+              type: history-graph
+              title: Geluidsniveau & gasketel (24 uur)
+              hours_to_show: 24
+              entities:
+                - entity: sensor.quatt_warmteanalyse_geluidsniveau
+                  name: Geluidsniveau
+                - entity: binary_sensor.quatt_warmteanalyse_gasketel_actief
+                  name: Gasketel
+              grid_options:
+                columns: full
+                rows: auto

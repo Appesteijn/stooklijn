@@ -35,8 +35,10 @@ def _stub_ha():
     _ensure_module("homeassistant.helpers.entity_platform")
     _ensure_module("homeassistant.helpers.event")
     _ensure_module("homeassistant.helpers.aiohttp_client")
+    _ensure_module("homeassistant.helpers.restore_state")
     _ensure_module("homeassistant.helpers.storage")
     _ensure_module("homeassistant.components")
+    _ensure_module("homeassistant.components.binary_sensor")
     _ensure_module("homeassistant.components.sensor")
     _ensure_module("homeassistant.components.switch")
     _ensure_module("homeassistant.components.text")
@@ -78,6 +80,17 @@ def _stub_ha():
     sensor_mod.SensorEntityDescription = _SensorEntityDescription
     sensor_mod.SensorDeviceClass = MagicMock()
     sensor_mod.SensorStateClass = MagicMock()
+
+    # Binary sensor stubs
+    binary_sensor_mod = sys.modules["homeassistant.components.binary_sensor"]
+    binary_sensor_mod.BinarySensorEntity = type("BinarySensorEntity", (), {})
+    binary_sensor_mod.BinarySensorDeviceClass = MagicMock()
+
+    # Restore state stub
+    restore_mod = sys.modules["homeassistant.helpers.restore_state"]
+    restore_mod.RestoreEntity = type("RestoreEntity", (), {
+        "async_get_last_state": lambda self: None,
+    })
 
     # Switch stubs
     switch_mod = sys.modules["homeassistant.components.switch"]
