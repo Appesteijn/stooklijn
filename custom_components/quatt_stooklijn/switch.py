@@ -23,8 +23,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
-from homeassistant.components.sensor import SensorEntity
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -70,11 +68,7 @@ async def async_setup_entry(
         return
 
     coordinator: QuattStooklijnCoordinator = hass.data[DOMAIN][entry.entry_id]
-    switch = QuattSoundLevelSwitch(coordinator, entry)
-    level_sensor = QuattSoundLevelSensor(switch, entry)
-    gas_sensor = QuattGasActiveSensor(switch, entry)
-    switch._companions = [level_sensor, gas_sensor]
-    async_add_entities([switch, level_sensor, gas_sensor])
+    async_add_entities([QuattSoundLevelSwitch(coordinator, entry)])
 
 
 class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
@@ -94,10 +88,9 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         self._attr_unique_id = f"{entry.entry_id}_sound_level_compensation"
         self._attr_device_info = get_device_info(entry.entry_id)
 
-        self._is_on = False
+        self._is_on = True  # standaard aan: config-optie = feature actief
         self._current_level_idx: int = _NORMAL_IDX
         self._last_mpc_available: datetime | None = None
-        self._companions: list = []
 
         self._supply_entity = DEFAULT_SUPPLY_TEMP_ENTITY
         self._flow_entity = {**entry.data, **entry.options}.get(
@@ -135,11 +128,6 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
     async def async_will_remove_from_hass(self) -> None:
         await self._async_reset_level()
 
-    def _notify_companions(self) -> None:
-        """Stuur companions een state-update (voor Recorder-tracking)."""
-        for companion in self._companions:
-            companion.async_write_ha_state()
-
     async def _async_compensation_cycle(self, _now=None) -> None:
         """Voer één compensatiecyclus uit."""
         if not self._is_on:
@@ -150,7 +138,6 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             _LOGGER.exception("Geluidsniveau compensatie cyclus gefaald, reset")
             await self._async_reset_level()
         self.async_write_ha_state()
-        self._notify_companions()
 
     async def _async_do_compensation(self) -> None:
         """Kernlogica: bepaal of het geluidsniveau omhoog of omlaag moet."""
@@ -250,11 +237,6 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             _LOGGER.warning("Kon geluidsniveau niet resetten naar 'normal'")
 
     @property
-    def current_sound_level(self) -> str:
-        """Huidig geluidsniveau als string (voor companion sensor)."""
-        return _SOUND_LEVELS[self._current_level_idx]
-
-    @property
     def extra_state_attributes(self) -> dict:
         mpc_advised = get_float_state(self.hass, _MPC_ENTITY) if self.hass else None
         actual_supply = get_float_state(self.hass, self._supply_entity) if self.hass else None
@@ -274,52 +256,3 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             "gas_active": boiler_heat is not None and boiler_heat > _GAS_THRESHOLD_W,
             "boiler_heat_w": round(boiler_heat) if boiler_heat is not None else None,
         }
-
-
-class QuattSoundLevelSensor(SensorEntity):
-    """Sensor met het huidige geluidsniveau — wordt bijgehouden door HA Recorder."""
-
-    _attr_has_entity_name = True
-    _attr_name = "Geluidsniveau"
-    _attr_icon = "mdi:volume-medium"
-
-    def __init__(self, switch: QuattSoundLevelSwitch, entry: ConfigEntry) -> None:
-        self._switch = switch
-        self._attr_unique_id = f"{entry.entry_id}_sound_level_sensor"
-        self._attr_device_info = get_device_info(entry.entry_id)
-
-    @property
-    def state(self) -> str:
-        return self._switch.current_sound_level
-
-    @property
-    def available(self) -> bool:
-        return self._switch.is_on
-
-
-class QuattGasActiveSensor(BinarySensorEntity):
-    """Binary sensor: gasketel actief als aanvulling op de warmtepomp."""
-
-    _attr_has_entity_name = True
-    _attr_name = "Gasketel Actief"
-    _attr_icon = "mdi:fire"
-    _attr_device_class = BinarySensorDeviceClass.HEAT
-
-    def __init__(self, switch: QuattSoundLevelSwitch, entry: ConfigEntry) -> None:
-        self._switch = switch
-        self._attr_unique_id = f"{entry.entry_id}_gas_boiler_active"
-        self._attr_device_info = get_device_info(entry.entry_id)
-
-    @property
-    def is_on(self) -> bool:
-        if self._switch.hass is None:
-            return False
-        boiler_heat = get_float_state(self._switch.hass, _BOILER_HEAT_ENTITY)
-        return boiler_heat is not None and boiler_heat > _GAS_THRESHOLD_W
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        if self._switch.hass is None:
-            return {}
-        boiler_heat = get_float_state(self._switch.hass, _BOILER_HEAT_ENTITY)
-        return {"boiler_heat_w": round(boiler_heat) if boiler_heat is not None else None}

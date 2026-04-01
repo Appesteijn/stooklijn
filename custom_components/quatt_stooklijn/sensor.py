@@ -15,7 +15,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
@@ -29,6 +29,7 @@ from .const import (
     CONF_POWER_ENTITY,
     CONF_RETURN_TEMP_ENTITY,
     CONF_SOLAR_ENTITY,
+    CONF_SOUND_LEVEL_ENABLED,
     CONF_TEMP_ENTITIES,
     CONF_WEATHER_ENTITY,
     DEFAULT_FLOW_ENTITY,
@@ -287,6 +288,9 @@ async def async_setup_entry(
     ))
     entities.append(QuattAdviceSensor(coordinator, entry))
     entities.append(QuattOpenQuattCurveSensor(coordinator, entry))
+
+    if {**entry.data, **entry.options}.get(CONF_SOUND_LEVEL_ENABLED, False):
+        entities.append(QuattSoundLevelSensor(entry))
 
     async_add_entities(entities)
 
@@ -1274,3 +1278,40 @@ class QuattOpenQuattCurveSensor(
             attrs[f"bp_{i}_buiten"] = bp["buiten_temp"]
             attrs[f"bp_{i}_aanvoer"] = bp["aanvoer_temp"]
         return attrs
+
+
+_SOUND_LEVEL_SELECT = "select.cic_day_max_sound_level"
+
+
+class QuattSoundLevelSensor(SensorEntity):
+    """Sensor met het actieve geluidsniveau — gespiegeld van select.cic_day_max_sound_level."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Geluidsniveau"
+    _attr_icon = "mdi:volume-medium"
+
+    def __init__(self, entry: ConfigEntry) -> None:
+        self._attr_unique_id = f"{entry.entry_id}_sound_level_sensor"
+        self._attr_device_info = get_device_info(entry.entry_id)
+        self._level: str | None = None
+
+    @property
+    def state(self) -> str | None:
+        return self._level
+
+    async def async_added_to_hass(self) -> None:
+        if (s := self.hass.states.get(_SOUND_LEVEL_SELECT)) is not None:
+            self._level = s.state
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                [_SOUND_LEVEL_SELECT],
+                self._handle_change,
+            )
+        )
+
+    @callback
+    def _handle_change(self, event) -> None:
+        if (new := event.data.get("new_state")) is not None:
+            self._level = new.state
+            self.async_write_ha_state()
