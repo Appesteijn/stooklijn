@@ -28,7 +28,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     CONF_FLOW_ENTITY,
@@ -71,7 +70,7 @@ async def async_setup_entry(
     async_add_entities([QuattSoundLevelSwitch(coordinator, entry)])
 
 
-class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
+class QuattSoundLevelSwitch(SwitchEntity):
     """Switch om geluidsniveau-compensatie aan/uit te zetten."""
 
     _attr_has_entity_name = True
@@ -114,9 +113,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         _LOGGER.info("Geluidsniveau compensatie uitgeschakeld")
 
     async def async_added_to_hass(self) -> None:
-        """Herstel vorige staat en registreer periodieke cyclus."""
-        if (last_state := await self.async_get_last_state()) is not None:
-            self._is_on = last_state.state == "on"
+        """Registreer periodieke cyclus."""
         self.async_on_remove(
             async_track_time_interval(
                 self.hass,
