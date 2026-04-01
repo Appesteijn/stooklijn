@@ -353,10 +353,14 @@ def simulate_6h(
         )
 
         # Calculate supply temp from required power
+        # Use max(t_return, t_in) because when HP is off, the return temp
+        # sensor reads low (stagnant water); during operation it would be
+        # at least close to indoor temperature.
         supply_temp = None
         if q_hp_needed > 0 and flow_lph > 0:
+            effective_return = max(t_return, t_in)
             delta_t = q_hp_needed / (SPECIFIC_HEAT * flow_lph)
-            raw_supply = t_return + delta_t
+            raw_supply = effective_return + delta_t
             supply_temp = round(
                 max(supply_temp_min, min(supply_temp_max, raw_supply)), 1
             )

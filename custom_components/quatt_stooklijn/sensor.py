@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 from typing import Any
 
@@ -873,15 +873,45 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         model_params = model.params
         model_source = "online" if model.is_converged else "batch_fallback"
 
-        # Build forecast arrays from Open-Meteo
+        # Build forecast arrays, time-aligned to upcoming hours.
+        # The HA weather entity may return forecasts starting hours from now
+        # (e.g. Met.no starts at 21:00 UTC). We index by hours-from-now and
+        # fall back to the current outdoor reading for any gap hours.
+        now_utc = dt_util.utcnow()
         now_hour = dt_util.now().hour
+
+        # Build time-indexed lookup: hours_from_now -> forecast point
+        fc_lookup: dict[int, dict] = {}
+        for point in self._forecast:
+            dt_str = point.get("datetime")
+            if dt_str:
+                try:
+                    fc_dt = datetime.fromisoformat(dt_str)
+                    hours_ahead = round((fc_dt - now_utc).total_seconds() / 3600)
+                    if 0 <= hours_ahead < MPC_FORECAST_HOURS:
+                        fc_lookup[hours_ahead] = point
+                except (ValueError, TypeError):
+                    pass
+
         fc_temps: list[float] = []
         fc_solar_wm2: list[float] = []   # W/m² for RC model (direct from Open-Meteo)
         fc_meta: list[dict] = []
-        for i, point in enumerate(self._forecast[:MPC_FORECAST_HOURS]):
-            fc_temp = point.get("temperature")
+        for i in range(MPC_FORECAST_HOURS):
+            # Temperature: use forecast if available, else current outdoor sensor
+            if i in fc_lookup:
+                fc_temp = fc_lookup[i].get("temperature")
+                fc_dt_str = fc_lookup[i].get("datetime")
+                fc_condition = fc_lookup[i].get("condition", "")
+            elif t_outdoor is not None:
+                fc_temp = t_outdoor
+                fc_dt_str = None
+                fc_condition = "current"
+            else:
+                break
+
             if fc_temp is None:
                 break
+
             fc_temps.append(fc_temp)
             rad_idx = now_hour + i
             rad_wm2 = 0.0
@@ -889,8 +919,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 rad_wm2 = self._solar_radiation[rad_idx]
             fc_solar_wm2.append(rad_wm2)
             fc_meta.append({
-                "datetime": point.get("datetime"),
-                "condition": point.get("condition", ""),
+                "datetime": fc_dt_str,
+                "condition": fc_condition,
                 "shortwave_wm2": rad_wm2,
             })
         # Estimated solar heat gain in W for batch fallback and display
