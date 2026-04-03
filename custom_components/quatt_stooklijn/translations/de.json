@@ -33,6 +33,7 @@
           "solar_entity": "Solaranlagen-Leistungssensor (W) — z.B. SolarEdge, Enphase oder Template",
           "weather_entity": "Wettervorhersage-Entität (für MPC-Prognose)",
           "indoor_temp_entity": "Raumtemperatur-Sensor (°C, für Solar-Kalibrierung)",
+          "sound_level_enabled": "Schallpegel-Kompensation aktivieren (begrenzt Wärmepumpenleistung über CiC-Schallpegel)",
           "otgw_enabled": "OTGW-Kompensation aktivieren (erfordert OpenTherm Gateway)",
           "otgw_room_temp_override": "OTGW Raumtemperatur-Override Entität",
           "otgw_max_offset": "OTGW maximaler Offset (°C, max 3.0)"
@@ -59,6 +60,7 @@
           "solar_entity": "Solaranlagen-Leistungssensor (W) — z.B. SolarEdge, Enphase oder Template",
           "weather_entity": "Wettervorhersage-Entität (für MPC-Prognose)",
           "indoor_temp_entity": "Raumtemperatur-Sensor (°C, für Solar-Kalibrierung)",
+          "sound_level_enabled": "Schallpegel-Kompensation aktivieren (begrenzt Wärmepumpenleistung über CiC-Schallpegel)",
           "otgw_enabled": "OTGW-Kompensation aktivieren (erfordert OpenTherm Gateway)",
           "otgw_room_temp_override": "OTGW Raumtemperatur-Override Entität",
           "otgw_max_offset": "OTGW maximaler Offset (°C, max 3.0)"

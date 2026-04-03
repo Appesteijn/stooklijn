@@ -116,6 +116,10 @@ SOLAR_RADIATION_DEFAULT_FACTOR = 8.0  # W per W/m²
 # Bron: HA weather condition strings (https://www.home-assistant.io/integrations/weather/)
 # Geluidsniveau compensatie — actieve bijsturing via CiC sound level
 CONF_SOUND_LEVEL_ENABLED = "sound_level_enabled"
+CONF_SOUND_LEVEL_MAX_DAY = "sound_level_max_day"
+CONF_SOUND_LEVEL_MAX_NIGHT = "sound_level_max_night"
+SOUND_LEVEL_OPTIONS = ["building87", "silent", "library", "normal"]
+DEFAULT_SOUND_LEVEL_MAX = "normal"  # standaard: geen beperking
 OTGW_CYCLE_SECONDS = 300   # 5 minuten — interval compensatiecyclus
 OTGW_UNAVAILABLE_TIMEOUT = 600  # 10 minuten — reset na MPC timeout
 

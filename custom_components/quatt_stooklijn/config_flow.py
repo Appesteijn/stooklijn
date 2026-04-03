@@ -19,6 +19,8 @@ from .const import (
     CONF_HOT_WATER_TEMP_THRESHOLD,
     CONF_INDOOR_TEMP_ENTITY,
     CONF_SOUND_LEVEL_ENABLED,
+    CONF_SOUND_LEVEL_MAX_DAY,
+    CONF_SOUND_LEVEL_MAX_NIGHT,
     CONF_POWER_ENTITY,
     CONF_QUATT_START_DATE,
     CONF_RETURN_TEMP_ENTITY,
@@ -31,11 +33,13 @@ from .const import (
     DEFAULT_HOT_WATER_TEMP_THRESHOLD,
     DEFAULT_INDOOR_TEMP_ENTITY,
     DEFAULT_POWER_ENTITY,
+    DEFAULT_SOUND_LEVEL_MAX,
     DEFAULT_RETURN_TEMP_ENTITY,
     DEFAULT_SOLAR_ENTITY,
     DEFAULT_TEMP_ENTITIES,
     DEFAULT_WEATHER_ENTITY,
     DOMAIN,
+    SOUND_LEVEL_OPTIONS,
 )
 
 
@@ -162,6 +166,8 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Step 3: Optional settings for stooklijn comparison."""
         if user_input is not None:
             self._data[CONF_SOUND_LEVEL_ENABLED] = user_input.get(CONF_SOUND_LEVEL_ENABLED, False)
+            self._data[CONF_SOUND_LEVEL_MAX_DAY] = user_input.get(CONF_SOUND_LEVEL_MAX_DAY, DEFAULT_SOUND_LEVEL_MAX)
+            self._data[CONF_SOUND_LEVEL_MAX_NIGHT] = user_input.get(CONF_SOUND_LEVEL_MAX_NIGHT, DEFAULT_SOUND_LEVEL_MAX)
 
             return self.async_create_entry(
                 title="Quatt Warmteanalyse",
@@ -215,6 +221,16 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_SOUND_LEVEL_ENABLED,
                     default=False,
                 ): bool,
+                # Maximaal geluidsniveau dat de compensatie mag instellen.
+                # Voorkomt dat de HP te hard gaat draaien (bijv. 's nachts).
+                vol.Optional(
+                    CONF_SOUND_LEVEL_MAX_DAY,
+                    default=DEFAULT_SOUND_LEVEL_MAX,
+                ): vol.In(SOUND_LEVEL_OPTIONS),
+                vol.Optional(
+                    CONF_SOUND_LEVEL_MAX_NIGHT,
+                    default=DEFAULT_SOUND_LEVEL_MAX,
+                ): vol.In(SOUND_LEVEL_OPTIONS),
             }
         )
 
@@ -276,6 +292,14 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_SOUND_LEVEL_ENABLED,
                         default=data.get(CONF_SOUND_LEVEL_ENABLED, False),
                     ): bool,
+                    vol.Optional(
+                        CONF_SOUND_LEVEL_MAX_DAY,
+                        default=data.get(CONF_SOUND_LEVEL_MAX_DAY, DEFAULT_SOUND_LEVEL_MAX),
+                    ): vol.In(SOUND_LEVEL_OPTIONS),
+                    vol.Optional(
+                        CONF_SOUND_LEVEL_MAX_NIGHT,
+                        default=data.get(CONF_SOUND_LEVEL_MAX_NIGHT, DEFAULT_SOUND_LEVEL_MAX),
+                    ): vol.In(SOUND_LEVEL_OPTIONS),
                 }
             ),
         )

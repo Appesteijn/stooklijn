@@ -33,6 +33,7 @@
           "solar_entity": "Capteur de puissance solaire (W) — ex. SolarEdge, Enphase ou template",
           "weather_entity": "Entité de prévisions météo (pour la prévision MPC)",
           "indoor_temp_entity": "Capteur de température intérieure (°C, pour la calibration solaire)",
+          "sound_level_enabled": "Activer la compensation du niveau sonore (limite la puissance de la pompe à chaleur via le niveau sonore CiC)",
           "otgw_enabled": "Activer la compensation OTGW (nécessite OpenTherm Gateway)",
           "otgw_room_temp_override": "Entité OTGW de remplacement de température ambiante",
           "otgw_max_offset": "Offset maximum OTGW (°C, max 3.0)"
@@ -59,6 +60,7 @@
           "solar_entity": "Capteur de puissance solaire (W) — ex. SolarEdge, Enphase ou template",
           "weather_entity": "Entité de prévisions météo (pour la prévision MPC)",
           "indoor_temp_entity": "Capteur de température intérieure (°C, pour la calibration solaire)",
+          "sound_level_enabled": "Activer la compensation du niveau sonore (limite la puissance de la pompe à chaleur via le niveau sonore CiC)",
           "otgw_enabled": "Activer la compensation OTGW (nécessite OpenTherm Gateway)",
           "otgw_room_temp_override": "Entité OTGW de remplacement de température ambiante",
           "otgw_max_offset": "Offset maximum OTGW (°C, max 3.0)"

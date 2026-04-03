@@ -37,6 +37,9 @@
           "solar_entity": "Solar panel power sensor (W) — e.g. SolarEdge, Enphase, or template",
           "weather_entity": "Weather forecast entity (for MPC forecast)",
           "indoor_temp_entity": "Indoor temperature sensor (°C, for solar gain calibration)",
+          "sound_level_enabled": "Enable sound level compensation (limits heat pump power via CiC sound level)",
+          "sound_level_max_day": "Maximum sound level during the day",
+          "sound_level_max_night": "Maximum sound level at night",
           "otgw_enabled": "Enable OTGW compensation (requires OpenTherm Gateway)",
           "otgw_room_temp_override": "OTGW room temperature override entity",
           "otgw_max_offset": "OTGW maximum offset (°C, max 3.0)"
@@ -67,6 +70,9 @@
           "solar_entity": "Solar panel power sensor (W) — e.g. SolarEdge, Enphase, or template",
           "weather_entity": "Weather forecast entity (for MPC forecast)",
           "indoor_temp_entity": "Indoor temperature sensor (°C, for solar gain calibration)",
+          "sound_level_enabled": "Enable sound level compensation (limits heat pump power via CiC sound level)",
+          "sound_level_max_day": "Maximum sound level during the day",
+          "sound_level_max_night": "Maximum sound level at night",
           "otgw_enabled": "Enable OTGW compensation (requires OpenTherm Gateway)",
           "otgw_room_temp_override": "OTGW room temperature override entity",
           "otgw_max_offset": "OTGW maximum offset (°C, max 3.0)"

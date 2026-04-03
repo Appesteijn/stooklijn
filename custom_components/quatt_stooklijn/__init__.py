@@ -11,7 +11,7 @@ import yaml
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 
-from .const import DOMAIN, SERVICE_CLEAR_DATA, SERVICE_RUN_ANALYSIS
+from .const import CONF_SOUND_LEVEL_ENABLED, DOMAIN, SERVICE_CLEAR_DATA, SERVICE_RUN_ANALYSIS
 from .coordinator import (
     QuattStooklijnCoordinator,
     QuattStooklijnData,
@@ -79,6 +79,32 @@ async def _async_setup_dashboard(hass: HomeAssistant) -> None:
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Kon dashboard niet automatisch aanmaken: %s", err)
 
+
+# Unique-ID suffixen van entiteiten die alleen bestaan als sound_level_enabled=True.
+_SOUND_LEVEL_ENTITY_SUFFIXES = (
+    "_sound_level_compensation",  # switch
+    "_gas_boiler_active",         # binary_sensor
+    "_sound_level_sensor",        # sensor
+)
+
+
+async def _async_cleanup_sound_level_entities(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
+    """Verwijder soundslider-entities uit de registry als de feature is uitgeschakeld."""
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    entities = er.async_entries_for_config_entry(registry, entry.entry_id)
+
+    for entity_entry in entities:
+        uid = entity_entry.unique_id or ""
+        if any(uid.endswith(suffix) for suffix in _SOUND_LEVEL_ENTITY_SUFFIXES):
+            registry.async_remove(entity_entry.entity_id)
+            _LOGGER.info(
+                "Soundslider-entity verwijderd: %s", entity_entry.entity_id
+            )
+
 PLATFORMS = ["binary_sensor", "sensor", "switch", "text"]
 
 
@@ -101,6 +127,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_async_update_options))
 
     await _async_migrate_entity_ids(hass, entry)
+
+    # Ruim soundslider-entities op als de feature is uitgeschakeld.
+    if not merged_config.get(CONF_SOUND_LEVEL_ENABLED, False):
+        await _async_cleanup_sound_level_entities(hass, entry)
+
     await _async_setup_dashboard(hass)
 
     # Auto-run analysis on startup so dashboards are populated immediately

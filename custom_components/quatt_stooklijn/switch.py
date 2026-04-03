@@ -28,11 +28,15 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     CONF_FLOW_ENTITY,
     CONF_SOUND_LEVEL_ENABLED,
+    CONF_SOUND_LEVEL_MAX_DAY,
+    CONF_SOUND_LEVEL_MAX_NIGHT,
     DEFAULT_FLOW_ENTITY,
+    DEFAULT_SOUND_LEVEL_MAX,
     DEFAULT_SUPPLY_TEMP_ENTITY,
     DOMAIN,
     MIN_FLOW_LPH,
@@ -70,7 +74,7 @@ async def async_setup_entry(
     async_add_entities([QuattSoundLevelSwitch(coordinator, entry)])
 
 
-class QuattSoundLevelSwitch(SwitchEntity):
+class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
     """Switch om geluidsniveau-compensatie aan/uit te zetten."""
 
     _attr_has_entity_name = True
@@ -91,9 +95,18 @@ class QuattSoundLevelSwitch(SwitchEntity):
         self._current_level_idx: int = _NORMAL_IDX
         self._last_mpc_available: datetime | None = None
 
+        merged = {**entry.data, **entry.options}
         self._supply_entity = DEFAULT_SUPPLY_TEMP_ENTITY
-        self._flow_entity = {**entry.data, **entry.options}.get(
-            CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY
+        self._flow_entity = merged.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY)
+
+        # Maximaal geluidsniveau (= max vermogen) dat compensatie mag instellen
+        max_day = merged.get(CONF_SOUND_LEVEL_MAX_DAY, DEFAULT_SOUND_LEVEL_MAX)
+        max_night = merged.get(CONF_SOUND_LEVEL_MAX_NIGHT, DEFAULT_SOUND_LEVEL_MAX)
+        self._max_day_idx = (
+            _SOUND_LEVELS.index(max_day) if max_day in _SOUND_LEVELS else _NORMAL_IDX
+        )
+        self._max_night_idx = (
+            _SOUND_LEVELS.index(max_night) if max_night in _SOUND_LEVELS else _NORMAL_IDX
         )
 
     @property
@@ -113,7 +126,15 @@ class QuattSoundLevelSwitch(SwitchEntity):
         _LOGGER.info("Geluidsniveau compensatie uitgeschakeld")
 
     async def async_added_to_hass(self) -> None:
-        """Registreer periodieke cyclus."""
+        """Herstel vorige state en registreer periodieke cyclus."""
+        if (last_state := await self.async_get_last_state()) is not None:
+            self._is_on = last_state.state == "on"
+            # Herstel geluidsniveau-index uit opgeslagen attributen
+            attrs = last_state.attributes or {}
+            saved_level = attrs.get("current_level")
+            if saved_level in _SOUND_LEVELS:
+                self._current_level_idx = _SOUND_LEVELS.index(saved_level)
+
         self.async_on_remove(
             async_track_time_interval(
                 self.hass,
@@ -209,29 +230,44 @@ class QuattSoundLevelSwitch(SwitchEntity):
                 await self._async_apply_level()
 
     async def _async_apply_level(self) -> None:
-        """Schrijf het huidige geluidsniveau naar dag- en nacht-entiteit."""
-        level = _SOUND_LEVELS[self._current_level_idx]
-        for entity_id in (_DAY_SOUND_ENTITY, _NIGHT_SOUND_ENTITY):
+        """Schrijf het huidige geluidsniveau naar dag- en nacht-entiteit, geclampt op max."""
+        day_idx = min(self._current_level_idx, self._max_day_idx)
+        night_idx = min(self._current_level_idx, self._max_night_idx)
+        for entity_id, idx in (
+            (_DAY_SOUND_ENTITY, day_idx),
+            (_NIGHT_SOUND_ENTITY, night_idx),
+        ):
             await self.hass.services.async_call(
                 "select",
                 "select_option",
-                {"entity_id": entity_id, "option": level},
+                {"entity_id": entity_id, "option": _SOUND_LEVELS[idx]},
             )
-        _LOGGER.debug("Geluidsniveau ingesteld: %s", level)
+        _LOGGER.debug(
+            "Geluidsniveau ingesteld: dag=%s, nacht=%s",
+            _SOUND_LEVELS[day_idx],
+            _SOUND_LEVELS[night_idx],
+        )
 
     async def _async_reset_level(self) -> None:
-        """Reset dag- en nacht-geluidsniveau naar 'normal'."""
+        """Reset dag- en nacht-geluidsniveau naar het geconfigureerde maximum."""
         self._current_level_idx = _NORMAL_IDX
         try:
-            for entity_id in (_DAY_SOUND_ENTITY, _NIGHT_SOUND_ENTITY):
+            for entity_id, max_idx in (
+                (_DAY_SOUND_ENTITY, self._max_day_idx),
+                (_NIGHT_SOUND_ENTITY, self._max_night_idx),
+            ):
                 await self.hass.services.async_call(
                     "select",
                     "select_option",
-                    {"entity_id": entity_id, "option": "normal"},
+                    {"entity_id": entity_id, "option": _SOUND_LEVELS[max_idx]},
                 )
-            _LOGGER.debug("Geluidsniveau gereset naar 'normal'")
+            _LOGGER.debug(
+                "Geluidsniveau gereset: dag=%s, nacht=%s",
+                _SOUND_LEVELS[self._max_day_idx],
+                _SOUND_LEVELS[self._max_night_idx],
+            )
         except Exception:
-            _LOGGER.warning("Kon geluidsniveau niet resetten naar 'normal'")
+            _LOGGER.warning("Kon geluidsniveau niet resetten")
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -242,6 +278,10 @@ class QuattSoundLevelSwitch(SwitchEntity):
 
         return {
             "current_level": _SOUND_LEVELS[self._current_level_idx],
+            "max_day": _SOUND_LEVELS[self._max_day_idx],
+            "max_night": _SOUND_LEVELS[self._max_night_idx],
+            "effective_day": _SOUND_LEVELS[min(self._current_level_idx, self._max_day_idx)],
+            "effective_night": _SOUND_LEVELS[min(self._current_level_idx, self._max_night_idx)],
             "mpc_advised": mpc_advised,
             "actual_supply": actual_supply,
             "mpc_error": (
