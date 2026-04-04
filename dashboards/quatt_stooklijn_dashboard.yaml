@@ -1206,12 +1206,6 @@ views:
                 yaxis_id: temp
                 color: "#2196F3"
                 stroke_width: 2
-              - entity: sensor.heatpump_hp1_temperature_water_in
-                name: Retour
-                yaxis_id: temp
-                color: "#9E9E9E"
-                stroke_width: 1
-                opacity: 0.5
             grid_options:
               columns: full
               rows: auto
