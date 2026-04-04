@@ -1472,20 +1472,3 @@ views:
             grid_options:
               columns: full
               rows: auto
-          - type: conditional
-            conditions:
-              - condition: state
-                entity: switch.quatt_warmteanalyse_geluidsniveau_compensatie
-                state_not: unavailable
-            card:
-              type: history-graph
-              title: Geluidsniveau & gasketel (24 uur)
-              hours_to_show: 24
-              entities:
-                - entity: sensor.quatt_warmteanalyse_geluidsniveau
-                  name: Geluidsniveau
-                - entity: binary_sensor.quatt_warmteanalyse_gasketel_actief
-                  name: Gasketel
-              grid_options:
-                columns: full
-                rows: auto
