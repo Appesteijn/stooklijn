@@ -1179,8 +1179,6 @@ views:
               title: Aanvoertemperatuur — advies vs werkelijk (48 uur)
               show: true
             graph_span: 48h
-            span:
-              end: now
             yaxis:
               - id: temp
                 min: 15
@@ -1227,8 +1225,6 @@ views:
               title: Warmtepomp vermogen & geluidsniveau (48 uur)
               show: true
             graph_span: 48h
-            span:
-              end: now
             yaxis:
               - id: power
                 min: 0
@@ -1292,8 +1288,6 @@ views:
               title: Afwijking MPC-advies (48 uur)
               show: true
             graph_span: 48h
-            span:
-              end: now
             yaxis:
               - id: error
                 decimals: 1
@@ -1347,8 +1341,6 @@ views:
               title: Debiet & buitentemperatuur (48 uur)
               show: true
             graph_span: 48h
-            span:
-              end: now
             yaxis:
               - id: flow
                 min: 0
