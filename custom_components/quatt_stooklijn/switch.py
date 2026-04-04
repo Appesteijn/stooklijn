@@ -29,6 +29,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_FLOW_ENTITY,
@@ -51,6 +52,15 @@ _LOGGER = logging.getLogger(__name__)
 # Niveauvolgorde: index 0 = zwakst, index 3 = sterkst
 _SOUND_LEVELS = ["building87", "silent", "library", "normal"]
 _NORMAL_IDX = len(_SOUND_LEVELS) - 1
+
+# CIC dag/nacht-grens — live uitgelezen uit Quatt integratie-sensoren
+_SOUND_NIGHT_START_HOUR_ENTITY = "sensor.cic_sound_night_time_start_hour"
+_SOUND_NIGHT_START_MIN_ENTITY = "sensor.cic_sound_night_time_start_min"
+_SOUND_NIGHT_END_HOUR_ENTITY = "sensor.cic_sound_night_time_end_hour"
+_SOUND_NIGHT_END_MIN_ENTITY = "sensor.cic_sound_night_time_end_min"
+# Fallback als de Quatt-sensoren niet beschikbaar zijn
+_NIGHT_START_HOUR_DEFAULT = 23
+_NIGHT_END_HOUR_DEFAULT = 7
 
 _MPC_ENTITY = "sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur"
 _DAY_SOUND_ENTITY = "select.cic_day_max_sound_level"
@@ -109,6 +119,37 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             _SOUND_LEVELS.index(max_night) if max_night in _SOUND_LEVELS else _NORMAL_IDX
         )
 
+    def _is_night(self) -> bool:
+        """Is het nu nacht volgens de CIC dag/nacht-scheiding?
+
+        Leest de nachtvenster-sensoren live uit de Quatt integratie.
+        Valt terug op hardcoded standaard als de sensoren niet beschikbaar zijn.
+        """
+        now = dt_util.now()
+        current_minutes = now.hour * 60 + now.minute
+
+        start_h = get_float_state(self.hass, _SOUND_NIGHT_START_HOUR_ENTITY)
+        start_m = get_float_state(self.hass, _SOUND_NIGHT_START_MIN_ENTITY)
+        end_h = get_float_state(self.hass, _SOUND_NIGHT_END_HOUR_ENTITY)
+        end_m = get_float_state(self.hass, _SOUND_NIGHT_END_MIN_ENTITY)
+
+        if start_h is not None and end_h is not None:
+            night_start = int(start_h) * 60 + int(start_m or 0)
+            night_end = int(end_h) * 60 + int(end_m or 0)
+        else:
+            night_start = _NIGHT_START_HOUR_DEFAULT * 60
+            night_end = _NIGHT_END_HOUR_DEFAULT * 60
+
+        # Nachtvenster kan middernacht overspannen (bijv. 23:00–07:00)
+        if night_start > night_end:
+            return current_minutes >= night_start or current_minutes < night_end
+        else:
+            return night_start <= current_minutes < night_end
+
+    def _effective_max_idx(self) -> int:
+        """Max niveau-index voor de huidige dagperiode."""
+        return self._max_night_idx if self._is_night() else self._max_day_idx
+
     @property
     def is_on(self) -> bool:
         return self._is_on
@@ -160,27 +201,51 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
     async def _async_do_compensation(self) -> None:
         """Kernlogica: bepaal of het geluidsniveau omhoog of omlaag moet."""
 
+        effective_max = self._effective_max_idx()
+        period = "nacht" if self._is_night() else "dag"
+
+        # Clamp interne level bij dag/nacht-overgang
+        if self._current_level_idx > effective_max:
+            _LOGGER.info(
+                "Dag/nacht-overgang (%s): geluidsniveau %s → %s",
+                period,
+                _SOUND_LEVELS[self._current_level_idx],
+                _SOUND_LEVELS[effective_max],
+            )
+            self._current_level_idx = effective_max
+            await self._async_apply_level()
+
         # 1. HP actief?
         flow = get_float_state(self.hass, self._flow_entity)
         if flow is None or flow < MIN_FLOW_LPH:
-            if self._current_level_idx != _NORMAL_IDX:
-                _LOGGER.debug("HP inactief, reset geluidsniveau naar 'normal'")
+            if self._current_level_idx != effective_max:
+                _LOGGER.debug(
+                    "HP inactief, reset geluidsniveau naar %s-max (%s)",
+                    period,
+                    _SOUND_LEVELS[effective_max],
+                )
                 await self._async_reset_level()
             return
 
         # 2. Gas actief? → stap omhoog zodat HP meer kan leveren
         boiler_heat = get_float_state(self.hass, _BOILER_HEAT_ENTITY)
         if boiler_heat is not None and boiler_heat > _GAS_THRESHOLD_W:
-            if self._current_level_idx < _NORMAL_IDX:
+            if self._current_level_idx < effective_max:
                 self._current_level_idx += 1
                 _LOGGER.info(
-                    "Gas actief (%.0f W) → geluidsniveau omhoog naar '%s'",
+                    "Gas actief (%.0f W) → geluidsniveau omhoog naar '%s' (%s-max: %s)",
                     boiler_heat,
                     _SOUND_LEVELS[self._current_level_idx],
+                    period,
+                    _SOUND_LEVELS[effective_max],
                 )
                 await self._async_apply_level()
             else:
-                _LOGGER.debug("Gas actief maar geluidsniveau al op 'normal'")
+                _LOGGER.debug(
+                    "Gas actief maar geluidsniveau al op %s-max (%s)",
+                    period,
+                    _SOUND_LEVELS[effective_max],
+                )
             return
 
         # 3. MPC feedback
@@ -220,12 +285,14 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
 
         elif mpc_error > _DEAD_BAND:
             # Aanvoer te laag → stap omhoog
-            if self._current_level_idx < _NORMAL_IDX:
+            if self._current_level_idx < effective_max:
                 self._current_level_idx += 1
                 _LOGGER.info(
-                    "Aanvoer te laag (fout=%.1f°C) → geluidsniveau omhoog naar '%s'",
+                    "Aanvoer te laag (fout=%.1f°C) → geluidsniveau omhoog naar '%s' (%s-max: %s)",
                     mpc_error,
                     _SOUND_LEVELS[self._current_level_idx],
+                    period,
+                    _SOUND_LEVELS[effective_max],
                 )
                 await self._async_apply_level()
 
@@ -250,7 +317,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
 
     async def _async_reset_level(self) -> None:
         """Reset dag- en nacht-geluidsniveau naar het geconfigureerde maximum."""
-        self._current_level_idx = _NORMAL_IDX
+        self._current_level_idx = self._effective_max_idx()
         try:
             for entity_id, max_idx in (
                 (_DAY_SOUND_ENTITY, self._max_day_idx),
@@ -275,9 +342,24 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         actual_supply = get_float_state(self.hass, self._supply_entity) if self.hass else None
         flow = get_float_state(self.hass, self._flow_entity) if self.hass else None
         boiler_heat = get_float_state(self.hass, _BOILER_HEAT_ENTITY) if self.hass else None
+        is_night = self._is_night()
+        effective_max = self._effective_max_idx()
+
+        start_h = get_float_state(self.hass, _SOUND_NIGHT_START_HOUR_ENTITY)
+        start_m = get_float_state(self.hass, _SOUND_NIGHT_START_MIN_ENTITY)
+        end_h = get_float_state(self.hass, _SOUND_NIGHT_END_HOUR_ENTITY)
+        end_m = get_float_state(self.hass, _SOUND_NIGHT_END_MIN_ENTITY)
+        night_window = (
+            f"{int(start_h):02d}:{int(start_m or 0):02d}–{int(end_h):02d}:{int(end_m or 0):02d}"
+            if start_h is not None and end_h is not None
+            else f"{_NIGHT_START_HOUR_DEFAULT:02d}:00–{_NIGHT_END_HOUR_DEFAULT:02d}:00 (fallback)"
+        )
 
         return {
             "current_level": _SOUND_LEVELS[self._current_level_idx],
+            "period": "nacht" if is_night else "dag",
+            "night_window": night_window,
+            "effective_max": _SOUND_LEVELS[effective_max],
             "max_day": _SOUND_LEVELS[self._max_day_idx],
             "max_night": _SOUND_LEVELS[self._max_night_idx],
             "effective_day": _SOUND_LEVELS[min(self._current_level_idx, self._max_day_idx)],

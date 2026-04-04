@@ -1162,6 +1162,248 @@ views:
               columns: full
               rows: auto
 
+  # ─── VIEW 5: GELUID ─────────────────────────────────────────────────
+  # Beantwoordt: "Is het stookgedrag rustiger met geluidsniveaucompensatie?"
+  - title: Geluid
+    icon: mdi:volume-vibrate
+    type: sections
+    max_columns: 2
+    cards: []
+    sections:
+      # ── Aanvoertemperatuur: advies vs werkelijk (48 uur) ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: custom:apexcharts-card
+            header:
+              title: Aanvoertemperatuur — advies vs werkelijk (48 uur)
+              show: true
+            graph_span: 48h
+            span:
+              end: now
+            yaxis:
+              - id: temp
+                min: 15
+                max: 55
+                decimals: 0
+                apex_config:
+                  title:
+                    text: "°C"
+            apex_config:
+              chart:
+                height: 280
+              stroke:
+                curve: smooth
+              legend:
+                show: true
+            series:
+              - entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
+                name: MPC advies
+                yaxis_id: temp
+                color: "#4CAF50"
+                stroke_width: 2
+                opacity: 0.8
+              - entity: sensor.heatpump_flowmeter_temperature
+                name: Werkelijke aanvoer
+                yaxis_id: temp
+                color: "#2196F3"
+                stroke_width: 2
+              - entity: sensor.heatpump_hp1_temperature_water_in
+                name: Retour
+                yaxis_id: temp
+                color: "#9E9E9E"
+                stroke_width: 1
+                opacity: 0.5
+            grid_options:
+              columns: full
+              rows: auto
+
+      # ── Vermogen + geluidsniveau (48 uur) ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: custom:apexcharts-card
+            header:
+              title: Warmtepomp vermogen & geluidsniveau (48 uur)
+              show: true
+            graph_span: 48h
+            span:
+              end: now
+            yaxis:
+              - id: power
+                min: 0
+                decimals: 0
+                apex_config:
+                  title:
+                    text: "W"
+              - id: level
+                opposite: true
+                min: 0
+                max: 4
+                decimals: 0
+                apex_config:
+                  title:
+                    text: Niveau
+                  labels:
+                    formatter: |
+                      EVAL:function(val) {
+                        var m = {"0":"uit","1":"building87","2":"silent","3":"library","4":"normal"};
+                        return m[Math.round(val)] || val;
+                      }
+            apex_config:
+              chart:
+                height: 280
+              stroke:
+                curve: stepline
+              legend:
+                show: true
+            series:
+              - entity: sensor.heatpump_total_power
+                name: HP vermogen
+                yaxis_id: power
+                color: "#FF5722"
+                stroke_width: 2
+                type: area
+                opacity: 0.15
+              - entity: sensor.heatpump_boiler_heat_power
+                name: Gasketel
+                yaxis_id: power
+                color: "#FF9800"
+                stroke_width: 2
+                type: area
+                opacity: 0.15
+              - entity: sensor.quatt_warmteanalyse_geluidsniveau
+                name: Geluidsniveau
+                yaxis_id: level
+                color: "#9C27B0"
+                stroke_width: 3
+                transform: |
+                  return {"building87":1,"silent":2,"library":3,"normal":4}[x] || 0;
+            grid_options:
+              columns: full
+              rows: auto
+
+      # ── Aanvoer-fout (MPC error) — smoothness indicator (48 uur) ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: custom:apexcharts-card
+            header:
+              title: Afwijking MPC-advies (48 uur)
+              show: true
+            graph_span: 48h
+            span:
+              end: now
+            yaxis:
+              - id: error
+                decimals: 1
+                apex_config:
+                  title:
+                    text: "°C"
+            apex_config:
+              chart:
+                height: 200
+              stroke:
+                curve: smooth
+              annotations:
+                yaxis:
+                  - y: 2
+                    borderColor: "#FF9800"
+                    strokeDashArray: 4
+                    label:
+                      text: "+2°C dead band"
+                      style:
+                        color: "#FF9800"
+                  - y: -2
+                    borderColor: "#FF9800"
+                    strokeDashArray: 4
+                    label:
+                      text: "-2°C dead band"
+                      style:
+                        color: "#FF9800"
+                  - y: 0
+                    borderColor: "#4CAF50"
+                    strokeDashArray: 0
+              legend:
+                show: true
+            series:
+              - entity: sensor.quatt_warmteanalyse_mpc_fout_aanvoertemperatuur
+                name: MPC fout (advies − werkelijk)
+                yaxis_id: error
+                color: "#2196F3"
+                stroke_width: 2
+                type: area
+                opacity: 0.1
+            grid_options:
+              columns: full
+              rows: auto
+
+      # ── Debiet & buitentemperatuur context (48 uur) ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: custom:apexcharts-card
+            header:
+              title: Debiet & buitentemperatuur (48 uur)
+              show: true
+            graph_span: 48h
+            span:
+              end: now
+            yaxis:
+              - id: flow
+                min: 0
+                decimals: 0
+                apex_config:
+                  title:
+                    text: "l/h"
+              - id: temp
+                opposite: true
+                decimals: 0
+                apex_config:
+                  title:
+                    text: "°C"
+            apex_config:
+              chart:
+                height: 220
+              stroke:
+                curve: smooth
+              legend:
+                show: true
+            series:
+              - entity: sensor.heatpump_flowmeter_flowrate
+                name: Debiet
+                yaxis_id: flow
+                color: "#03A9F4"
+                stroke_width: 2
+                type: area
+                opacity: 0.1
+              - entity: sensor.heatpump_hp1_temperature_outside
+                name: Buitentemperatuur
+                yaxis_id: temp
+                color: "#78909C"
+                stroke_width: 2
+            grid_options:
+              columns: full
+              rows: auto
+
+      # ── Geluidsniveau & gasketel status (bestaande kaart, nu in deze view) ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: history-graph
+            title: Geluidsniveau & gasketel (48 uur)
+            hours_to_show: 48
+            entities:
+              - entity: sensor.quatt_warmteanalyse_geluidsniveau
+                name: Geluidsniveau
+              - entity: binary_sensor.quatt_warmteanalyse_gasketel_actief
+                name: Gasketel
+              - entity: switch.quatt_warmteanalyse_geluidsniveau_compensatie
+                name: Compensatie
+            grid_options:
+              columns: full
+              rows: auto
+
       # ── Geluidsniveau compensatie (alleen zichtbaar als geconfigureerd) ──
       - type: grid
         cards:

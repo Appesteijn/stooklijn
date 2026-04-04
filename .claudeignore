@@ -1,0 +1,38 @@
+# ML model bestanden (binary)
+*.ubj
+*.csv
+*.png
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Tijdelijke analyse- en onderzoeksscripts
+check_available_data.py
+check_statistics_depth.py
+compare_data_sources.py
+find_better_sensors.py
+test_ha_sensors.py
+test_knee_detection.py
+test_recorder_vs_insights.py
+test_statistics_api.py
+verify_ha_setup.py
+verify_api_calls.md
+
+# ML feature/metrics JSON
+xgb_*.json
+xgb_multistep_metrics.json
+insights_sample.json
+
+# Planning- en statusdocumenten
+DASHBOARD_GRAFIEKEN_PLAN.md
+DASHBOARD_STATUS.md
+FINDINGS.md
+INCREMENTAL_CACHE_PROPOSAL.md
+ML_CONTROL_PLAN.md
+OPENQUATT_INTEGRATION.md
+OPTIMALISATIE_PLAN.md
+OPTIONAL_OPTIMIZATION.md
+
+# Archief
+archive/
