@@ -45,6 +45,7 @@ from .const import (
     NOMINAL_FLOW_LPH,
     MPC_FORECAST_HOURS,
     MPC_SUPPLY_TEMP_MAX,
+    MPC_SUPPLY_TEMP_COOL_MIN,
     MPC_SUPPLY_TEMP_MIN,
     OPEN_METEO_FORECAST_URL,
     SOLAR_RADIATION_DEFAULT_FACTOR,
@@ -832,11 +833,9 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 q_needed = model.calc_required_power(
                     t_indoor, t_outdoor, q_solar_wm2, t_setpoint=20.0,
                 )
-                if q_needed <= 0:
-                    return None  # no heating needed
                 t_supply = t_return + q_needed / (1.16 * effective_flow)
                 return round(
-                    max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, t_supply)),
+                    max(MPC_SUPPLY_TEMP_COOL_MIN, min(MPC_SUPPLY_TEMP_MAX, t_supply)),
                     1,
                 )
 
