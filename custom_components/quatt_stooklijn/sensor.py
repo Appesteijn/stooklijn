@@ -1309,11 +1309,11 @@ class QuattOpenQuattCurveSensor(
         return attrs
 
 
-_SOUND_LEVEL_SELECT = "select.cic_day_max_sound_level"
+_SOUND_LEVEL_SWITCH = "switch.quatt_warmteanalyse_geluidsniveau_compensatie"
 
 
 class QuattSoundLevelSensor(SensorEntity):
-    """Sensor met het actieve geluidsniveau — gespiegeld van select.cic_day_max_sound_level."""
+    """Sensor met het actieve geluidsniveau — spiegelt current_level van de compensatie-switch."""
 
     _attr_has_entity_name = True
     _attr_name = "Geluidsniveau"
@@ -1329,12 +1329,12 @@ class QuattSoundLevelSensor(SensorEntity):
         return self._level
 
     async def async_added_to_hass(self) -> None:
-        if (s := self.hass.states.get(_SOUND_LEVEL_SELECT)) is not None:
-            self._level = s.state
+        if (s := self.hass.states.get(_SOUND_LEVEL_SWITCH)) is not None:
+            self._level = s.attributes.get("current_level")
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass,
-                [_SOUND_LEVEL_SELECT],
+                [_SOUND_LEVEL_SWITCH],
                 self._handle_change,
             )
         )
@@ -1342,5 +1342,5 @@ class QuattSoundLevelSensor(SensorEntity):
     @callback
     def _handle_change(self, event) -> None:
         if (new := event.data.get("new_state")) is not None:
-            self._level = new.state
+            self._level = new.attributes.get("current_level")
             self.async_write_ha_state()

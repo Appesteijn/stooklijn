@@ -5,7 +5,7 @@ warmtepomp op basis van de MPC-aanbeveling en gasketelactiviteit.
 
 Logica (elke 5 min):
 1. HP inactief (debiet < MIN_FLOW_LPH)
-   → reset naar 'normal', stop
+   → reset naar geconfigureerd max, stop
 2. Gas actief (sensor.heatpump_boiler_heat_power > drempel)
    → één stap omhoog (HP mag harder draaien zodat ketel minder nodig is)
 3. Aanvoertemp > MPC-advies + dead band
@@ -15,7 +15,7 @@ Logica (elke 5 min):
 5. Binnen dead band → geen actie
 
 Niveauvolgorde (zwak → sterk): building87 → silent → library → normal
-Reset naar 'normal' bij: switch off, HA shutdown, HP inactief.
+Reset naar geconfigureerd dag/nacht-max bij: switch off, HA shutdown, HP inactief.
 """
 
 from __future__ import annotations
@@ -104,6 +104,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         self._is_on = True  # standaard aan: config-optie = feature actief
         self._current_level_idx: int = _NORMAL_IDX
         self._last_mpc_available: datetime | None = None
+        self._hp_inactive_since: datetime | None = None
 
         merged = {**entry.data, **entry.options}
         self._supply_entity = DEFAULT_SUPPLY_TEMP_ENTITY
@@ -218,14 +219,20 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         # 1. HP actief?
         flow = get_float_state(self.hass, self._flow_entity)
         if flow is None or flow < MIN_FLOW_LPH:
-            if self._current_level_idx != effective_max:
+            now = datetime.now(timezone.utc)
+            if self._hp_inactive_since is None:
+                self._hp_inactive_since = now
+            inactive_minutes = (now - self._hp_inactive_since).total_seconds() / 60
+            if inactive_minutes >= 10 and self._current_level_idx != effective_max:
                 _LOGGER.debug(
-                    "HP inactief, reset geluidsniveau naar %s-max (%s)",
+                    "HP >10 min inactief, reset geluidsniveau naar %s-max (%s)",
                     period,
                     _SOUND_LEVELS[effective_max],
                 )
                 await self._async_reset_level()
             return
+
+        self._hp_inactive_since = None
 
         # 2. Gas actief? → stap omhoog zodat HP meer kan leveren
         boiler_heat = get_float_state(self.hass, _BOILER_HEAT_ENTITY)
@@ -297,13 +304,18 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
                 await self._async_apply_level()
 
     async def _async_apply_level(self) -> None:
-        """Schrijf het huidige geluidsniveau naar dag- en nacht-entiteit, geclampt op max."""
-        day_idx = min(self._current_level_idx, self._max_day_idx)
-        night_idx = min(self._current_level_idx, self._max_night_idx)
-        for entity_id, idx in (
-            (_DAY_SOUND_ENTITY, day_idx),
-            (_NIGHT_SOUND_ENTITY, night_idx),
-        ):
+        """Schrijf het huidige geluidsniveau naar de actieve periode-select.
+
+        De inactieve select wordt teruggezet naar zijn geconfigureerde maximum,
+        zodat bij periode-overgang de CIC een schone waarde aantreft.
+        """
+        if self._is_night():
+            active_entity, active_idx = _NIGHT_SOUND_ENTITY, min(self._current_level_idx, self._max_night_idx)
+            idle_entity, idle_idx = _DAY_SOUND_ENTITY, self._max_day_idx
+        else:
+            active_entity, active_idx = _DAY_SOUND_ENTITY, min(self._current_level_idx, self._max_day_idx)
+            idle_entity, idle_idx = _NIGHT_SOUND_ENTITY, self._max_night_idx
+        for entity_id, idx in ((active_entity, active_idx), (idle_entity, idle_idx)):
             await self.hass.services.async_call(
                 "select",
                 "select_option",
@@ -311,8 +323,8 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             )
         _LOGGER.debug(
             "Geluidsniveau ingesteld: dag=%s, nacht=%s",
-            _SOUND_LEVELS[day_idx],
-            _SOUND_LEVELS[night_idx],
+            _SOUND_LEVELS[min(self._current_level_idx, self._max_day_idx)],
+            _SOUND_LEVELS[min(self._current_level_idx, self._max_night_idx)],
         )
 
     async def _async_reset_level(self) -> None:

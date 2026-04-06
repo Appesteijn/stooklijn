@@ -1445,7 +1445,7 @@ views:
 
                 {% if not hp %}
 
-                HP inactief — geluidsniveau gereset naar 'normal'.
+                HP inactief — geluidsniveau gereset naar '{{ state_attr('switch.quatt_warmteanalyse_geluidsniveau_compensatie', 'effective_max') | default('normal') }}'.
 
                 {% elif gas %}
 
