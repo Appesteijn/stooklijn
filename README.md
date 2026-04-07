@@ -14,10 +14,11 @@ Home Assistant custom integration for analyzing your Quatt heat pump performance
 - **Knee temperature** — Detects the outdoor temperature where supplemental heating (boiler) kicks in
 - **Gas comparison** (optional) — Compare heat pump performance with historical gas consumption from before installation
 - **MPC shadow sensor** — Calculates an optimal supply temperature advice based on a 6-hour weather forecast, without touching your system
+- **Online thermisch model** — Learns your home's thermal characteristics (heat loss W/K, thermal mass Wh/K, solar gain) in real-time using Recursive Least Squares; improves MPC accuracy continuously
 - **Quatt advies** — Shows exactly which parameters to ask Quatt to adjust (stookgrens, nominaal vermogen, stooklijn breakpoints)
-- **OTGW compensatie** (optional) — Active supply temperature correction via OpenTherm Gateway room temperature override
+- **Geluidsniveaucompensatie** (optional) — Automatically adjusts the compressor sound level based on MPC error and boiler activity, with separate day/night limits
 - **OpenQuatt ready** — Output sensors with optimal heating curve breakpoints and balance point, ready for OpenQuatt automations
-- **Dashboard included** — Pre-built Lovelace dashboard with interactive charts
+- **Dashboard included** — Pre-built Lovelace dashboard with five tabs including a dedicated Geluid view
 
 ## MPC shadow sensor
 
@@ -38,15 +39,11 @@ The result is compared to the actual supply temperature via the **error sensors*
 
 ### Solar gain correction
 
-If you have a PV inverter (`sensor.solaredge_ac_power` or similar), the sensor learns how much of the solar production translates into actual heat gain inside your home. This calibration improves automatically over time: on sunny days the MPC recommendation will be lower than on overcast days with the same outdoor temperature.
+The integration uses [Open-Meteo](https://open-meteo.com/) shortwave radiation (W/m²) as the primary solar input. If you have a PV inverter sensor configured, the integration can also learn how much of your solar production translates into actual heat gain inside your home; this calibration improves over time.
 
-Without a PV sensor the integration falls back to a fixed conversion factor based on Open-Meteo shortwave radiation estimates.
+### Shadow mode
 
-### Shadow mode — why no live control yet
-
-Live control requires an OpenTherm Gateway (OTGW) to write setpoints to the boiler/heat pump. Shadow mode lets you collect real-world validation data: after a few weeks of data you can judge whether the MPC advice would have improved efficiency before enabling live control.
-
-If you have an OTGW installed, you can enable **OTGW compensatie** (see below) to actively correct the Quatt supply temperature.
+The MPC sensor only produces advice — it never writes setpoints to your system. After a few weeks of data you can judge on the **Geluid** dashboard tab whether the advice tracks reality before taking any further action.
 
 ## Quatt advies sensor
 
@@ -67,48 +64,54 @@ The sensor state shows how many adjustments are recommended (e.g. "3 aanpassinge
 
 > **Note:** The "nominaal vermogen" comparison requires that you enter your current Quatt stooklijn setting (two points) in the integration configuration (Step 3). Without this, the sensor can only show the recommended values, not the difference.
 
-## OTGW compensatie
+## Geluidsniveaucompensatie
 
-If you have an [OpenTherm Gateway](https://otgw.tclcode.com/) installed between your thermostat and Quatt CiC, the integration can actively correct overheating by adjusting the room temperature that the CiC "sees".
+The integration can automatically manage the Quatt compressor sound level based on real-time heating performance, keeping noise low while ensuring enough heat output.
 
 ### How it works
 
-The Quatt CiC uses room temperature and thermostat setpoint to determine heat output. It does not accept external supply temperature setpoints. The OTGW can intercept and modify the OpenTherm messages between thermostat and CiC.
+Every update cycle the switch checks three conditions and adjusts the sound level accordingly:
 
-When the MPC sensor detects that the CiC is overheating (supply temperature too high), the integration increases the OTGW room temperature override. The CiC thinks the room is warmer than it actually is and reduces its output.
+| Condition | Action |
+|-----------|--------|
+| Heat pump inactive (flow = 0) | Reset to configured maximum — ready for next cycle |
+| Gas boiler active | Raise to maximum — HP needs full output, noise acceptable |
+| MPC error < −2°C (supply too high) | Lower by one step — overheating, reduce compressor |
+| MPC error > +2°C (supply too low) | Raise by one step (up to maximum) |
+| Within dead band (±2°C) | No change |
 
-### Safety features
+The 10-minute minimum hold time prevents rapid oscillation between levels.
 
-| Safety measure | Details |
-|---------------|---------|
-| **Direction** | Only makes CiC think room is *warmer* (reduces output). Never colder (never increases output). |
-| **Max offset** | Configurable, default 2.0°C, hard maximum 3.0°C |
-| **Rate limit** | Max 0.5°C change per 5-minute cycle |
-| **Dead band** | No action when MPC error is within ±1.0°C |
-| **HP inactive** | Override resets to 0 when heat pump is off (flow < 30 l/h) |
-| **MPC timeout** | Override resets if MPC sensor is unavailable for >10 minutes |
-| **Switch off** | Override always resets to 0 when the switch is turned off |
-| **HA shutdown** | Override resets on entity removal |
+### Day/night limits
+
+Configure separate maximum sound levels for day and night in the integration options. The switch automatically applies the right maximum based on the current time. A 10-minute reset guard prevents flapping around midnight.
 
 ### Configuration
 
-Enable OTGW compensation in the integration configuration (Step 3 or Options):
+Enable in the integration options:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `otgw_enabled` | `false` | Enable OTGW compensation |
-| `otgw_room_temp_override` | `number.otgw_room_temperature_override` | OTGW override entity |
-| `otgw_max_offset` | `2.0` | Maximum room temperature offset (°C) |
+| `sound_level_enabled` | `false` | Enable geluidsniveaucompensatie |
+| `sound_level_max_day` | `normal` | Maximum level during the day |
+| `sound_level_max_night` | `library` | Maximum level at night |
+| `sound_level_day_start` | `07:00` | Start of day period |
+| `sound_level_night_start` | `23:00` | Start of night period |
 
-After enabling, a switch entity appears: `switch.quatt_warmteanalyse_otgw_compensatie`. Turn it on to start active compensation.
+After enabling, a switch entity appears: `switch.quatt_warmteanalyse_geluidsniveau_compensatie`. It starts on automatically.
 
 The switch exposes these attributes for monitoring:
 
 | Attribute | Description |
 |-----------|-------------|
-| `current_offset` | Current room temperature offset being applied (°C) |
+| `current_level` | Current sound level being applied |
+| `effective_max` | Active maximum (day or night) |
 | `mpc_error` | Difference between MPC advice and actual supply temp (°C) |
 | `hp_active` | Whether the heat pump is currently running |
+| `gas_active` | Whether the gas boiler is currently active |
+| `boiler_heat_w` | Current boiler heat output (W) |
+
+**Sound levels** (low → high): `uit` → `building87` → `silent` → `library` → `normal`
 
 ## OpenQuatt readiness
 
@@ -188,8 +191,8 @@ automation:
 - **Boiler efficiency** — Your old boiler's efficiency (default: 0.90)
 - **Hot water threshold** — Temperature above which gas usage is counted as hot water only (default: 18°C)
 
-### Step 3: Current stooklijn (optional)
-- Enter your current Quatt stooklijn setting as two points (e.g. -10°C/10000W and 16°C/0W) for comparison in charts
+### Step 3: Geluidsniveaucompensatie (optional)
+- Enable the sound level compensation switch and configure day/night maximum levels and the day/night start times
 
 ## Usage
 
@@ -209,13 +212,15 @@ Import the dashboard from `dashboards/quatt_stooklijn_dashboard.yaml`:
 3. Open the dashboard, switch to YAML mode (three dots > **Edit in YAML**)
 4. Paste the contents of `quatt_stooklijn_dashboard.yaml`
 
-The dashboard shows:
-- Key metrics (heat loss, balance temperature, knee point, COP)
-- Heat loss vs outdoor temperature (with gas comparison if configured)
-- Stooklijn comparison: optimal vs Quatt estimated vs your actual setting
-- Heating demand vs Quatt capacity
-- COP vs outdoor temperature
-- Heat demand table at various temperatures
+The dashboard has five tabs:
+
+| Tab | Contents |
+|-----|----------|
+| **Overzicht** | Key metrics (COP, heat loss, balance temp, knee), comfort chart, quick advice |
+| **Analyse** | Heat loss scatter + trendlines, COP vs temperature, heat demand table, data availability |
+| **Advies** | Quatt parameter recommendations, stooklijn breakpoints, OpenQuatt integration |
+| **MPC** | Thermal model status, 6-hour forecast, supply temperature comparison, error sensors |
+| **Geluid** | 48-hour aligned charts: supply temp, power & sound level, MPC deviation, flow & outdoor temp; history graph + compensation status |
 
 ### Adapting the dashboard to your setup
 
@@ -244,7 +249,6 @@ If you have two heat pumps, the dashboard also references `sensor.heatpump_hp2_t
 | Entity ID | What to replace it with |
 |-----------|------------------------|
 | `sensor.thermostat_temperature_outside` | Your outdoor temperature sensor (Toon, Nest, weather station, etc.) |
-| `sensor.solaredge_ac_power` | Your solar inverter power sensor — or remove the MPC solar graph if you have no PV |
 
 **Weather forecast — required for MPC shadow sensor:**
 
@@ -260,7 +264,6 @@ Open `dashboards/quatt_stooklijn_dashboard.yaml` in a text editor and use find-a
 
 ```
 sensor.thermostat_temperature_outside  →  your outdoor temp entity
-sensor.solaredge_ac_power              →  your solar power entity (or remove those lines)
 ```
 
 The MPC/shadow validation tab also uses `sensor.heatpump_flowmeter_temperature` for the supply temperature — this is already in the Quatt hardware list above.
@@ -277,10 +280,10 @@ The MPC/shadow validation tab also uses `sensor.heatpump_flowmeter_temperature` 
 | `average_cop` | — | Average coefficient of performance |
 | `freezing_performance_slope` | W/°C | Heat pump performance below 0°C |
 | `gas_heat_loss_coefficient` | W/K | Heat loss from gas period (if configured) |
-| `actual_stooklijn` | W/°C | Your configured Quatt stooklijn |
 | `last_analysis` | timestamp | When the last analysis was run |
 | `analysis_status` | — | Current analysis status |
-| `quatt_advies` | — | Number of recommended Quatt parameter changes |
+| `data_statistieken` | — | Data availability per source (recorder days, cache days, knee store points) |
+| `quatt_advies_parameters` | — | Recommended Quatt parameter changes with full detail attributes |
 | `openquatt_balance_point` | °C | Optimal balance point for OpenQuatt |
 | `openquatt_stooklijn` | — | 6 heating curve breakpoints for OpenQuatt |
 
@@ -290,15 +293,22 @@ The MPC/shadow validation tab also uses `sensor.heatpump_flowmeter_temperature` 
 |--------|------|-------------|
 | `geschatte_actuele_cop` | — | Interpolated COP at current outdoor temperature |
 | `aanbevolen_aanvoertemperatuur` | °C | Recommended supply temperature (stooklijn-based) |
-| `mpc_aanbevolen_aanvoertemperatuur` | °C | MPC recommended supply temperature (with weather + solar forecast) |
+| `mpc_aanbevolen_aanvoertemperatuur` | °C | MPC recommended supply temperature (weather + solar + RC model) |
 | `stooklijn_fout_aanvoertemperatuur` | °C | Error: stooklijn advice − actual supply |
 | `mpc_fout_aanvoertemperatuur` | °C | Error: MPC advice − actual supply |
+| `geluidsniveau` | — | Current compressor sound level (`uit` / `building87` / `silent` / `library` / `normal`) |
 
-**Control entities** (only when OTGW compensation is enabled):
+**Binary sensors:**
+
+| Entity | Description |
+|--------|-------------|
+| `gasketel_actief` | Whether the gas boiler is currently producing heat |
+
+**Control entities** (only when geluidsniveaucompensatie is enabled):
 
 | Entity | Type | Description |
 |--------|------|-------------|
-| `otgw_compensatie` | switch | Enable/disable active OTGW compensation |
+| `geluidsniveau_compensatie` | switch | Enable/disable automatic sound level management |
 
 ## Services
 
@@ -359,9 +369,22 @@ warmtevraag (W) = slope × T_buiten + intercept
 - **Methode:** twee-pass lineaire regressie met outlier-filtering (residuen > 2.5σ worden verwijderd)
 - **Beperking:** neemt aan dat de relatie temperatuur→warmtevraag een rechte lijn is — houdt geen rekening met wind, zon of thermische massa
 
+### Online thermisch model (1R1C met RLS)
+
+Het primaire model voor MPC. Leert elk uur de thermische eigenschappen van je woning bij via Recursive Least Squares:
+
+```
+C × dT_binnen/dt = Q_hp − U × (T_binnen − T_buiten) + g × straling
+```
+
+- **Parameters die het model leert:** warmteverlies U (W/K), thermische massa C (Wh/K), zonnewinst g (W per W/m²)
+- **Input:** uurlijkse metingen van binnentemp, buitentemp, HP-vermogen en Open-Meteo zonnestraling
+- **Convergentie:** na ~48 uur actieve stookdata zijn de parameters betrouwbaar; het dashboard toont de voortgang
+- **Fallback:** zolang het model nog niet convergeert, gebruikt de MPC het batch lineaire model
+
 ### MPC forecast (physics-based)
 
-Bouwt voort op het lineaire model en voegt real-time correcties toe:
+Bouwt voort op het RC-model en berekent de optimale aanvoertemperatuur:
 
 ```
 T_aanvoer = T_retour + max(0, warmtevraag − zonnewarmte) / (1.16 × debiet)
@@ -369,15 +392,13 @@ T_aanvoer = T_retour + max(0, warmtevraag − zonnewarmte) / (1.16 × debiet)
 
 - **Input:** live sensordata (retourtemp, debiet, buitentemp) + weersvoorspelling (6 uur) + zonnestraling (Open-Meteo)
 - **Output:** aanbevolen aanvoertemperatuur per uur, nu + 6 uur vooruit
-- **Voordeel t.o.v. lineair:** corrigeert voor zonnewinst en gebruikt actuele retourtemperatuur en debiet
-- **Solar learning:** leert dynamisch hoeveel van je PV-opwek als warmte in huis terechtkomt door SolarEdge data te vergelijken met Open-Meteo stralingsdata
 
-| | Lineair model | MPC forecast |
-|---|---|---|
-| **Databron** | Historische dagdata | Live sensors + weersvoorspelling |
-| **Zon/wind** | Nee | Zon ja, wind nee |
-| **Updatefrequentie** | Bij analyse (handmatig/opstart) | Elke sensorupdate |
-| **Doel** | Thermische karakteristiek van je woning | Real-time aanvoertemp advies |
+| | Lineair model | RC model (online) | MPC forecast |
+|---|---|---|---|
+| **Databron** | Historische dagdata | Uurlijkse metingen (continu) | Live sensors + weersvoorspelling |
+| **Zon/wind** | Nee | Zon ja | Zon ja |
+| **Updatefrequentie** | Bij analyse (opstart) | Elk uur | Elke sensorupdate |
+| **Doel** | Thermische karakteristiek (basis) | Verfijnde U/C/g parameters | Real-time aanvoertemp advies |
 
 ### XGBoost (experimenteel, niet actief)
 
@@ -392,12 +413,15 @@ In de repository staan getrainde XGBoost modellen (`.ubj` bestanden) uit de Jupy
 ```
 Historische data → [Lineair model] → slope, intercept, balanspunt
                                           ↓
+Uurlijkse metingen → [RC model (RLS)] → U, C, g (online learning)
+                                          ↓
 Live sensors + weer → [MPC forecast] → optimale aanvoertemperatuur
                                           ↓
-                          ┌───────────────┼───────────────┐
-                          ↓               ↓               ↓
-                    Quatt advies    OTGW compensatie   OpenQuatt
-                   (statisch)       (actieve sturing)  (output sensoren)
+                          ┌───────────────┼─────────────────────┐
+                          ↓               ↓                     ↓
+                    Quatt advies    Geluidsniveau-          OpenQuatt
+                   (statisch)       compensatie             (output sensoren)
+                                   (compressor sturing)
 ```
 
 ## Performance & Caching
