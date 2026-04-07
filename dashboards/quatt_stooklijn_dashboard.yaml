@@ -1194,6 +1194,9 @@ views:
                 curve: smooth
               legend:
                 show: true
+              grid:
+                padding:
+                  right: 100
             series:
               - entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
                 name: MPC advies
@@ -1314,6 +1317,9 @@ views:
                     strokeDashArray: 0
               legend:
                 show: true
+              grid:
+                padding:
+                  right: 100
             series:
               - entity: sensor.quatt_warmteanalyse_mpc_fout_aanvoertemperatuur
                 name: MPC fout (advies − werkelijk)
@@ -1355,6 +1361,9 @@ views:
                 curve: smooth
               legend:
                 show: true
+              grid:
+                padding:
+                  right: 55
             series:
               - entity: sensor.heatpump_flowmeter_flowrate
                 name: Debiet
