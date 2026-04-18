@@ -21,6 +21,8 @@ from .const import (
     CONF_SOUND_LEVEL_ENABLED,
     CONF_SOUND_LEVEL_MAX_DAY,
     CONF_SOUND_LEVEL_MAX_NIGHT,
+    CONF_SOUND_NIGHT_START_HOUR,
+    CONF_SOUND_NIGHT_END_HOUR,
     CONF_POWER_ENTITY,
     CONF_QUATT_START_DATE,
     CONF_RETURN_TEMP_ENTITY,
@@ -34,6 +36,8 @@ from .const import (
     DEFAULT_INDOOR_TEMP_ENTITY,
     DEFAULT_POWER_ENTITY,
     DEFAULT_SOUND_LEVEL_MAX,
+    DEFAULT_SOUND_NIGHT_START_HOUR,
+    DEFAULT_SOUND_NIGHT_END_HOUR,
     DEFAULT_RETURN_TEMP_ENTITY,
     DEFAULT_SOLAR_ENTITY,
     DEFAULT_TEMP_ENTITIES,
@@ -168,6 +172,8 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._data[CONF_SOUND_LEVEL_ENABLED] = user_input.get(CONF_SOUND_LEVEL_ENABLED, False)
             self._data[CONF_SOUND_LEVEL_MAX_DAY] = user_input.get(CONF_SOUND_LEVEL_MAX_DAY, DEFAULT_SOUND_LEVEL_MAX)
             self._data[CONF_SOUND_LEVEL_MAX_NIGHT] = user_input.get(CONF_SOUND_LEVEL_MAX_NIGHT, DEFAULT_SOUND_LEVEL_MAX)
+            self._data[CONF_SOUND_NIGHT_START_HOUR] = user_input.get(CONF_SOUND_NIGHT_START_HOUR, DEFAULT_SOUND_NIGHT_START_HOUR)
+            self._data[CONF_SOUND_NIGHT_END_HOUR] = user_input.get(CONF_SOUND_NIGHT_END_HOUR, DEFAULT_SOUND_NIGHT_END_HOUR)
 
             return self.async_create_entry(
                 title="Quatt Warmteanalyse",
@@ -231,6 +237,16 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_SOUND_LEVEL_MAX_NIGHT,
                     default=DEFAULT_SOUND_LEVEL_MAX,
                 ): vol.In(SOUND_LEVEL_OPTIONS),
+                # Nachtvenster — HA-lokale tijd (CET/CEST), onafhankelijk van Quatt-sensoren.
+                # Vul het uur in waarop de nacht begint resp. eindigt (0–23).
+                vol.Optional(
+                    CONF_SOUND_NIGHT_START_HOUR,
+                    default=DEFAULT_SOUND_NIGHT_START_HOUR,
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=23)),
+                vol.Optional(
+                    CONF_SOUND_NIGHT_END_HOUR,
+                    default=DEFAULT_SOUND_NIGHT_END_HOUR,
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=23)),
             }
         )
 
@@ -300,6 +316,14 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_SOUND_LEVEL_MAX_NIGHT,
                         default=data.get(CONF_SOUND_LEVEL_MAX_NIGHT, DEFAULT_SOUND_LEVEL_MAX),
                     ): vol.In(SOUND_LEVEL_OPTIONS),
+                    vol.Optional(
+                        CONF_SOUND_NIGHT_START_HOUR,
+                        default=data.get(CONF_SOUND_NIGHT_START_HOUR, DEFAULT_SOUND_NIGHT_START_HOUR),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=23)),
+                    vol.Optional(
+                        CONF_SOUND_NIGHT_END_HOUR,
+                        default=data.get(CONF_SOUND_NIGHT_END_HOUR, DEFAULT_SOUND_NIGHT_END_HOUR),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=23)),
                 }
             ),
         )

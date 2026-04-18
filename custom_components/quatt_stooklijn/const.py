@@ -119,8 +119,12 @@ SOLAR_RADIATION_DEFAULT_FACTOR = 8.0  # W per W/m²
 CONF_SOUND_LEVEL_ENABLED = "sound_level_enabled"
 CONF_SOUND_LEVEL_MAX_DAY = "sound_level_max_day"
 CONF_SOUND_LEVEL_MAX_NIGHT = "sound_level_max_night"
+CONF_SOUND_NIGHT_START_HOUR = "sound_night_start_hour"
+CONF_SOUND_NIGHT_END_HOUR = "sound_night_end_hour"
 SOUND_LEVEL_OPTIONS = ["building87", "silent", "library", "normal"]
 DEFAULT_SOUND_LEVEL_MAX = "normal"  # standaard: geen beperking
+DEFAULT_SOUND_NIGHT_START_HOUR = 23
+DEFAULT_SOUND_NIGHT_END_HOUR = 7
 OTGW_CYCLE_SECONDS = 300   # 5 minuten — interval compensatiecyclus
 OTGW_UNAVAILABLE_TIMEOUT = 600  # 10 minuten — reset na MPC timeout
 

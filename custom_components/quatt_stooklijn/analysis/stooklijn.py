@@ -441,6 +441,7 @@ def calculate_stooklijn(
     df_hourly: pd.DataFrame | None,
     df_daily: pd.DataFrame | None,
     df_knee_history: pd.DataFrame | None = None,
+    best_knee_temp: float | None = None,
 ) -> StooklijnResult:
     """Run the full stooklijn analysis.
 
@@ -451,6 +452,11 @@ def calculate_stooklijn(
         df_knee_history: Historical knee data from KneeDataStore (optional).
             When provided, combined with df_ha_merged so cold-weather data
             from previous winters strengthens the knee detection.
+        best_knee_temp: Coldest knee temperature ever reliably detected.
+            When the fresh detection is warmer than this value it is clamped
+            back to it — the knee is a physical HP capacity property that can
+            only move colder as more data is collected, so warmer detections
+            are seasonal drift (mild weather → no cold anchor points).
     """
     result = StooklijnResult()
     dynamic_min_temp = -0.5  # fallback
@@ -546,6 +552,21 @@ def calculate_stooklijn(
             "Using fallback temperature: %.2f°C",
             dynamic_min_temp,
         )
+
+    # Clamp: the knee can only move colder over time. Any warmer detection is
+    # seasonal drift (e.g. April: 30-day recorder window has no cold data, so
+    # the grid search settles on a mild-weather elbow). By clamping to the
+    # stored best, both the reported knee AND the downstream warm-side
+    # regression split (dynamic_min_temp) use the physically correct value.
+    if knee_detected and best_knee_temp is not None:
+        if result.knee_temperature is not None and result.knee_temperature > best_knee_temp:
+            _LOGGER.info(
+                "Knee clamp: detected %.2f°C > best %.2f°C — using frozen value",
+                result.knee_temperature,
+                best_knee_temp,
+            )
+            result.knee_temperature = float(best_knee_temp)
+            dynamic_min_temp = float(best_knee_temp)
 
     # =========================================================
     # STEP 1b: Quatt stooklijn estimation from recorder data

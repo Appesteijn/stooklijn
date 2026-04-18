@@ -15,7 +15,10 @@ _LOGGER = logging.getLogger(__name__)
 STORAGE_VERSION = 1
 STORAGE_KEY = "quatt_stooklijn_insights_cache"
 KNEE_STORAGE_KEY = "quatt_stooklijn_knee_data"
-KNEE_YEARS_TO_KEEP = 3
+# Retention: effectively never purge. Cold-weather data is the only anchor
+# that keeps knee detection stable across seasons, and the storage cost is
+# negligible (hourly points below 10 °C, ~6k points per winter).
+KNEE_YEARS_TO_KEEP = 100
 
 
 class QuattInsightsCache:

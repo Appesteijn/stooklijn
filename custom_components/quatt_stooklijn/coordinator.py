@@ -165,7 +165,10 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
         )
         df_knee_history = self._knee_store.get_as_dataframe()
 
-        # Step 4: Run stooklijn analysis (CPU-heavy, run in executor)
+        # Step 4: Run stooklijn analysis (CPU-heavy, run in executor).
+        # The stored best_knee_temp is passed in so the analysis itself can
+        # clamp warmer-than-best detections — this way both the reported knee
+        # AND the downstream warm-side regression split use the frozen value.
         _LOGGER.info("Running stooklijn calculations...")
         stooklijn_result = await self.hass.async_add_executor_job(
             calculate_stooklijn,
@@ -173,33 +176,19 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             df_hourly if not df_hourly.empty else None,
             df_daily if not df_daily.empty else None,
             df_knee_history,
+            self._knee_store.best_knee_temp,
         )
 
-        # Knee freeze: the knee temperature is a physical property of the heat
-        # pump (max capacity limit) and can only move to colder values as more
-        # cold-weather data is collected.  In spring/summer the mild-weather data
-        # causes the grid-search to find a spurious "elbow" at warm temperatures
-        # (e.g. 3.5°C instead of -1.8°C).  We persist the coldest reliable knee
-        # ever seen and reject any warmer detection beyond a 0.5°C noise margin.
+        # Persist a new best if this run detected a colder knee than ever seen.
+        # (The analysis has already clamped warmer detections back to the
+        # stored best, so update_best_knee only fires on genuine improvements.)
         if stooklijn_result.knee_temperature is not None:
-            updated = self._knee_store.update_best_knee(stooklijn_result.knee_temperature)
-            if updated:
+            if self._knee_store.update_best_knee(stooklijn_result.knee_temperature):
                 await self._knee_store.async_save()
                 _LOGGER.info(
                     "Knee store: new best knee %.2f°C saved",
                     stooklijn_result.knee_temperature,
                 )
-            else:
-                best = self._knee_store.best_knee_temp
-                if best is not None and stooklijn_result.knee_temperature > best + 0.5:
-                    _LOGGER.info(
-                        "Knee freeze: detected %.2f°C > best %.2f°C + 0.5 margin — "
-                        "keeping %.2f°C",
-                        stooklijn_result.knee_temperature,
-                        best,
-                        best,
-                    )
-                    stooklijn_result.knee_temperature = best
 
         # Step 5: Heat loss analysis
         _LOGGER.info("Running heat loss analysis...")

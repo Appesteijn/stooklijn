@@ -36,8 +36,12 @@ from .const import (
     CONF_SOUND_LEVEL_ENABLED,
     CONF_SOUND_LEVEL_MAX_DAY,
     CONF_SOUND_LEVEL_MAX_NIGHT,
+    CONF_SOUND_NIGHT_START_HOUR,
+    CONF_SOUND_NIGHT_END_HOUR,
     DEFAULT_FLOW_ENTITY,
     DEFAULT_SOUND_LEVEL_MAX,
+    DEFAULT_SOUND_NIGHT_START_HOUR,
+    DEFAULT_SOUND_NIGHT_END_HOUR,
     DEFAULT_SUPPLY_TEMP_ENTITY,
     DOMAIN,
     MIN_FLOW_LPH,
@@ -53,14 +57,6 @@ _LOGGER = logging.getLogger(__name__)
 _SOUND_LEVELS = ["building87", "silent", "library", "normal"]
 _NORMAL_IDX = len(_SOUND_LEVELS) - 1
 
-# CIC dag/nacht-grens — live uitgelezen uit Quatt integratie-sensoren
-_SOUND_NIGHT_START_HOUR_ENTITY = "sensor.cic_sound_night_time_start_hour"
-_SOUND_NIGHT_START_MIN_ENTITY = "sensor.cic_sound_night_time_start_min"
-_SOUND_NIGHT_END_HOUR_ENTITY = "sensor.cic_sound_night_time_end_hour"
-_SOUND_NIGHT_END_MIN_ENTITY = "sensor.cic_sound_night_time_end_min"
-# Fallback als de Quatt-sensoren niet beschikbaar zijn
-_NIGHT_START_HOUR_DEFAULT = 23
-_NIGHT_END_HOUR_DEFAULT = 7
 
 _MPC_ENTITY = "sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur"
 _DAY_SOUND_ENTITY = "select.cic_day_max_sound_level"
@@ -120,28 +116,26 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             _SOUND_LEVELS.index(max_night) if max_night in _SOUND_LEVELS else _NORMAL_IDX
         )
 
-    def _is_night(self) -> bool:
-        """Is het nu nacht volgens de CIC dag/nacht-scheiding?
+        # Nachtvenster in HA-lokale tijd — geconfigureerd in HA, onafhankelijk van
+        # Quatt-sensoren (die na zomertijd een verkeerde UTC-offset kunnen meegeven).
+        self._night_start_hour: int = merged.get(CONF_SOUND_NIGHT_START_HOUR, DEFAULT_SOUND_NIGHT_START_HOUR)
+        self._night_end_hour: int = merged.get(CONF_SOUND_NIGHT_END_HOUR, DEFAULT_SOUND_NIGHT_END_HOUR)
 
-        Leest de nachtvenster-sensoren live uit de Quatt integratie.
-        Valt terug op hardcoded standaard als de sensoren niet beschikbaar zijn.
+    def _is_night(self) -> bool:
+        """Is het nu nacht?
+
+        Vergelijkt de HA-lokale tijd met het geconfigureerde nachtvenster.
+        Gebruikt dt_util.now() (Europe/Amsterdam, DST-correct) en de uren
+        die de gebruiker zelf in HA heeft ingesteld — onafhankelijk van
+        Quatt-sensoren die na een zomertijdwissel een verkeerde UTC-offset
+        kunnen rapporteren.
         """
         now = dt_util.now()
         current_minutes = now.hour * 60 + now.minute
+        night_start = self._night_start_hour * 60
+        night_end = self._night_end_hour * 60
 
-        start_h = get_float_state(self.hass, _SOUND_NIGHT_START_HOUR_ENTITY)
-        start_m = get_float_state(self.hass, _SOUND_NIGHT_START_MIN_ENTITY)
-        end_h = get_float_state(self.hass, _SOUND_NIGHT_END_HOUR_ENTITY)
-        end_m = get_float_state(self.hass, _SOUND_NIGHT_END_MIN_ENTITY)
-
-        if start_h is not None and end_h is not None:
-            night_start = int(start_h) * 60 + int(start_m or 0)
-            night_end = int(end_h) * 60 + int(end_m or 0)
-        else:
-            night_start = _NIGHT_START_HOUR_DEFAULT * 60
-            night_end = _NIGHT_END_HOUR_DEFAULT * 60
-
-        # Nachtvenster kan middernacht overspannen (bijv. 23:00–07:00)
+        # Nachtvenster overspant middernacht (bijv. 23:00–07:00)
         if night_start > night_end:
             return current_minutes >= night_start or current_minutes < night_end
         else:
@@ -357,15 +351,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         is_night = self._is_night()
         effective_max = self._effective_max_idx()
 
-        start_h = get_float_state(self.hass, _SOUND_NIGHT_START_HOUR_ENTITY)
-        start_m = get_float_state(self.hass, _SOUND_NIGHT_START_MIN_ENTITY)
-        end_h = get_float_state(self.hass, _SOUND_NIGHT_END_HOUR_ENTITY)
-        end_m = get_float_state(self.hass, _SOUND_NIGHT_END_MIN_ENTITY)
-        night_window = (
-            f"{int(start_h):02d}:{int(start_m or 0):02d}–{int(end_h):02d}:{int(end_m or 0):02d}"
-            if start_h is not None and end_h is not None
-            else f"{_NIGHT_START_HOUR_DEFAULT:02d}:00–{_NIGHT_END_HOUR_DEFAULT:02d}:00 (fallback)"
-        )
+        night_window = f"{self._night_start_hour:02d}:00–{self._night_end_hour:02d}:00"
 
         return {
             "current_level": _SOUND_LEVELS[self._current_level_idx],
