@@ -1174,14 +1174,27 @@ class QuattAdviceSensor(
         return changes
 
     def _stooklijn_reliable(self, data: QuattStooklijnData) -> bool:
-        """True als de warm-kant regressie een realistisch evenwichtspunt heeft.
+        """True als de warm-kant regressie betrouwbaar genoeg is voor -10°C extrapolatie.
 
-        Een balance_temp_api > ADVICE_MAX_RELIABLE_BALANCE_TEMP betekent dat de
-        regressie alleen op voorjaars-/zomerdata is gefit en de extrapolatie naar
-        -10°C onbetrouwbaar is.
+        Twee criteria, beide moeten kloppen:
+        1. balance_temp_api <= ADVICE_MAX_RELIABLE_BALANCE_TEMP (evenwichtspunt niet te hoog)
+        2. |slope_api| >= 0.7 × |slope_optimal| (helling niet te vlak t.o.v. warmteverlies)
+
+        Een te vlakke slope ontstaat als lente-/zomerdata de winterpunten overstemmen:
+        de regressie convergeert naar het milde-weer-patroon en de extrapolatie naar
+        -10°C is dan sterk onderschat.
         """
         bt = data.stooklijn.balance_temp_api
-        return bt is not None and bt <= ADVICE_MAX_RELIABLE_BALANCE_TEMP
+        if bt is None or bt > ADVICE_MAX_RELIABLE_BALANCE_TEMP:
+            return False
+
+        slope_api = data.stooklijn.slope_api
+        slope_opt = data.heat_loss_hp.slope
+        if slope_api is not None and slope_opt is not None and slope_opt != 0:
+            if abs(slope_api) < 0.8 * abs(slope_opt):
+                return False
+
+        return True
 
     def _calc_vermogen(
         self, data: QuattStooklijnData
@@ -1256,8 +1269,19 @@ class QuattAdviceSensor(
         attrs["nominaal_vermogen_betrouwbaar"] = stooklijn_betrouwbaar
         if not stooklijn_betrouwbaar:
             bt = round(data.stooklijn.balance_temp_api, 1) if data.stooklijn.balance_temp_api else "?"
+            s_api = round(data.stooklijn.slope_api, 1) if data.stooklijn.slope_api else None
+            s_opt = round(data.heat_loss_hp.slope, 1) if data.heat_loss_hp.slope else None
+            if bt is not None and float(bt) > ADVICE_MAX_RELIABLE_BALANCE_TEMP:
+                reden = f"evenwichtspunt is {bt}°C (te weinig koude meetdata)"
+            elif s_api is not None and s_opt is not None:
+                reden = (
+                    f"stooklijn-helling ({s_api} W/°C) is te vlak "
+                    f"t.o.v. warmteverlies ({s_opt} W/°C) — lente-/zomerdata overheerst"
+                )
+            else:
+                reden = "onvoldoende koude meetdata"
             attrs["nominaal_vermogen_advies"] = (
-                f"Onbetrouwbaar: stooklijn-evenwichtspunt is {bt}°C (te weinig koude meetdata). "
+                f"Onbetrouwbaar: {reden}. "
                 "Vergelijking pas betrouwbaar als het kouder is geweest."
             )
         elif vermogen_cur is not None and vermogen_opt is not None:
