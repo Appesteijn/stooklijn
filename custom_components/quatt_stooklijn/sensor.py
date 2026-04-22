@@ -536,6 +536,9 @@ ADVICE_BREAKPOINT_TEMPS = (-10, -5, 0, 5, 10, 15)
 ADVICE_NOMINAL_RETURN_TEMP = 28.0  # °C — typical return temp for breakpoint calc
 ADVICE_STOOKGRENS_THRESHOLD = 1.0  # °C — significant difference threshold
 ADVICE_VERMOGEN_THRESHOLD = 500  # W — significant difference threshold
+# Warm-side regression is unreliable when the fitted balance point is above this
+# temperature: only mild-weather data available, extrapolation to -10°C is invalid.
+ADVICE_MAX_RELIABLE_BALANCE_TEMP = 20.0  # °C
 
 
 def _calc_heating_curve_breakpoints(
@@ -1156,29 +1159,48 @@ class QuattAdviceSensor(
         ):
             changes += 1
 
-        # Nominaal vermogen
-        vermogen_cur, vermogen_opt = self._calc_vermogen(data)
-        if (
-            vermogen_cur is not None
-            and vermogen_opt is not None
-            and abs(vermogen_cur - vermogen_opt) > ADVICE_VERMOGEN_THRESHOLD
-        ):
-            changes += 1
+        # Nominaal vermogen — alleen als stooklijn-regressie betrouwbaar is
+        if self._stooklijn_reliable(data):
+            vermogen_cur, vermogen_opt = self._calc_vermogen(data)
+            if (
+                vermogen_cur is not None
+                and vermogen_opt is not None
+                and abs(vermogen_cur - vermogen_opt) > ADVICE_VERMOGEN_THRESHOLD
+            ):
+                changes += 1
 
         # Stooklijn breakpoints zijn informatief, niet meegeteld in changes
 
         return changes
 
+    def _stooklijn_reliable(self, data: QuattStooklijnData) -> bool:
+        """True als de warm-kant regressie een realistisch evenwichtspunt heeft.
+
+        Een balance_temp_api > ADVICE_MAX_RELIABLE_BALANCE_TEMP betekent dat de
+        regressie alleen op voorjaars-/zomerdata is gefit en de extrapolatie naar
+        -10°C onbetrouwbaar is.
+        """
+        bt = data.stooklijn.balance_temp_api
+        return bt is not None and bt <= ADVICE_MAX_RELIABLE_BALANCE_TEMP
+
     def _calc_vermogen(
         self, data: QuattStooklijnData
     ) -> tuple[float | None, float | None]:
-        """Bereken huidig en optimaal vermogen bij -10°C."""
+        """Bereken huidig en optimaal vermogen bij -10°C.
+
+        Huidig wordt None als de stooklijn-regressie onbetrouwbaar is
+        (te weinig koude meetdata; balance_temp_api > 20°C).
+        """
         from .analysis.utils import calc_heat_demand
 
         # Huidig: uit de recorder-gebaseerde Quatt stooklijn
         vermogen_cur = None
         sl = data.stooklijn
-        if sl.slope_api is not None and sl.intercept_api is not None:
+        if (
+            sl.slope_api is not None
+            and sl.intercept_api is not None
+            and self._stooklijn_reliable(data)
+        ):
             vermogen_cur = round(sl.slope_api * -10 + sl.intercept_api)
 
         # Optimaal: uit het heat loss model
@@ -1223,9 +1245,22 @@ class QuattAdviceSensor(
 
         # --- Nominaal vermogen bij -10°C ---
         vermogen_cur, vermogen_opt = self._calc_vermogen(data)
-        attrs["nominaal_vermogen_huidig_w"] = vermogen_cur
+        stooklijn_betrouwbaar = self._stooklijn_reliable(data)
+        # Toon het ruwe getal altijd (ook als onbetrouwbaar), maar markeer het
+        sl = data.stooklijn
+        if sl.slope_api is not None and sl.intercept_api is not None and not stooklijn_betrouwbaar:
+            attrs["nominaal_vermogen_huidig_w"] = round(sl.slope_api * -10 + sl.intercept_api)
+        else:
+            attrs["nominaal_vermogen_huidig_w"] = vermogen_cur
         attrs["nominaal_vermogen_optimaal_w"] = vermogen_opt
-        if vermogen_cur is not None and vermogen_opt is not None:
+        attrs["nominaal_vermogen_betrouwbaar"] = stooklijn_betrouwbaar
+        if not stooklijn_betrouwbaar:
+            bt = round(data.stooklijn.balance_temp_api, 1) if data.stooklijn.balance_temp_api else "?"
+            attrs["nominaal_vermogen_advies"] = (
+                f"Onbetrouwbaar: stooklijn-evenwichtspunt is {bt}°C (te weinig koude meetdata). "
+                "Vergelijking pas betrouwbaar als het kouder is geweest."
+            )
+        elif vermogen_cur is not None and vermogen_opt is not None:
             diff = vermogen_opt - vermogen_cur
             if abs(diff) > ADVICE_VERMOGEN_THRESHOLD:
                 verb = "Verhoog" if diff > 0 else "Verlaag"

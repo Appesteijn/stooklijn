@@ -602,12 +602,28 @@ def calculate_stooklijn(
                 )
 
         if len(df_right) > 1:
-            x_all = df_right["temp"].values
-            y_all = df_right["power"].values
+            # Bin by 1°C intervals and take the median per bin so that every
+            # temperature degree weighs equally in the regression.  Without
+            # binning, thousands of mild-spring minutes swamp the handful of
+            # cold-winter KneeDataStore hours and flatten the slope to the
+            # point where the balance temperature ends up above 20°C.
+            bin_edges = np.arange(
+                np.floor(df_right["temp"].min()),
+                np.ceil(df_right["temp"].max()) + 1.5,
+                1.0,
+            )
+            df_right["_bin"] = pd.cut(df_right["temp"], bins=bin_edges)
+            df_binned = (
+                df_right.groupby("_bin", observed=True)[["temp", "power"]]
+                .median()
+                .dropna()
+                .reset_index(drop=True)
+            )
+            df_right = df_right.drop(columns="_bin")
 
-            # Two-pass outlier removal: first-pass fit identifies anomalous
-            # minutes (e.g. defrost bleed-through, setpoint spikes) so the
-            # final slope is not skewed by a handful of unusual data points.
+            x_all = df_binned["temp"].values
+            y_all = df_binned["power"].values
+
             slope, intercept, inlier_mask = robust_linear_fit(x_all, y_all)
             x_fit = x_all[inlier_mask]
             result.slope_api = float(slope)
@@ -616,12 +632,12 @@ def calculate_stooklijn(
                 result.balance_temp_api = float(-intercept / slope)
             _LOGGER.info(
                 "Quatt stooklijn estimated from recorder: slope=%.1f W/°C, "
-                "intercept=%.0f W, zero at %.1f°C (%d/%d data points after outlier removal)",
+                "intercept=%.0f W, zero at %.1f°C (%d bins from %d raw points)",
                 slope,
                 intercept,
                 -intercept / slope if slope != 0 else float("inf"),
                 len(x_fit),
-                len(x_all),
+                len(df_right),
             )
 
     # =========================================================

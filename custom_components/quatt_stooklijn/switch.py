@@ -101,6 +101,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         self._current_level_idx: int = _NORMAL_IDX
         self._last_mpc_available: datetime | None = None
         self._hp_inactive_since: datetime | None = None
+        self._last_is_night: bool | None = None
 
         merged = {**entry.data, **entry.options}
         self._supply_entity = DEFAULT_SUPPLY_TEMP_ENTITY
@@ -197,9 +198,12 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         """Kernlogica: bepaal of het geluidsniveau omhoog of omlaag moet."""
 
         effective_max = self._effective_max_idx()
-        period = "nacht" if self._is_night() else "dag"
+        is_night = self._is_night()
+        period = "nacht" if is_night else "dag"
 
-        # Clamp interne level bij dag/nacht-overgang
+        # Dag/nacht-overgang: clamp indien nodig én reset de inactieve slider altijd
+        period_changed = self._last_is_night is not None and is_night != self._last_is_night
+        self._last_is_night = is_night
         if self._current_level_idx > effective_max:
             _LOGGER.info(
                 "Dag/nacht-overgang (%s): geluidsniveau %s → %s",
@@ -208,6 +212,12 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
                 _SOUND_LEVELS[effective_max],
             )
             self._current_level_idx = effective_max
+            await self._async_apply_level()
+        elif period_changed:
+            # Level hoeft niet geclampt, maar inactieve slider moet alsnog op max
+            _LOGGER.info(
+                "Dag/nacht-overgang (%s): inactieve slider gereset naar max", period
+            )
             await self._async_apply_level()
 
         # 1. HP actief?

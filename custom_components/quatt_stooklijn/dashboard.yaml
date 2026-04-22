@@ -740,11 +740,16 @@ views:
               state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
               'nominaal_vermogen_advies') %}
 
+              {% set betrouwbaar =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'nominaal_vermogen_betrouwbaar') %}
+
               | | Waarde |
 
               |:--|--:|
 
-              | Huidig (Quatt) | {% if cur %}**{{ cur }} W**{% else %}*niet
+              | Huidig (Quatt) | {% if cur %}{{ '~~' if not betrouwbaar }}**{{ cur
+              }} W**{{ '~~' if not betrouwbaar }}{% else %}*niet
               geconfigureerd*{% endif %} |
 
               | Optimaal | {% if opt %}**{{ opt }} W**{% else %}*onbekend*{%

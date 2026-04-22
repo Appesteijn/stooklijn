@@ -278,3 +278,53 @@ class TestApplyLevel:
         calls = sw.hass.services.async_call.call_args_list
         entity_to_option = {c.args[2]["entity_id"]: c.args[2]["option"] for c in calls}
         assert entity_to_option[_DAY_SOUND_ENTITY] == "normal"  # schoon voor de ochtend
+
+
+# ---------------------------------------------------------------------------
+# Periode-overgang detectie — inactieve slider reset bij overgang
+# ---------------------------------------------------------------------------
+
+class TestPeriodTransition:
+
+    def test_nacht_slider_reset_bij_ochtend_zonder_clamp(self):
+        """Als niveau <= max_day (geen clamp), nacht-slider toch op max_night zetten bij 07:00."""
+        sw = _make_switch(max_day="normal", max_night="normal")
+        sw._current_level_idx = 0  # building87, was nacht
+
+        def flow_active(hass, entity):
+            if entity == sw._flow_entity:
+                return MIN_FLOW_LPH + 10.0
+            return None
+
+        # Simuleer nacht → dag overgang
+        sw._last_is_night = True  # was nacht
+
+        with patch("custom_components.quatt_stooklijn.switch.get_float_state", side_effect=flow_active), \
+             patch.object(sw, "_is_night", return_value=False), \
+             patch.object(sw, "_async_apply_level", new_callable=AsyncMock) as mock_apply, \
+             patch("custom_components.quatt_stooklijn.switch.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2024, 1, 1, 7, 0, tzinfo=timezone.utc)
+            _run(sw._async_do_compensation())
+
+        mock_apply.assert_called_once()
+
+    def test_geen_apply_bij_zelfde_periode(self):
+        """Geen extra apply_level als periode niet veranderd is."""
+        sw = _make_switch(max_day="normal", max_night="normal")
+        sw._current_level_idx = 3  # normal, al op max
+
+        def flow_active(hass, entity):
+            if entity == sw._flow_entity:
+                return MIN_FLOW_LPH + 10.0
+            return None
+
+        sw._last_is_night = False  # was al dag
+
+        with patch("custom_components.quatt_stooklijn.switch.get_float_state", side_effect=flow_active), \
+             patch.object(sw, "_is_night", return_value=False), \
+             patch.object(sw, "_async_apply_level", new_callable=AsyncMock) as mock_apply, \
+             patch("custom_components.quatt_stooklijn.switch.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc)
+            _run(sw._async_do_compensation())
+
+        mock_apply.assert_not_called()
