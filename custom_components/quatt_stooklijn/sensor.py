@@ -1149,8 +1149,8 @@ class QuattAdviceSensor(
         """Tel het aantal significante afwijkingen."""
         changes = 0
 
-        # Stookgrens: vergelijk recorder-gebaseerde Quatt stooklijn vs huis-optimaal
-        stookgrens_cur = data.stooklijn.balance_temp_api
+        # Stookgrens: vergelijk daggemiddeld-gebaseerde Quatt stooklijn vs huis-optimaal
+        stookgrens_cur = data.stooklijn.balance_temp_api_daily
         stookgrens_opt = data.stooklijn.balance_temp_optimal
         if (
             stookgrens_cur is not None
@@ -1174,24 +1174,24 @@ class QuattAdviceSensor(
         return changes
 
     def _stooklijn_reliable(self, data: QuattStooklijnData) -> bool:
-        """True als de warm-kant regressie betrouwbaar genoeg is voor -10°C extrapolatie.
+        """True als de daggemiddeld-gebaseerde Quatt stooklijn betrouwbaar is.
 
         Twee criteria, beide moeten kloppen:
-        1. balance_temp_api <= ADVICE_MAX_RELIABLE_BALANCE_TEMP (evenwichtspunt niet te hoog)
-        2. |slope_api| >= 0.7 × |slope_optimal| (helling niet te vlak t.o.v. warmteverlies)
+        1. balance_temp_api_daily <= ADVICE_MAX_RELIABLE_BALANCE_TEMP
+        2. |slope_api_daily| >= 0.8 × |slope_optimal|
 
-        Een te vlakke slope ontstaat als lente-/zomerdata de winterpunten overstemmen:
-        de regressie convergeert naar het milde-weer-patroon en de extrapolatie naar
-        -10°C is dan sterk onderschat.
+        De daily-variant middelt over volledige dagen (inclusief OFF-uren), waardoor
+        modulatie-bias en over-delivery door een te agressieve stooklijn niet de
+        x-intercept opblazen zoals bij de minuut-regressie het geval was.
         """
-        bt = data.stooklijn.balance_temp_api
+        bt = data.stooklijn.balance_temp_api_daily
         if bt is None or bt > ADVICE_MAX_RELIABLE_BALANCE_TEMP:
             return False
 
-        slope_api = data.stooklijn.slope_api
+        slope_daily = data.stooklijn.slope_api_daily
         slope_opt = data.heat_loss_hp.slope
-        if slope_api is not None and slope_opt is not None and slope_opt != 0:
-            if abs(slope_api) < 0.8 * abs(slope_opt):
+        if slope_daily is not None and slope_opt is not None and slope_opt != 0:
+            if abs(slope_daily) < 0.8 * abs(slope_opt):
                 return False
 
         return True
@@ -1201,20 +1201,19 @@ class QuattAdviceSensor(
     ) -> tuple[float | None, float | None]:
         """Bereken huidig en optimaal vermogen bij -10°C.
 
-        Huidig wordt None als de stooklijn-regressie onbetrouwbaar is
-        (te weinig koude meetdata; balance_temp_api > 20°C).
+        Huidig wordt None als de daggemiddeld-gebaseerde regressie onbetrouwbaar is.
         """
         from .analysis.utils import calc_heat_demand
 
-        # Huidig: uit de recorder-gebaseerde Quatt stooklijn
+        # Huidig: uit de daggemiddeld-gebaseerde Quatt stooklijn
         vermogen_cur = None
         sl = data.stooklijn
         if (
-            sl.slope_api is not None
-            and sl.intercept_api is not None
+            sl.slope_api_daily is not None
+            and sl.intercept_api_daily is not None
             and self._stooklijn_reliable(data)
         ):
-            vermogen_cur = round(sl.slope_api * -10 + sl.intercept_api)
+            vermogen_cur = round(sl.slope_api_daily * -10 + sl.intercept_api_daily)
 
         # Optimaal: uit het heat loss model
         vermogen_opt = None
@@ -1234,9 +1233,9 @@ class QuattAdviceSensor(
         attrs: dict[str, Any] = {}
 
         # --- Stookgrens ---
-        # "huidig" = nulpunt van de recorder-gebaseerde Quatt stooklijn
+        # "huidig" = nulpunt van de daggemiddeld-gebaseerde Quatt stooklijn
         # "optimaal" = nulpunt van de huis-optimale regressie op dagdata
-        stookgrens_cur = data.stooklijn.balance_temp_api
+        stookgrens_cur = data.stooklijn.balance_temp_api_daily
         stookgrens_opt = data.stooklijn.balance_temp_optimal
         attrs["stookgrens_huidig"] = (
             round(stookgrens_cur, 1) if stookgrens_cur is not None else None
@@ -1261,25 +1260,25 @@ class QuattAdviceSensor(
         stooklijn_betrouwbaar = self._stooklijn_reliable(data)
         # Toon het ruwe getal altijd (ook als onbetrouwbaar), maar markeer het
         sl = data.stooklijn
-        if sl.slope_api is not None and sl.intercept_api is not None and not stooklijn_betrouwbaar:
-            attrs["nominaal_vermogen_huidig_w"] = round(sl.slope_api * -10 + sl.intercept_api)
+        if sl.slope_api_daily is not None and sl.intercept_api_daily is not None and not stooklijn_betrouwbaar:
+            attrs["nominaal_vermogen_huidig_w"] = round(sl.slope_api_daily * -10 + sl.intercept_api_daily)
         else:
             attrs["nominaal_vermogen_huidig_w"] = vermogen_cur
         attrs["nominaal_vermogen_optimaal_w"] = vermogen_opt
         attrs["nominaal_vermogen_betrouwbaar"] = stooklijn_betrouwbaar
         if not stooklijn_betrouwbaar:
-            bt = round(data.stooklijn.balance_temp_api, 1) if data.stooklijn.balance_temp_api else "?"
-            s_api = round(data.stooklijn.slope_api, 1) if data.stooklijn.slope_api else None
+            bt = round(data.stooklijn.balance_temp_api_daily, 1) if data.stooklijn.balance_temp_api_daily else "?"
+            s_daily = round(data.stooklijn.slope_api_daily, 1) if data.stooklijn.slope_api_daily else None
             s_opt = round(data.heat_loss_hp.slope, 1) if data.heat_loss_hp.slope else None
             if bt is not None and float(bt) > ADVICE_MAX_RELIABLE_BALANCE_TEMP:
-                reden = f"evenwichtspunt is {bt}°C (te weinig koude meetdata)"
-            elif s_api is not None and s_opt is not None:
+                reden = f"evenwichtspunt is {bt}°C (te weinig koude daggemiddelden)"
+            elif s_daily is not None and s_opt is not None:
                 reden = (
-                    f"stooklijn-helling ({s_api} W/°C) is te vlak "
-                    f"t.o.v. warmteverlies ({s_opt} W/°C) — lente-/zomerdata overheerst"
+                    f"stooklijn-helling ({s_daily} W/°C) is te vlak "
+                    f"t.o.v. warmteverlies ({s_opt} W/°C)"
                 )
             else:
-                reden = "onvoldoende koude meetdata"
+                reden = "onvoldoende daggemiddelden beschikbaar"
             attrs["nominaal_vermogen_advies"] = (
                 f"Onbetrouwbaar: {reden}. "
                 "Vergelijking pas betrouwbaar als het kouder is geweest."
@@ -1295,7 +1294,7 @@ class QuattAdviceSensor(
                 attrs["nominaal_vermogen_advies"] = "Nominaal vermogen is goed ingesteld"
         else:
             attrs["nominaal_vermogen_advies"] = (
-                "Wacht tot de Quatt stooklijn is geschat uit recorder data"
+                "Wacht tot voldoende daggemiddelden beschikbaar zijn"
                 if vermogen_cur is None
                 else None
             )

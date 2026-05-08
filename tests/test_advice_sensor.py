@@ -90,16 +90,16 @@ class TestQuattAdviceSensorLogic:
         slope=-200,
         intercept=4000,
         balance_opt=20.0,
-        balance_api=17.0,
+        balance_api_daily=17.0,
         actual_slope=-300,
         actual_intercept=6000,
     ) -> QuattStooklijnData:
         return QuattStooklijnData(
             stooklijn=StooklijnResult(
                 balance_temp_optimal=balance_opt,
-                balance_temp_api=balance_api,
-                slope_api=actual_slope,
-                intercept_api=actual_intercept,
+                balance_temp_api_daily=balance_api_daily,
+                slope_api_daily=actual_slope,
+                intercept_api_daily=actual_intercept,
             ),
             heat_loss_hp=HeatLossResult(
                 slope=slope, intercept=intercept,
@@ -118,8 +118,8 @@ class TestQuattAdviceSensorLogic:
     def test_count_changes_optimal(self):
         """When stookgrens matches and vermogen matches → 0 changes."""
         data = self._make_data(
-            balance_opt=17.0,  # matches api
-            balance_api=17.0,
+            balance_opt=17.0,  # matches daily
+            balance_api_daily=17.0,
             actual_slope=-200,
             actual_intercept=4000,  # matches heat loss at -10°C
         )
@@ -128,11 +128,11 @@ class TestQuattAdviceSensorLogic:
         assert sensor._count_changes(data) == 0
 
     def test_vermogen_calculation(self):
-        """Check nominal power at -10°C."""
+        """Check nominal power at -10°C using daily slope."""
         data = self._make_data(actual_slope=-300, actual_intercept=6000)
         sensor = QuattAdviceSensor.__new__(QuattAdviceSensor)
         cur, opt = sensor._calc_vermogen(data)
-        # Current: -300*-10 + 6000 = 9000
+        # Current: slope_api_daily=-300 → -300*-10 + 6000 = 9000
         assert cur == 9000
         # Optimal: max(0, -200*-10 + 4000) = 6000
         assert opt == 6000

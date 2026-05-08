@@ -699,7 +699,7 @@ views:
 
               |:--|--:|
 
-              | Quatt stooklijn (gemeten) | {% if cur %}**{{ cur }}°C**{% else
+              | Quatt stooklijn (daggemiddeld) | {% if cur %}**{{ cur }}°C**{% else
               %}*onbekend*{% endif %} |
 
               | Huis optimaal (lineair) | {% if opt %}**{{ opt }}°C**{% else %}*onbekend*{%
