@@ -1218,6 +1218,89 @@ views:
               columns: full
               rows: auto
 
+      # ── chMaxWater bijsturing — temperatuurlimiet effect (48 uur) ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: custom:apexcharts-card
+            header:
+              title: chMaxWater bijsturing — limiet vs thermostaat (48 uur)
+              show: true
+            graph_span: 48h
+            yaxis:
+              - id: temp
+                min: 15
+                max: 60
+                decimals: 0
+                apex_config:
+                  title:
+                    text: "°C"
+            apex_config:
+              chart:
+                height: 280
+              stroke:
+                curve: stepline
+              legend:
+                show: true
+              grid:
+                padding:
+                  right: 55
+            series:
+              - entity: sensor.heatpump_thermostat_control_setpoint
+                name: Thermostaat vraagt
+                yaxis_id: temp
+                color: "#FF9800"
+                stroke_width: 2
+                type: area
+                opacity: 0.12
+              - entity: number.cic_max_water_temperature
+                name: chMaxWater limiet
+                yaxis_id: temp
+                color: "#F44336"
+                stroke_width: 3
+                type: line
+              - entity: sensor.heatpump_flowmeter_temperature
+                name: Werkelijke aanvoer
+                yaxis_id: temp
+                color: "#2196F3"
+                stroke_width: 2
+                type: line
+              - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
+                name: Stooklijn advies
+                yaxis_id: temp
+                color: "#4CAF50"
+                stroke_width: 2
+                type: line
+                stroke_dasharray: 4
+            grid_options:
+              columns: full
+              rows: auto
+
+      # ── chMaxWater bijsturing — huidige status ──
+      - type: grid
+        cards:
+          - type: markdown
+            title: chMaxWater bijsturing
+            content: >
+              {% set setpoint = states('sensor.heatpump_thermostat_control_setpoint') | float(none) %}
+              {% set limiet = states('number.cic_max_water_temperature') | float(none) %}
+              {% set werkelijk = states('sensor.heatpump_flowmeter_temperature') | float(none) %}
+              {% set advies = states('sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur') | float(none) %}
+              {% set last_written = states('sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling') | float(none) %}
+              {% set last_at = state_attr('sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling', 'last_written_at') %}
+
+              | | Waarde |
+              |:--|--:|
+              | Thermostaat vraagt | {% if setpoint %}**{{ setpoint | round(1) }}°C**{% else %}*n/b*{% endif %} |
+              | chMaxWater limiet | {% if limiet %}**{{ limiet | round(1) }}°C**{% else %}*n/b*{% endif %} |
+              | Werkelijke aanvoer | {% if werkelijk %}{{ werkelijk | round(1) }}°C{% else %}*n/b*{% endif %} |
+              | Stooklijn advies | {% if advies %}{{ advies | round(1) }}°C{% else %}*n/b*{% endif %} |
+              | **Verlaging** | {% if setpoint and limiet %}{% set v = setpoint - limiet %}{% if v > 0 %}**−{{ v | round(1) }}°C**{% else %}*niet actief*{% endif %}{% else %}*n/b*{% endif %} |
+              | Laatste schrijfactie | {% if last_at %}{{ last_at[:16] | replace('T',' ') }}{% else %}*nog niet geschreven*{% endif %} |
+        grid_options:
+          columns: full
+          rows: auto
+
       # ── Vermogen + geluidsniveau (48 uur) ──
       - type: grid
         column_span: 2
