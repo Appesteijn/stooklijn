@@ -1288,7 +1288,9 @@ views:
 
               {% set last_at = state_attr('sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling', 'last_written_at') %}
 
-              De bijsturing schrijft elke 30 min een maximale aanvoertemperatuur
+              {% set interval = state_attr('sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling', 'interval_minutes') | int(30) %}
+
+              De bijsturing schrijft elke {{ interval }} min een maximale aanvoertemperatuur
               naar de warmtepomp, zodat de werkelijke aanvoer nooit boven het
               stooklijn-advies uitkomt.
 
