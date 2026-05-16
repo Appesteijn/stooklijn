@@ -1239,8 +1239,7 @@ views:
               chart:
                 height: 280
               stroke:
-                curve: stepline
-                dashArray: [0, 0, 0, 6]
+                curve: smooth
               legend:
                 show: true
               grid:
@@ -1259,19 +1258,16 @@ views:
                 yaxis_id: temp
                 color: "#F44336"
                 stroke_width: 3
-                type: line
               - entity: sensor.heatpump_flowmeter_temperature
                 name: Werkelijke aanvoer
                 yaxis_id: temp
                 color: "#2196F3"
                 stroke_width: 2
-                type: line
               - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
                 name: Stooklijn advies
                 yaxis_id: temp
                 color: "#4CAF50"
-                stroke_width: 2
-                type: line
+                stroke_width: 1.5
             grid_options:
               columns: full
               rows: auto
@@ -1283,20 +1279,34 @@ views:
             title: chMaxWater bijsturing
             content: >
               {% set setpoint = states('sensor.heatpump_thermostat_control_setpoint') | float(none) %}
+
               {% set limiet = states('number.cic_max_water_temperature') | float(none) %}
+
               {% set werkelijk = states('sensor.heatpump_flowmeter_temperature') | float(none) %}
+
               {% set advies = states('sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur') | float(none) %}
-              {% set last_written = states('sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling') | float(none) %}
+
               {% set last_at = state_attr('sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling', 'last_written_at') %}
 
+              De bijsturing schrijft elke 30 min een maximale aanvoertemperatuur
+              naar de warmtepomp, zodat de werkelijke aanvoer nooit boven het
+              stooklijn-advies uitkomt.
+
               | | Waarde |
+
               |:--|--:|
+
               | Thermostaat vraagt | {% if setpoint %}**{{ setpoint | round(1) }}°C**{% else %}*n/b*{% endif %} |
+
               | chMaxWater limiet | {% if limiet %}**{{ limiet | round(1) }}°C**{% else %}*n/b*{% endif %} |
+
               | Werkelijke aanvoer | {% if werkelijk %}{{ werkelijk | round(1) }}°C{% else %}*n/b*{% endif %} |
+
               | Stooklijn advies | {% if advies %}{{ advies | round(1) }}°C{% else %}*n/b*{% endif %} |
-              | **Verlaging** | {% if setpoint and limiet %}{% set v = setpoint - limiet %}{% if v > 0 %}**−{{ v | round(1) }}°C**{% else %}*niet actief*{% endif %}{% else %}*n/b*{% endif %} |
-              | Laatste schrijfactie | {% if last_at %}{{ last_at[:16] | replace('T',' ') }}{% else %}*nog niet geschreven*{% endif %} |
+
+              | **Verlaging** | {% if setpoint and limiet %}{% set v = setpoint - limiet %}{% if v > 0 %}**−{{ v | round(1) }}°C**{% else %}niet actief{% endif %}{% else %}*n/b*{% endif %} |
+
+              | Laatste update | {% if last_at %}{{ last_at[:16] | replace('T',' ') }}{% else %}*nog niet geschreven*{% endif %} |
         grid_options:
           columns: full
           rows: auto
