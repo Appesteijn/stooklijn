@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 import homeassistant.util.dt as dt_util
 
-from .const import DEFAULT_CH_MAX_WATER_SOURCE
+from .const import CH_MAX_WATER_ENTITY_LEGACY, DEFAULT_CH_MAX_WATER_SOURCE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -93,7 +93,15 @@ class ChMaxWaterController:
             _LOGGER.debug("ChMaxWater: bronentiteit '%s' niet beschikbaar", self.source_entity)
             return
 
-        clamped = self._clamp(recommended)
+        entity_id = self._resolve_number_entity()
+        if entity_id is None:
+            _LOGGER.warning(
+                "ChMaxWater: number entity '%s' niet beschikbaar, schrijfactie overgeslagen",
+                self._number_entity,
+            )
+            return
+
+        clamped = self._clamp(recommended, entity_id)
         if clamped is None:
             return
 
@@ -106,7 +114,7 @@ class ChMaxWaterController:
             )
             return
 
-        await self._write(clamped)
+        await self._write(clamped, entity_id)
 
     # ------------------------------------------------------------------
 
@@ -120,15 +128,28 @@ class ChMaxWaterController:
         except ValueError:
             return None
 
-    def _clamp(self, value: float) -> float | None:
-        """Begrens waarde op min/max van de Quatt number entity."""
+    def _resolve_number_entity(self) -> str | None:
+        """Geef de entity-ID terug die beschikbaar is (geconfigureerd of legacy fallback)."""
         state = self._hass.states.get(self._number_entity)
-        if state is None or state.state in ("unknown", "unavailable"):
-            _LOGGER.warning(
-                "ChMaxWater: number entity '%s' niet beschikbaar, schrijfactie overgeslagen",
-                self._number_entity,
-            )
-            return None
+        if state is not None and state.state not in ("unknown", "unavailable"):
+            return self._number_entity
+        # Probeer de legacy entity-ID (Quatt ≤1.0.2: heatpump_ prefix).
+        legacy = CH_MAX_WATER_ENTITY_LEGACY
+        if self._number_entity != legacy:
+            state_legacy = self._hass.states.get(legacy)
+            if state_legacy is not None and state_legacy.state not in ("unknown", "unavailable"):
+                _LOGGER.warning(
+                    "ChMaxWater: '%s' niet gevonden, gebruik legacy '%s'. "
+                    "Pas de entity-instelling aan om deze melding te voorkomen.",
+                    self._number_entity,
+                    legacy,
+                )
+                return legacy
+        return None
+
+    def _clamp(self, value: float, entity_id: str) -> float | None:
+        """Begrens waarde op min/max van de Quatt number entity."""
+        state = self._hass.states.get(entity_id)
 
         attrs = state.attributes
         min_val = attrs.get("min", 0.0)
@@ -149,13 +170,13 @@ class ChMaxWaterController:
             return True
         return abs(new_value - self._last_written) >= self._hysteresis
 
-    async def _write(self, value: float) -> None:
+    async def _write(self, value: float, entity_id: str) -> None:
         """Schrijf de waarde naar de Quatt number entity via HA service."""
         try:
             await self._hass.services.async_call(
                 "number",
                 "set_value",
-                {"entity_id": self._number_entity, "value": value},
+                {"entity_id": entity_id, "value": value},
                 blocking=True,
             )
             self._last_written = value

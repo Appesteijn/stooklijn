@@ -153,7 +153,9 @@ CONF_CH_MAX_WATER_SOURCE = "ch_max_water_source"
 CONF_CH_MAX_WATER_HYSTERESIS = "ch_max_water_hysteresis"
 CONF_CH_MAX_WATER_INTERVAL = "ch_max_water_interval"
 
-DEFAULT_CH_MAX_WATER_ENTITY = "number.heatpump_cic_max_water_temperature"
+DEFAULT_CH_MAX_WATER_ENTITY = "number.cic_max_water_temperature"
+# Quatt ≤1.0.2 used a different entity ID; kept for auto-detection fallback.
+CH_MAX_WATER_ENTITY_LEGACY = "number.heatpump_cic_max_water_temperature"
 DEFAULT_CH_MAX_WATER_SOURCE = "stooklijn"   # "stooklijn" | "mpc"
 DEFAULT_CH_MAX_WATER_HYSTERESIS = 1.0       # °C
 DEFAULT_CH_MAX_WATER_INTERVAL = 30          # minuten
