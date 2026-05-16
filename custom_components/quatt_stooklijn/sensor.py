@@ -15,6 +15,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -24,6 +25,7 @@ from homeassistant.util import dt as dt_util
 
 from .analysis.thermal_model import OnlineRCModel, simulate_6h
 from .const import (
+    CONF_CH_MAX_WATER_ENABLED,
     CONF_FLOW_ENTITY,
     CONF_INDOOR_TEMP_ENTITY,
     CONF_POWER_ENTITY,
@@ -292,6 +294,9 @@ async def async_setup_entry(
 
     if {**entry.data, **entry.options}.get(CONF_SOUND_LEVEL_ENABLED, False):
         entities.append(QuattSoundLevelSensor(entry))
+
+    if {**entry.data, **entry.options}.get(CONF_CH_MAX_WATER_ENABLED, False):
+        entities.append(QuattChMaxWaterSensor(entry))
 
     async_add_entities(entities)
 
@@ -1365,6 +1370,44 @@ class QuattOpenQuattCurveSensor(
             attrs[f"bp_{i}_buiten"] = bp["buiten_temp"]
             attrs[f"bp_{i}_aanvoer"] = bp["aanvoer_temp"]
         return attrs
+
+
+class QuattChMaxWaterSensor(SensorEntity):
+    """Diagnostische sensor: laatste waarde + tijdstip van chMaxWaterTemperatuur schrijfactie."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Max Aanvoertemperatuur Instelling"
+    _attr_native_unit_of_measurement = "°C"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:thermometer-high"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, entry: ConfigEntry) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_ch_max_water_setting"
+        self._attr_device_info = get_device_info(entry.entry_id)
+
+    @property
+    def _controller(self):
+        from .ch_max_water import ChMaxWaterController
+        return self.hass.data.get(DOMAIN, {}).get(f"{self._entry.entry_id}_ch_max_water")
+
+    @property
+    def native_value(self) -> float | None:
+        ctrl = self._controller
+        return ctrl.last_written if ctrl else None
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        ctrl = self._controller
+        if ctrl is None:
+            return None
+        return {
+            "last_written_at": ctrl.last_written_at.isoformat() if ctrl.last_written_at else None,
+            "source": ctrl._source,
+            "source_entity": ctrl.source_entity,
+        }
 
 
 _SOUND_LEVEL_SWITCH = "switch.quatt_warmteanalyse_geluidsniveau_compensatie"

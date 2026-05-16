@@ -47,7 +47,13 @@ def _stub_ha():
     _ensure_module("homeassistant.components.recorder.statistics")
     _ensure_module("homeassistant.util")
     _ensure_module("homeassistant.util.dt")
+    _ensure_module("homeassistant.const")
     _ensure_module("voluptuous")
+
+    # homeassistant.const stubs
+    import enum
+    const_mod = sys.modules["homeassistant.const"]
+    const_mod.EntityCategory = enum.Enum("EntityCategory", ["DIAGNOSTIC", "CONFIG"])
 
     # Provide key classes/sentinels
     core = sys.modules["homeassistant.core"]

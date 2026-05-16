@@ -145,3 +145,15 @@ CONDITION_SOLAR_FRACTION: dict[str, float] = {
     "windy":             0.7,
     "windy-variant":     0.5,
 }
+
+# chMaxWaterTemperatuur bijsturing
+CONF_CH_MAX_WATER_ENABLED = "ch_max_water_enabled"
+CONF_CH_MAX_WATER_ENTITY = "ch_max_water_entity"
+CONF_CH_MAX_WATER_SOURCE = "ch_max_water_source"
+CONF_CH_MAX_WATER_HYSTERESIS = "ch_max_water_hysteresis"
+CONF_CH_MAX_WATER_INTERVAL = "ch_max_water_interval"
+
+DEFAULT_CH_MAX_WATER_ENTITY = "number.heatpump_cic_max_water_temperature"
+DEFAULT_CH_MAX_WATER_SOURCE = "stooklijn"   # "stooklijn" | "mpc"
+DEFAULT_CH_MAX_WATER_HYSTERESIS = 1.0       # °C
+DEFAULT_CH_MAX_WATER_INTERVAL = 30          # minuten

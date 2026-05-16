@@ -18,6 +18,11 @@ from .const import (
     CONF_GAS_START_DATE,
     CONF_HOT_WATER_TEMP_THRESHOLD,
     CONF_INDOOR_TEMP_ENTITY,
+    CONF_CH_MAX_WATER_ENABLED,
+    CONF_CH_MAX_WATER_ENTITY,
+    CONF_CH_MAX_WATER_SOURCE,
+    CONF_CH_MAX_WATER_HYSTERESIS,
+    CONF_CH_MAX_WATER_INTERVAL,
     CONF_SOUND_LEVEL_ENABLED,
     CONF_SOUND_LEVEL_MAX_DAY,
     CONF_SOUND_LEVEL_MAX_NIGHT,
@@ -30,6 +35,10 @@ from .const import (
     CONF_TEMP_ENTITIES,
     CONF_WEATHER_ENTITY,
     DEFAULT_BOILER_EFFICIENCY,
+    DEFAULT_CH_MAX_WATER_ENTITY,
+    DEFAULT_CH_MAX_WATER_SOURCE,
+    DEFAULT_CH_MAX_WATER_HYSTERESIS,
+    DEFAULT_CH_MAX_WATER_INTERVAL,
     DEFAULT_FLOW_ENTITY,
     DEFAULT_GAS_CALORIFIC_VALUE,
     DEFAULT_HOT_WATER_TEMP_THRESHOLD,
@@ -324,6 +333,27 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_SOUND_NIGHT_END_HOUR,
                         default=data.get(CONF_SOUND_NIGHT_END_HOUR, DEFAULT_SOUND_NIGHT_END_HOUR),
                     ): vol.All(vol.Coerce(int), vol.Range(min=0, max=23)),
+                    # chMaxWaterTemperatuur bijsturing
+                    vol.Optional(
+                        CONF_CH_MAX_WATER_ENABLED,
+                        default=data.get(CONF_CH_MAX_WATER_ENABLED, False),
+                    ): bool,
+                    vol.Optional(
+                        CONF_CH_MAX_WATER_ENTITY,
+                        default=data.get(CONF_CH_MAX_WATER_ENTITY, DEFAULT_CH_MAX_WATER_ENTITY),
+                    ): str,
+                    vol.Optional(
+                        CONF_CH_MAX_WATER_SOURCE,
+                        default=data.get(CONF_CH_MAX_WATER_SOURCE, DEFAULT_CH_MAX_WATER_SOURCE),
+                    ): vol.In(["stooklijn", "mpc"]),
+                    vol.Optional(
+                        CONF_CH_MAX_WATER_HYSTERESIS,
+                        default=data.get(CONF_CH_MAX_WATER_HYSTERESIS, DEFAULT_CH_MAX_WATER_HYSTERESIS),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=5.0)),
+                    vol.Optional(
+                        CONF_CH_MAX_WATER_INTERVAL,
+                        default=data.get(CONF_CH_MAX_WATER_INTERVAL, DEFAULT_CH_MAX_WATER_INTERVAL),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=5, max=120)),
                 }
             ),
         )

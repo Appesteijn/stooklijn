@@ -3,7 +3,8 @@
 Uses a hybrid approach:
 - Recorder long-term statistics for historical daily data (months of history)
 - Cached hourly data for any previously fetched days (beyond the API window)
-- Quatt get_insights API for recent hourly data (last 30 days, cached)
+- Quatt get_cic_insights API for recent hourly data (last 30 days, cached)
+  (falls back to get_insights for Quatt integration ≤1.0.2)
 """
 
 from __future__ import annotations
@@ -168,6 +169,13 @@ async def _async_fetch_api_days(
     api_calls_made = 0
     cache_hits = 0
 
+    # Quatt ≥2.0 renamed get_insights → get_cic_insights; fall back for older installs.
+    insights_service = (
+        "get_cic_insights"
+        if hass.services.has_service("quatt", "get_cic_insights")
+        else "get_insights"
+    )
+
     for current_date in all_dates:
         date_str = current_date.strftime("%Y-%m-%d")
         data = None
@@ -182,7 +190,7 @@ async def _async_fetch_api_days(
             try:
                 response = await hass.services.async_call(
                     "quatt",
-                    "get_insights",
+                    insights_service,
                     {
                         "from_date": date_str,
                         "timeframe": "day",

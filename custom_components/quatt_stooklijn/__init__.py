@@ -11,7 +11,22 @@ import yaml
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 
-from .const import CONF_SOUND_LEVEL_ENABLED, DOMAIN, SERVICE_CLEAR_DATA, SERVICE_RUN_ANALYSIS
+from .ch_max_water import ChMaxWaterController
+from .const import (
+    CONF_CH_MAX_WATER_ENABLED,
+    CONF_CH_MAX_WATER_ENTITY,
+    CONF_CH_MAX_WATER_SOURCE,
+    CONF_CH_MAX_WATER_HYSTERESIS,
+    CONF_CH_MAX_WATER_INTERVAL,
+    CONF_SOUND_LEVEL_ENABLED,
+    DEFAULT_CH_MAX_WATER_ENTITY,
+    DEFAULT_CH_MAX_WATER_SOURCE,
+    DEFAULT_CH_MAX_WATER_HYSTERESIS,
+    DEFAULT_CH_MAX_WATER_INTERVAL,
+    DOMAIN,
+    SERVICE_CLEAR_DATA,
+    SERVICE_RUN_ANALYSIS,
+)
 from .coordinator import (
     QuattStooklijnCoordinator,
     QuattStooklijnData,
@@ -176,6 +191,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 cancel()
 
         entry.async_on_unload(_cancel_if_pending)
+
+    # chMaxWaterTemperatuur bijsturing (opt-in)
+    if merged_config.get(CONF_CH_MAX_WATER_ENABLED, False):
+        controller = ChMaxWaterController(
+            hass=hass,
+            number_entity=merged_config.get(CONF_CH_MAX_WATER_ENTITY, DEFAULT_CH_MAX_WATER_ENTITY),
+            source=merged_config.get(CONF_CH_MAX_WATER_SOURCE, DEFAULT_CH_MAX_WATER_SOURCE),
+            hysteresis=merged_config.get(CONF_CH_MAX_WATER_HYSTERESIS, DEFAULT_CH_MAX_WATER_HYSTERESIS),
+            interval_minutes=merged_config.get(CONF_CH_MAX_WATER_INTERVAL, DEFAULT_CH_MAX_WATER_INTERVAL),
+        )
+        hass.data[DOMAIN][f"{entry.entry_id}_ch_max_water"] = controller
+        entry.async_on_unload(controller.async_setup())
 
     # Register service (once for the domain)
     if not hass.services.has_service(DOMAIN, SERVICE_RUN_ANALYSIS):
