@@ -1240,6 +1240,7 @@ views:
                 height: 280
               stroke:
                 curve: stepline
+                dashArray: [0, 0, 0, 6]
               legend:
                 show: true
               grid:
@@ -1271,7 +1272,6 @@ views:
                 color: "#4CAF50"
                 stroke_width: 2
                 type: line
-                stroke_dasharray: 4
             grid_options:
               columns: full
               rows: auto
