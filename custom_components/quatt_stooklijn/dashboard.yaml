@@ -1299,15 +1299,13 @@ views:
               De bijsturing stuurt op **{{ geconfigureerd }}** en schrijft elke {{ interval }} min
               de maximale aanvoertemperatuur naar de warmtepomp.
 
-              | | MPC | Stooklijn |
-
-              |:--|--:|--:|
-
-              | Advies | {% if mpc %}{% if geconfigureerd == 'mpc' %}**{{ mpc | round(1) }}°C**{% else %}{{ mpc | round(1) }}°C{% endif %}{% else %}*n/b*{% endif %} | {% if stooklijn %}{% if geconfigureerd == 'stooklijn' %}**{{ stooklijn | round(1) }}°C**{% else %}{{ stooklijn | round(1) }}°C{% endif %}{% else %}*n/b*{% endif %} |
-
               | | Waarde |
 
               |:--|--:|
+
+              | MPC advies | {% if mpc %}{% if geconfigureerd == 'mpc' %}**{{ mpc | round(1) }}°C** ◀{% else %}{{ mpc | round(1) }}°C{% endif %}{% else %}*niet beschikbaar*{% endif %} |
+
+              | Stooklijn advies | {% if stooklijn %}{% if geconfigureerd == 'stooklijn' %}**{{ stooklijn | round(1) }}°C** ◀{% else %}{{ stooklijn | round(1) }}°C{% endif %}{% else %}*n/b*{% endif %} |
 
               | chMaxWater limiet | {% if limiet %}**{{ limiet | round(1) }}°C**{% else %}*n/b*{% endif %} |
 
