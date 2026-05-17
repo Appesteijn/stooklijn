@@ -34,9 +34,18 @@
           "weather_entity": "Entité de prévisions météo (pour la prévision MPC)",
           "indoor_temp_entity": "Capteur de température intérieure (°C, pour la calibration solaire)",
           "sound_level_enabled": "Activer la compensation du niveau sonore (limite la puissance de la pompe à chaleur via le niveau sonore CiC)",
+          "sound_level_max_day": "Niveau sonore maximum de jour",
+          "sound_level_max_night": "Niveau sonore maximum de nuit",
+          "sound_night_start_hour": "Début de nuit (heure, 0–23, heure locale HA, ex. 23)",
+          "sound_night_end_hour": "Fin de nuit (heure, 0–23, heure locale HA, ex. 7)",
           "otgw_enabled": "Activer la compensation OTGW (nécessite OpenTherm Gateway)",
           "otgw_room_temp_override": "Entité OTGW de remplacement de température ambiante",
-          "otgw_max_offset": "Offset maximum OTGW (°C, max 3.0)"
+          "otgw_max_offset": "Offset maximum OTGW (°C, max 3.0)",
+          "ch_max_water_enabled": "Activer la limitation de température de départ (écrit la temp. max. de départ vers Quatt)",
+          "ch_max_water_entity": "Entité température de départ max. Quatt",
+          "ch_max_water_source": "Source de pilotage (courbe de chauffe ou MPC)",
+          "ch_max_water_hysteresis": "Changement minimal avant écriture (°C)",
+          "ch_max_water_interval": "Intervalle d'écriture (minutes)"
         }
       }
     },
@@ -61,9 +70,18 @@
           "weather_entity": "Entité de prévisions météo (pour la prévision MPC)",
           "indoor_temp_entity": "Capteur de température intérieure (°C, pour la calibration solaire)",
           "sound_level_enabled": "Activer la compensation du niveau sonore (limite la puissance de la pompe à chaleur via le niveau sonore CiC)",
+          "sound_level_max_day": "Niveau sonore maximum de jour",
+          "sound_level_max_night": "Niveau sonore maximum de nuit",
+          "sound_night_start_hour": "Début de nuit (heure, 0–23, heure locale HA, ex. 23)",
+          "sound_night_end_hour": "Fin de nuit (heure, 0–23, heure locale HA, ex. 7)",
           "otgw_enabled": "Activer la compensation OTGW (nécessite OpenTherm Gateway)",
           "otgw_room_temp_override": "Entité OTGW de remplacement de température ambiante",
-          "otgw_max_offset": "Offset maximum OTGW (°C, max 3.0)"
+          "otgw_max_offset": "Offset maximum OTGW (°C, max 3.0)",
+          "ch_max_water_enabled": "Activer la limitation de température de départ (écrit la temp. max. de départ vers Quatt)",
+          "ch_max_water_entity": "Entité température de départ max. Quatt",
+          "ch_max_water_source": "Source de pilotage (courbe de chauffe ou MPC)",
+          "ch_max_water_hysteresis": "Changement minimal avant écriture (°C)",
+          "ch_max_water_interval": "Intervalle d'écriture (minutes)"
         }
       }
     }

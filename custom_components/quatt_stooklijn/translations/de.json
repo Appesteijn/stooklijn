@@ -34,9 +34,18 @@
           "weather_entity": "Wettervorhersage-Entität (für MPC-Prognose)",
           "indoor_temp_entity": "Raumtemperatur-Sensor (°C, für Solar-Kalibrierung)",
           "sound_level_enabled": "Schallpegel-Kompensation aktivieren (begrenzt Wärmepumpenleistung über CiC-Schallpegel)",
+          "sound_level_max_day": "Maximaler Schallpegel tagsüber",
+          "sound_level_max_night": "Maximaler Schallpegel nachts",
+          "sound_night_start_hour": "Nacht beginnt um (Stunde, 0–23, HA Ortszeit, z.B. 23)",
+          "sound_night_end_hour": "Nacht endet um (Stunde, 0–23, HA Ortszeit, z.B. 7)",
           "otgw_enabled": "OTGW-Kompensation aktivieren (erfordert OpenTherm Gateway)",
           "otgw_room_temp_override": "OTGW Raumtemperatur-Override Entität",
-          "otgw_max_offset": "OTGW maximaler Offset (°C, max 3.0)"
+          "otgw_max_offset": "OTGW maximaler Offset (°C, max 3.0)",
+          "ch_max_water_enabled": "Vorlauftemperatur-Begrenzung aktivieren (schreibt max. Vorlauftemp. an Quatt)",
+          "ch_max_water_entity": "Quatt max. Vorlauftemperatur Entität",
+          "ch_max_water_source": "Steuerquelle (Heizkurve oder MPC)",
+          "ch_max_water_hysteresis": "Minimale Änderung vor Schreibaktion (°C)",
+          "ch_max_water_interval": "Schreibintervall (Minuten)"
         }
       }
     },
@@ -61,9 +70,18 @@
           "weather_entity": "Wettervorhersage-Entität (für MPC-Prognose)",
           "indoor_temp_entity": "Raumtemperatur-Sensor (°C, für Solar-Kalibrierung)",
           "sound_level_enabled": "Schallpegel-Kompensation aktivieren (begrenzt Wärmepumpenleistung über CiC-Schallpegel)",
+          "sound_level_max_day": "Maximaler Schallpegel tagsüber",
+          "sound_level_max_night": "Maximaler Schallpegel nachts",
+          "sound_night_start_hour": "Nacht beginnt um (Stunde, 0–23, HA Ortszeit, z.B. 23)",
+          "sound_night_end_hour": "Nacht endet um (Stunde, 0–23, HA Ortszeit, z.B. 7)",
           "otgw_enabled": "OTGW-Kompensation aktivieren (erfordert OpenTherm Gateway)",
           "otgw_room_temp_override": "OTGW Raumtemperatur-Override Entität",
-          "otgw_max_offset": "OTGW maximaler Offset (°C, max 3.0)"
+          "otgw_max_offset": "OTGW maximaler Offset (°C, max 3.0)",
+          "ch_max_water_enabled": "Vorlauftemperatur-Begrenzung aktivieren (schreibt max. Vorlauftemp. an Quatt)",
+          "ch_max_water_entity": "Quatt max. Vorlauftemperatur Entität",
+          "ch_max_water_source": "Steuerquelle (Heizkurve oder MPC)",
+          "ch_max_water_hysteresis": "Minimale Änderung vor Schreibaktion (°C)",
+          "ch_max_water_interval": "Schreibintervall (Minuten)"
         }
       }
     }

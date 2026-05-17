@@ -36,9 +36,16 @@
           "sound_level_enabled": "Enable sound level compensation (limits heat pump power via CiC sound level)",
           "sound_level_max_day": "Maximum sound level during the day",
           "sound_level_max_night": "Maximum sound level at night",
+          "sound_night_start_hour": "Night start hour (0–23, HA local time, e.g. 23)",
+          "sound_night_end_hour": "Night end hour (0–23, HA local time, e.g. 7)",
           "otgw_enabled": "Enable OTGW compensation (requires OpenTherm Gateway)",
           "otgw_room_temp_override": "OTGW room temperature override entity",
-          "otgw_max_offset": "OTGW maximum offset (°C, max 3.0)"
+          "otgw_max_offset": "OTGW maximum offset (°C, max 3.0)",
+          "ch_max_water_enabled": "Enable supply temperature control (writes max. supply temp to Quatt)",
+          "ch_max_water_entity": "Quatt max. supply temperature entity",
+          "ch_max_water_source": "Control source (stooklijn or MPC)",
+          "ch_max_water_hysteresis": "Minimum change before writing (°C)",
+          "ch_max_water_interval": "Write interval (minutes)"
         }
       }
     },
@@ -65,9 +72,16 @@
           "sound_level_enabled": "Enable sound level compensation (limits heat pump power via CiC sound level)",
           "sound_level_max_day": "Maximum sound level during the day",
           "sound_level_max_night": "Maximum sound level at night",
+          "sound_night_start_hour": "Night start hour (0–23, HA local time, e.g. 23)",
+          "sound_night_end_hour": "Night end hour (0–23, HA local time, e.g. 7)",
           "otgw_enabled": "Enable OTGW compensation (requires OpenTherm Gateway)",
           "otgw_room_temp_override": "OTGW room temperature override entity",
-          "otgw_max_offset": "OTGW maximum offset (°C, max 3.0)"
+          "otgw_max_offset": "OTGW maximum offset (°C, max 3.0)",
+          "ch_max_water_enabled": "Enable supply temperature control (writes max. supply temp to Quatt)",
+          "ch_max_water_entity": "Quatt max. supply temperature entity",
+          "ch_max_water_source": "Control source (stooklijn or MPC)",
+          "ch_max_water_hysteresis": "Minimum change before writing (°C)",
+          "ch_max_water_interval": "Write interval (minutes)"
         }
       }
     }

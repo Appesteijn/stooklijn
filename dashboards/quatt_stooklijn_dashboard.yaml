@@ -1175,56 +1175,13 @@ views:
     max_columns: 2
     cards: []
     sections:
-      # ── Aanvoertemperatuur: advies vs werkelijk (48 uur) ──
+      # ── Aanvoertemperatuur begrenzing — effect (48 uur) ──
       - type: grid
         column_span: 2
         cards:
           - type: custom:apexcharts-card
             header:
-              title: Aanvoertemperatuur — advies vs werkelijk (48 uur)
-              show: true
-            graph_span: 48h
-            yaxis:
-              - id: temp
-                min: 15
-                max: 55
-                decimals: 0
-                apex_config:
-                  title:
-                    text: "°C"
-            apex_config:
-              chart:
-                height: 280
-              stroke:
-                curve: smooth
-              legend:
-                show: true
-              grid:
-                padding:
-                  right: 100
-            series:
-              - entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
-                name: MPC advies
-                yaxis_id: temp
-                color: "#4CAF50"
-                stroke_width: 2
-                opacity: 0.8
-              - entity: sensor.heatpump_flowmeter_temperature
-                name: Werkelijke aanvoer
-                yaxis_id: temp
-                color: "#2196F3"
-                stroke_width: 2
-            grid_options:
-              columns: full
-              rows: auto
-
-      # ── chMaxWater bijsturing — temperatuurlimiet effect (48 uur) ──
-      - type: grid
-        column_span: 2
-        cards:
-          - type: custom:apexcharts-card
-            header:
-              title: chMaxWater bijsturing — limiet vs thermostaat (48 uur)
+              title: Aanvoertemp. begrenzing — limiet vs thermostaat (48 uur)
               show: true
             graph_span: 48h
             yaxis:
@@ -1237,7 +1194,7 @@ views:
                     text: "°C"
             apex_config:
               chart:
-                height: 280
+                height: 300
               stroke:
                 curve: smooth
               legend:
@@ -1253,8 +1210,18 @@ views:
                 stroke_width: 2
                 type: area
                 opacity: 0.12
+              - entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
+                name: MPC advies
+                yaxis_id: temp
+                color: "#4CAF50"
+                stroke_width: 2
+              - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
+                name: Stooklijn advies
+                yaxis_id: temp
+                color: "#26A69A"
+                stroke_width: 1.5
               - entity: number.cic_max_water_temperature
-                name: chMaxWater limiet
+                name: Ingestelde limiet
                 yaxis_id: temp
                 color: "#F44336"
                 stroke_width: 3
@@ -1263,20 +1230,15 @@ views:
                 yaxis_id: temp
                 color: "#2196F3"
                 stroke_width: 2
-              - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-                name: Stooklijn advies
-                yaxis_id: temp
-                color: "#4CAF50"
-                stroke_width: 1.5
             grid_options:
               columns: full
               rows: auto
 
-      # ── chMaxWater bijsturing — huidige status ──
+      # ── Aanvoertemperatuur begrenzing — huidige status ──
       - type: grid
         cards:
           - type: markdown
-            title: chMaxWater bijsturing
+            title: Aanvoertemperatuur begrenzing
             content: >
               {% set s = 'sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling' %}
 
@@ -1307,7 +1269,7 @@ views:
 
               | Stooklijn advies | {% if stooklijn %}{% if geconfigureerd == 'stooklijn' %}**{{ stooklijn | round(1) }}°C** ◀{% else %}{{ stooklijn | round(1) }}°C{% endif %}{% else %}*n/b*{% endif %} |
 
-              | chMaxWater limiet | {% if limiet %}**{{ limiet | round(1) }}°C**{% else %}*n/b*{% endif %} |
+              | Ingestelde limiet | {% if limiet %}**{{ limiet | round(1) }}°C**{% else %}*n/b*{% endif %} |
 
               | Thermostaat vraagt | {% if setpoint %}{{ setpoint | round(1) }}°C{% else %}*n/b*{% endif %} |
 
@@ -1408,17 +1370,9 @@ views:
                   - y: 2
                     borderColor: "#FF9800"
                     strokeDashArray: 4
-                    label:
-                      text: "+2°C dead band"
-                      style:
-                        color: "#FF9800"
                   - y: -2
                     borderColor: "#FF9800"
                     strokeDashArray: 4
-                    label:
-                      text: "-2°C dead band"
-                      style:
-                        color: "#FF9800"
                   - y: 0
                     borderColor: "#4CAF50"
                     strokeDashArray: 0
