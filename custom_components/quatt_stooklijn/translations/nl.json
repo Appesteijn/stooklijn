@@ -40,7 +40,12 @@
           "sound_night_end_hour": "Nacht eindigt om (uur, 0–23, HA lokale tijd, bijv. 7)",
           "otgw_enabled": "OTGW compensatie inschakelen (vereist OpenTherm Gateway)",
           "otgw_room_temp_override": "OTGW kamertemperatuur override entiteit",
-          "otgw_max_offset": "OTGW maximale offset (°C, max 3.0)"
+          "otgw_max_offset": "OTGW maximale offset (°C, max 3.0)",
+          "ch_max_water_enabled": "Aanvoertemperatuur bijsturing inschakelen (schrijft max. aanvoertemp naar Quatt)",
+          "ch_max_water_entity": "Quatt max. aanvoertemperatuur entiteit",
+          "ch_max_water_source": "Stuuradvies bron (stooklijn of MPC)",
+          "ch_max_water_hysteresis": "Minimale wijziging voor schrijfactie (°C)",
+          "ch_max_water_interval": "Schrijfinterval (minuten)"
         }
       }
     },
@@ -71,7 +76,12 @@
           "sound_night_end_hour": "Nacht eindigt om (uur, 0–23, HA lokale tijd, bijv. 7)",
           "otgw_enabled": "OTGW compensatie inschakelen (vereist OpenTherm Gateway)",
           "otgw_room_temp_override": "OTGW kamertemperatuur override entiteit",
-          "otgw_max_offset": "OTGW maximale offset (°C, max 3.0)"
+          "otgw_max_offset": "OTGW maximale offset (°C, max 3.0)",
+          "ch_max_water_enabled": "Aanvoertemperatuur bijsturing inschakelen (schrijft max. aanvoertemp naar Quatt)",
+          "ch_max_water_entity": "Quatt max. aanvoertemperatuur entiteit",
+          "ch_max_water_source": "Stuuradvies bron (stooklijn of MPC)",
+          "ch_max_water_hysteresis": "Minimale wijziging voor schrijfactie (°C)",
+          "ch_max_water_interval": "Schrijfinterval (minuten)"
         }
       }
     }
