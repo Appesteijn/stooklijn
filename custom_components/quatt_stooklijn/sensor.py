@@ -1026,12 +1026,19 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             fc_net = max(0.0, fc_raw - fc_sg)
 
             fc_supply = None
+            fc_supply_no_solar = None
             if sl_slope is not None and sl_intercept is not None and t_return is not None:
                 fc_sl_demand = max(0.0, sl_slope * fc_temp + sl_intercept - fc_sg)
                 if fc_sl_demand > MIN_HEATING_WATTS:
                     raw_supply = t_return + fc_sl_demand / (1.16 * effective_flow)
                     fc_supply = round(
                         max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, raw_supply)), 1
+                    )
+                fc_sl_demand_ns = max(0.0, sl_slope * fc_temp + sl_intercept)
+                if fc_sl_demand_ns > MIN_HEATING_WATTS:
+                    raw_supply_ns = t_return + fc_sl_demand_ns / (1.16 * effective_flow)
+                    fc_supply_no_solar = round(
+                        max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, raw_supply_ns)), 1
                     )
 
             entry = {
@@ -1043,6 +1050,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 "q_hp_needed_w": round(fc_net),
                 "hp_needed": bool(fc_net > MIN_HEATING_WATTS),
                 "supply_temp": fc_supply,
+                "supply_temp_no_solar": fc_supply_no_solar,
             }
             if i < len(fc_meta):
                 entry.update(fc_meta[i])

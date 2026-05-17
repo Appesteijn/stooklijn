@@ -351,18 +351,29 @@ def simulate_6h(
         q_hp_needed = model.calc_required_power(
             t_in, t_out, q_solar, t_setpoint
         )
+        q_hp_no_solar = model.calc_required_power(
+            t_in, t_out, 0.0, t_setpoint
+        )
 
         # Calculate supply temp from required power
         # Use max(t_return, t_in) because when HP is off, the return temp
         # sensor reads low (stagnant water); during operation it would be
         # at least close to indoor temperature.
+        effective_return = max(t_return, t_in)
         supply_temp = None
         if q_hp_needed > 0 and flow_lph > 0:
-            effective_return = max(t_return, t_in)
             delta_t = q_hp_needed / (SPECIFIC_HEAT * flow_lph)
             raw_supply = effective_return + delta_t
             supply_temp = round(
                 max(supply_temp_min, min(supply_temp_max, raw_supply)), 1
+            )
+
+        supply_temp_no_solar = None
+        if q_hp_no_solar > 0 and flow_lph > 0:
+            delta_t_ns = q_hp_no_solar / (SPECIFIC_HEAT * flow_lph)
+            raw_supply_ns = effective_return + delta_t_ns
+            supply_temp_no_solar = round(
+                max(supply_temp_min, min(supply_temp_max, raw_supply_ns)), 1
             )
 
         # Predict indoor temp with the calculated heating
@@ -373,6 +384,7 @@ def simulate_6h(
             "q_hp_needed_w": round(q_hp_needed),
             "t_indoor_predicted": round(t_in_next, 1),
             "supply_temp": supply_temp,
+            "supply_temp_no_solar": supply_temp_no_solar,
             "hp_needed": bool(q_hp_needed > 200),  # MIN_HEATING_WATTS
         })
 
