@@ -1406,7 +1406,6 @@ class QuattChMaxWaterSensor(SensorEntity):
         return {
             "last_written_at": ctrl.last_written_at.isoformat() if ctrl.last_written_at else None,
             "source": ctrl._source,
-            "active_source": ctrl.active_source,
             "source_entity": ctrl.source_entity,
             "interval_minutes": int(ctrl._interval.total_seconds() // 60),
         }

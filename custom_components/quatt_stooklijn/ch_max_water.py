@@ -55,7 +55,6 @@ class ChMaxWaterController:
 
         self._last_written: float | None = None
         self._last_written_at: datetime | None = None
-        self._active_source: str | None = None
 
     # ------------------------------------------------------------------
 
@@ -70,10 +69,6 @@ class ChMaxWaterController:
     @property
     def last_written_at(self) -> datetime | None:
         return self._last_written_at
-
-    @property
-    def active_source(self) -> str | None:
-        return self._active_source
 
     # ------------------------------------------------------------------
 
@@ -93,12 +88,10 @@ class ChMaxWaterController:
 
     async def _async_tick(self, _now: datetime) -> None:
         """Periodieke check: schrijf nieuwe waarde als dat nodig is."""
-        recommended, active_source = self._read_recommended()
+        recommended = self._read_recommended()
         if recommended is None:
-            _LOGGER.debug("ChMaxWater: geen bronentiteit beschikbaar")
+            _LOGGER.debug("ChMaxWater: bronentiteit '%s' niet beschikbaar", self.source_entity)
             return
-
-        self._active_source = active_source
 
         entity_id = self._resolve_number_entity()
         if entity_id is None:
@@ -121,34 +114,19 @@ class ChMaxWaterController:
             )
             return
 
-        await self._write(clamped, entity_id, active_source)
+        await self._write(clamped, entity_id)
 
     # ------------------------------------------------------------------
 
-    def _read_recommended(self) -> tuple[float | None, str | None]:
-        """Lees aanbevolen aanvoertemperatuur; bij MPC-uitval automatisch fallback naar stooklijn."""
-        state = self._hass.states.get(_SOURCE_ENTITY[self._source])
-        if state is not None and state.state not in ("unknown", "unavailable", ""):
-            try:
-                return float(state.state), self._source
-            except ValueError:
-                pass
-
-        # Fallback naar stooklijn als geconfigureerde bron (MPC) niet beschikbaar is.
-        if self._source != "stooklijn":
-            fallback = _SOURCE_ENTITY["stooklijn"]
-            state = self._hass.states.get(fallback)
-            if state is not None and state.state not in ("unknown", "unavailable", ""):
-                try:
-                    _LOGGER.debug(
-                        "ChMaxWater: '%s' niet beschikbaar, gebruik stooklijn als fallback",
-                        _SOURCE_ENTITY[self._source],
-                    )
-                    return float(state.state), "stooklijn"
-                except ValueError:
-                    pass
-
-        return None, None
+    def _read_recommended(self) -> float | None:
+        """Lees de aanbevolen aanvoertemperatuur uit de geconfigureerde bronentiteit."""
+        state = self._hass.states.get(self.source_entity)
+        if state is None or state.state in ("unknown", "unavailable", ""):
+            return None
+        try:
+            return float(state.state)
+        except ValueError:
+            return None
 
     def _resolve_number_entity(self) -> str | None:
         """Geef de entity-ID terug die beschikbaar is (geconfigureerd of legacy fallback)."""
@@ -192,7 +170,7 @@ class ChMaxWaterController:
             return True
         return abs(new_value - self._last_written) >= self._hysteresis
 
-    async def _write(self, value: float, entity_id: str, active_source: str) -> None:
+    async def _write(self, value: float, entity_id: str) -> None:
         """Schrijf de waarde naar de Quatt number entity via HA service."""
         try:
             await self._hass.services.async_call(
@@ -203,12 +181,10 @@ class ChMaxWaterController:
             )
             self._last_written = value
             self._last_written_at = dt_util.now()
-            suffix = " (fallback)" if active_source != self._source else ""
             _LOGGER.info(
-                "ChMaxWater: chMaxWaterTemperature ingesteld op %.1f°C (bron: %s%s)",
+                "ChMaxWater: chMaxWaterTemperature ingesteld op %.1f°C (bron: %s)",
                 value,
-                active_source,
-                suffix,
+                self._source,
             )
         except Exception as exc:
             _LOGGER.error("ChMaxWater: schrijfactie mislukt: %s", exc)
