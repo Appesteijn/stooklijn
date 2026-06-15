@@ -6,9 +6,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from datetime import datetime, timedelta
+
 from custom_components.quatt_stooklijn.analysis.stooklijn import (
     StooklijnResult,
     _find_knee_by_grid_search,
+    apply_throttle_mask,
     calculate_stooklijn,
 )
 
@@ -192,3 +195,62 @@ class TestCalculateStooklijn:
 
         result = calculate_stooklijn(None, None, df)
         assert result.slope_optimal is None
+
+
+class TestApplyThrottleMask:
+    """Tests voor de throttle-masking (energy-os datahygiëne)."""
+
+    @staticmethod
+    def _minute_df(n: int, start: datetime | None = None) -> pd.DataFrame:
+        start = start or datetime(2026, 1, 1, 0, 0)
+        idx = pd.date_range(start, periods=n, freq="min")
+        return pd.DataFrame(
+            {"temp": range(n), "power": [3000] * n}, index=idx
+        )
+
+    def test_no_cap_records_returns_unchanged(self):
+        """Geen cap-data → niets uitgesloten."""
+        df = self._minute_df(10)
+        out, excluded = apply_throttle_mask(df, [])
+        assert excluded == 0
+        assert len(out) == 10
+
+    def test_no_throttling_keeps_all(self):
+        """Cap altijd vrij (20) → niets uitgesloten."""
+        df = self._minute_df(10)
+        start = df.index[0]
+        records = [{"timestamp": start, "cap": 20.0}]
+        out, excluded = apply_throttle_mask(df, records)
+        assert excluded == 0
+        assert len(out) == 10
+
+    def test_throttled_window_dropped(self):
+        """Geknepen venster (cap 10) wordt uitgesloten, rest blijft."""
+        df = self._minute_df(10)
+        start = df.index[0]
+        records = [
+            {"timestamp": start, "cap": 20.0},                       # vrij
+            {"timestamp": start + timedelta(minutes=3), "cap": 10.0},  # throttle vanaf min 3
+            {"timestamp": start + timedelta(minutes=7), "cap": 20.0},  # weer vrij vanaf min 7
+        ]
+        out, excluded = apply_throttle_mask(df, records)
+        assert excluded == 4  # minuten 3,4,5,6
+        assert len(out) == 6
+
+    def test_cap_persists_forward_fill(self):
+        """Cap blijft gelden tot de volgende wijziging (forward-fill)."""
+        df = self._minute_df(10)
+        start = df.index[0]
+        records = [{"timestamp": start + timedelta(minutes=3), "cap": 8.0}]
+        out, excluded = apply_throttle_mask(df, records)
+        assert excluded == 7  # minuten 3..9
+        assert len(out) == 3
+
+    def test_minutes_before_first_cap_kept(self):
+        """Minuten vóór de eerste bekende cap-waarde gelden als vrij."""
+        df = self._minute_df(10)
+        start = df.index[0]
+        records = [{"timestamp": start + timedelta(minutes=5), "cap": 10.0}]
+        out, excluded = apply_throttle_mask(df, records)
+        assert excluded == 5  # minuten 5..9; 0..4 behouden
+        assert len(out) == 5

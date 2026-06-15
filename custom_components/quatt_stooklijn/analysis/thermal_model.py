@@ -391,3 +391,119 @@ def simulate_6h(
         t_in = t_in_next
 
     return results
+
+
+def simulate_coast_time(
+    model: OnlineRCModel,
+    t_indoor_now: float,
+    comfort_floor: float,
+    forecast_t_outdoor: list[float],
+    forecast_q_solar: list[float],
+    step_minutes: int = 15,
+    max_hours: int = 12,
+) -> dict:
+    """Simulate the free cool-down (heat pump OFF) and report how long the
+    house can coast before the indoor temperature reaches ``comfort_floor``.
+
+    Used by energy-os to decide whether the heat pump may be throttled during
+    an expensive tariff window while the battery covers the load — only as long
+    as the house stays warm enough.
+
+    The forecast solar gain is fed in per step, so the learned ``g·Q_solar``
+    term slows (or on a sunny day even reverses) the cool-down: **predicted
+    sunshine extends the coast time**. This is why the calculation runs on the
+    RC model rather than on crude outdoor-temperature buckets.
+
+    Args:
+        model: the learned RC model (uses ``predict_t_indoor`` with q_hp = 0).
+        t_indoor_now: current indoor temperature (°C).
+        comfort_floor: lowest acceptable indoor temperature (°C).
+        forecast_t_outdoor: hourly outdoor temperature forecast (°C).
+        forecast_q_solar: hourly solar input forecast (W/m², Open-Meteo
+            shortwave radiation — same unit the model was trained on).
+        step_minutes: simulation resolution.
+        max_hours: cap on how far ahead to look.
+
+    Returns dict:
+        coast_minutes: int | None — minutes until the floor is reached, capped
+            at ``max_hours * 60``. ``None`` if the model is not usable.
+        comfort_at_risk: bool — True if the floor is reached within max_hours.
+        reaches_floor: bool — False when the house never cools to the floor
+            (e.g. enough solar gain), in which case coast_minutes is the cap.
+        trajectory: list[dict] — {minute, t_indoor_predicted} samples.
+    """
+    # Model unusable (θ₃ ≈ 0 → no thermal capacity identified yet).
+    if model.raw_params is None:
+        return {
+            "coast_minutes": None,
+            "comfort_at_risk": False,
+            "reaches_floor": False,
+            "trajectory": [],
+        }
+
+    # Already at/below the floor → no headroom to coast.
+    if t_indoor_now <= comfort_floor:
+        return {
+            "coast_minutes": 0,
+            "comfort_at_risk": True,
+            "reaches_floor": True,
+            "trajectory": [{"minute": 0, "t_indoor_predicted": round(t_indoor_now, 2)}],
+        }
+
+    dt_hours = step_minutes / 60.0
+    total_steps = int(round(max_hours * 60 / step_minutes))
+    t_in = t_indoor_now
+    elapsed_min = 0.0
+    trajectory: list[dict] = [{"minute": 0, "t_indoor_predicted": round(t_in, 2)}]
+
+    for step in range(total_steps):
+        # Hold the forecast for the hour this step falls in; persist the last
+        # known value when the forecast runs out (assume conditions continue).
+        hour_idx = int(elapsed_min // 60)
+        t_out = _forecast_at(forecast_t_outdoor, hour_idx)
+        q_solar = _forecast_at(forecast_q_solar, hour_idx)
+        if t_out is None:
+            break  # no outdoor forecast at all → cannot simulate
+
+        t_next = model.predict_t_indoor(t_in, t_out, 0.0, q_solar or 0.0, dt_hours)
+
+        if t_next <= comfort_floor:
+            # Linear-interpolate within this step for a smoother minute value.
+            if t_in != t_next:
+                frac = (t_in - comfort_floor) / (t_in - t_next)
+                frac = min(max(frac, 0.0), 1.0)
+            else:
+                frac = 0.0
+            elapsed_min += frac * step_minutes
+            trajectory.append(
+                {"minute": round(elapsed_min), "t_indoor_predicted": round(comfort_floor, 2)}
+            )
+            return {
+                "coast_minutes": int(round(elapsed_min)),
+                "comfort_at_risk": True,
+                "reaches_floor": True,
+                "trajectory": trajectory,
+            }
+
+        t_in = t_next
+        elapsed_min += step_minutes
+        trajectory.append(
+            {"minute": round(elapsed_min), "t_indoor_predicted": round(t_in, 2)}
+        )
+
+    # Never reached the floor within max_hours (warm enough / enough sun).
+    return {
+        "coast_minutes": int(round(max_hours * 60)),
+        "comfort_at_risk": False,
+        "reaches_floor": False,
+        "trajectory": trajectory,
+    }
+
+
+def _forecast_at(values: list[float], idx: int) -> float | None:
+    """Return ``values[idx]``, falling back to the last entry (persistence)."""
+    if not values:
+        return None
+    if idx < len(values):
+        return values[idx]
+    return values[-1]

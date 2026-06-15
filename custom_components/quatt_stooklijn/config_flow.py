@@ -23,6 +23,8 @@ from .const import (
     CONF_CH_MAX_WATER_SOURCE,
     CONF_CH_MAX_WATER_HYSTERESIS,
     CONF_CH_MAX_WATER_INTERVAL,
+    CONF_COMFORT_FLOOR_TEMP,
+    CONF_EOS_THROTTLE_ENTITY,
     CONF_SOUND_LEVEL_ENABLED,
     CONF_SOUND_LEVEL_MAX_DAY,
     CONF_SOUND_LEVEL_MAX_NIGHT,
@@ -39,6 +41,8 @@ from .const import (
     DEFAULT_CH_MAX_WATER_SOURCE,
     DEFAULT_CH_MAX_WATER_HYSTERESIS,
     DEFAULT_CH_MAX_WATER_INTERVAL,
+    DEFAULT_COMFORT_FLOOR_TEMP,
+    DEFAULT_EOS_THROTTLE_ENTITY,
     DEFAULT_FLOW_ENTITY,
     DEFAULT_GAS_CALORIFIC_VALUE,
     DEFAULT_HOT_WATER_TEMP_THRESHOLD,
@@ -354,6 +358,21 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_CH_MAX_WATER_INTERVAL,
                         default=data.get(CONF_CH_MAX_WATER_INTERVAL, DEFAULT_CH_MAX_WATER_INTERVAL),
                     ): vol.All(vol.Coerce(int), vol.Range(min=5, max=120)),
+                    # --- Energy-OS brug ---
+                    # Comfort-vloer: laagste acceptabele binnentemperatuur. De
+                    # coast-time sensor berekent hoe lang het huis met WP uit kan
+                    # uitlopen op zijn thermische massa vóór deze grens (incl. zon).
+                    vol.Optional(
+                        CONF_COMFORT_FLOOR_TEMP,
+                        default=data.get(CONF_COMFORT_FLOOR_TEMP, DEFAULT_COMFORT_FLOOR_TEMP),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=10.0, max=22.0)),
+                    # Optioneel: entity die aangeeft dat energy-os de WP knijpt
+                    # (cap < 20). Die periodes worden uitgesloten van de
+                    # COP/warmteverlies-analyse. Leeg = uit (geen filtering).
+                    vol.Optional(
+                        CONF_EOS_THROTTLE_ENTITY,
+                        default=data.get(CONF_EOS_THROTTLE_ENTITY, DEFAULT_EOS_THROTTLE_ENTITY),
+                    ): str,
                 }
             ),
         )

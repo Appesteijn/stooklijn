@@ -23,9 +23,10 @@ from homeassistant.helpers.event import async_track_state_change_event, async_tr
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .analysis.thermal_model import OnlineRCModel, simulate_6h
+from .analysis.thermal_model import OnlineRCModel, simulate_6h, simulate_coast_time
 from .const import (
     CONF_CH_MAX_WATER_ENABLED,
+    CONF_COMFORT_FLOOR_TEMP,
     CONF_FLOW_ENTITY,
     CONF_INDOOR_TEMP_ENTITY,
     CONF_POWER_ENTITY,
@@ -34,6 +35,9 @@ from .const import (
     CONF_SOUND_LEVEL_ENABLED,
     CONF_TEMP_ENTITIES,
     CONF_WEATHER_ENTITY,
+    COAST_MAX_HOURS,
+    COAST_STEP_MINUTES,
+    DEFAULT_COMFORT_FLOOR_TEMP,
     DEFAULT_FLOW_ENTITY,
     DEFAULT_INDOOR_TEMP_ENTITY,
     DEFAULT_POWER_ENTITY,
@@ -274,7 +278,10 @@ async def async_setup_entry(
     ]
     entities.append(QuattSupplyTempSensor(coordinator, entry))
     entities.append(QuattEstimatedCopSensor(coordinator, entry))
-    entities.append(QuattMpcSensor(coordinator, entry))
+    mpc_sensor = QuattMpcSensor(coordinator, entry)
+    entities.append(mpc_sensor)
+    # Coast-time sensor deelt het RC-model + forecast van de MPC-sensor.
+    entities.append(QuattCoastTimeSensor(coordinator, entry, mpc_sensor))
 
     supply_entity = DEFAULT_SUPPLY_TEMP_ENTITY
     entry_slug = entry.entry_id
@@ -676,6 +683,73 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             return float(self._solar_radiation[now_hour])
         return 0.0
 
+    @property
+    def thermal_model(self) -> OnlineRCModel | None:
+        """Het geleerde RC-model, of None tot het geladen is.
+
+        Gedeeld met de coast-time sensor zodat die niet zijn eigen kopie hoeft
+        te trainen — beide gebruiken hetzelfde online-geleerde model.
+        """
+        return self._thermal_store.model if self._thermal_loaded else None
+
+    def build_forecast_arrays(
+        self, t_outdoor: float | None, n_hours: int = MPC_FORECAST_HOURS
+    ) -> tuple[list[float], list[float], list[dict]]:
+        """Bouw tijd-uitgelijnde forecast-arrays voor de komende ``n_hours``.
+
+        Retourneert ``(fc_temps, fc_solar_wm2, fc_meta)``. De HA weather-entity
+        kan een forecast leveren die pas over enkele uren begint; we indexeren op
+        uren-vanaf-nu en vallen voor gat-uren terug op de huidige buitentemp.
+        Gedeeld door de MPC-sensor en de coast-time sensor.
+        """
+        now_utc = dt_util.utcnow()
+        now_hour = dt_util.now().hour
+
+        # Build time-indexed lookup: hours_from_now -> forecast point
+        fc_lookup: dict[int, dict] = {}
+        for point in self._forecast:
+            dt_str = point.get("datetime")
+            if dt_str:
+                try:
+                    fc_dt = datetime.fromisoformat(dt_str)
+                    hours_ahead = round((fc_dt - now_utc).total_seconds() / 3600)
+                    if 0 <= hours_ahead < n_hours:
+                        fc_lookup[hours_ahead] = point
+                except (ValueError, TypeError):
+                    pass
+
+        fc_temps: list[float] = []
+        fc_solar_wm2: list[float] = []   # W/m² for RC model (direct from Open-Meteo)
+        fc_meta: list[dict] = []
+        for i in range(n_hours):
+            # Temperature: use forecast if available, else current outdoor sensor
+            if i in fc_lookup:
+                fc_temp = fc_lookup[i].get("temperature")
+                fc_dt_str = fc_lookup[i].get("datetime")
+                fc_condition = fc_lookup[i].get("condition", "")
+            elif t_outdoor is not None:
+                fc_temp = t_outdoor
+                fc_dt_str = None
+                fc_condition = "current"
+            else:
+                break
+
+            if fc_temp is None:
+                break
+
+            fc_temps.append(fc_temp)
+            rad_idx = now_hour + i
+            rad_wm2 = 0.0
+            if self._solar_radiation and rad_idx < len(self._solar_radiation):
+                rad_wm2 = self._solar_radiation[rad_idx]
+            fc_solar_wm2.append(rad_wm2)
+            fc_meta.append({
+                "datetime": fc_dt_str,
+                "condition": fc_condition,
+                "shortwave_wm2": rad_wm2,
+            })
+        return fc_temps, fc_solar_wm2, fc_meta
+
     # ------------------------------------------------------------------ lifecycle
 
     async def async_added_to_hass(self) -> None:
@@ -880,56 +954,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         model_params = model.params
         model_source = "online" if model.is_converged else "batch_fallback"
 
-        # Build forecast arrays, time-aligned to upcoming hours.
-        # The HA weather entity may return forecasts starting hours from now
-        # (e.g. Met.no starts at 21:00 UTC). We index by hours-from-now and
-        # fall back to the current outdoor reading for any gap hours.
-        now_utc = dt_util.utcnow()
-        now_hour = dt_util.now().hour
-
-        # Build time-indexed lookup: hours_from_now -> forecast point
-        fc_lookup: dict[int, dict] = {}
-        for point in self._forecast:
-            dt_str = point.get("datetime")
-            if dt_str:
-                try:
-                    fc_dt = datetime.fromisoformat(dt_str)
-                    hours_ahead = round((fc_dt - now_utc).total_seconds() / 3600)
-                    if 0 <= hours_ahead < MPC_FORECAST_HOURS:
-                        fc_lookup[hours_ahead] = point
-                except (ValueError, TypeError):
-                    pass
-
-        fc_temps: list[float] = []
-        fc_solar_wm2: list[float] = []   # W/m² for RC model (direct from Open-Meteo)
-        fc_meta: list[dict] = []
-        for i in range(MPC_FORECAST_HOURS):
-            # Temperature: use forecast if available, else current outdoor sensor
-            if i in fc_lookup:
-                fc_temp = fc_lookup[i].get("temperature")
-                fc_dt_str = fc_lookup[i].get("datetime")
-                fc_condition = fc_lookup[i].get("condition", "")
-            elif t_outdoor is not None:
-                fc_temp = t_outdoor
-                fc_dt_str = None
-                fc_condition = "current"
-            else:
-                break
-
-            if fc_temp is None:
-                break
-
-            fc_temps.append(fc_temp)
-            rad_idx = now_hour + i
-            rad_wm2 = 0.0
-            if self._solar_radiation and rad_idx < len(self._solar_radiation):
-                rad_wm2 = self._solar_radiation[rad_idx]
-            fc_solar_wm2.append(rad_wm2)
-            fc_meta.append({
-                "datetime": fc_dt_str,
-                "condition": fc_condition,
-                "shortwave_wm2": rad_wm2,
-            })
+        # Build forecast arrays (shared with the coast-time sensor).
+        fc_temps, fc_solar_wm2, fc_meta = self.build_forecast_arrays(t_outdoor)
         # Estimated solar heat gain in W for batch fallback and display
         fc_solar_gain_w = [wm2 * SOLAR_RADIATION_DEFAULT_FACTOR for wm2 in fc_solar_wm2]
 
@@ -1057,6 +1083,109 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             forecast_out.append(entry)
 
         return forecast_out
+
+
+class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity):
+    """Veilige uitlooptijd: hoeveel minuten het huis met de warmtepomp UIT kan
+    uitlopen op zijn thermische massa vóór de binnentemp de comfort-vloer raakt.
+
+    Voedt energy-os: bij een duur tarief mag de WP geknepen worden en draagt de
+    batterij de last — maar alleen zolang het huis veilig kan uitlopen. De
+    Open-Meteo zon-forecast gaat mee in de simulatie, dus voorspelde zon
+    verlengt de coast-tijd (de geleerde g·Q_solar-term remt de afkoeling).
+
+    Hergebruikt het online RC-model én de forecast van de MPC-sensor, zodat er
+    geen tweede model getraind of forecast opgehaald hoeft te worden.
+
+    Niet beschikbaar tot het RC-model geconvergeerd is (≈2 dagen data); energy-os
+    valt dan terug op zijn eigen heuristiek.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Veilige Uitlooptijd"
+    _attr_native_unit_of_measurement = "min"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:home-clock-outline"
+
+    def __init__(
+        self,
+        coordinator: QuattStooklijnCoordinator,
+        entry: ConfigEntry,
+        mpc_sensor: QuattMpcSensor,
+    ) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._mpc = mpc_sensor
+        self._attr_unique_id = f"{entry.entry_id}_coast_time_min"
+        self._attr_device_info = get_device_info(entry.entry_id)
+
+    @property
+    def _comfort_floor(self) -> float:
+        cfg = {**self._entry.data, **self._entry.options}
+        return cfg.get(CONF_COMFORT_FLOOR_TEMP, DEFAULT_COMFORT_FLOOR_TEMP)
+
+    def _compute(self) -> dict | None:
+        """Run the free-cooldown simulation, or None if the model isn't ready."""
+        model = self._mpc.thermal_model
+        if model is None or not model.is_converged:
+            return None
+
+        t_indoor = get_float_state(self.hass, self._mpc._indoor_temp_entity)
+        t_outdoor = get_float_state(self.hass, self._mpc._outdoor_entity)
+        if t_indoor is None or t_outdoor is None:
+            return None
+
+        fc_temps, fc_solar_wm2, _ = self._mpc.build_forecast_arrays(
+            t_outdoor, n_hours=COAST_MAX_HOURS
+        )
+        if not fc_temps:
+            # No forecast yet → persist current outdoor reading, no solar.
+            fc_temps = [t_outdoor]
+            fc_solar_wm2 = [0.0]
+
+        return simulate_coast_time(
+            model,
+            t_indoor_now=t_indoor,
+            comfort_floor=self._comfort_floor,
+            forecast_t_outdoor=fc_temps,
+            forecast_q_solar=fc_solar_wm2,
+            step_minutes=COAST_STEP_MINUTES,
+            max_hours=COAST_MAX_HOURS,
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        result = self._compute()
+        return result["coast_minutes"] if result else None
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        result = self._compute()
+        if result is None:
+            return {
+                "comfort_floor": self._comfort_floor,
+                "model_source": "unavailable",
+            }
+        return {
+            "comfort_floor": self._comfort_floor,
+            "comfort_at_risk": result["comfort_at_risk"],
+            "reaches_floor": result["reaches_floor"],
+            "model_source": "online",
+            "trajectory": result["trajectory"],
+        }
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                [self._mpc._outdoor_entity, self._mpc._indoor_temp_entity],
+                self._handle_state_change,
+            )
+        )
+
+    async def _handle_state_change(self, event) -> None:
+        self.async_write_ha_state()
 
 
 class QuattAdviceErrorSensor(

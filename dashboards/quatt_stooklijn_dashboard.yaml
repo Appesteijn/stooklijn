@@ -954,6 +954,11 @@ views:
             name: MPC fout
             icon: mdi:thermometer-alert
             color: green
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_veilige_uitlooptijd
+            name: Veilige uitlooptijd
+            icon: mdi:home-clock-outline
+            color: orange
 
       # ── Thermisch model (volle breedte) ──
       - type: grid
@@ -1038,6 +1043,62 @@ views:
 
               *Model nog niet geladen. Start een analyse of wacht op het
               volgende uur.*
+
+              {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
+
+      # ── Veilige uitlooptijd / comfort-vloer (volle breedte) ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: markdown
+            title: Veilige uitlooptijd (Energy OS comfort-guard)
+            content: >
+              {% set s = 'sensor.quatt_warmteanalyse_veilige_uitlooptijd' %}
+
+              {% set coast = states(s) %}
+
+              {% if coast not in ['unknown', 'unavailable', 'none'] %}
+
+              {% set mins = coast | int(0) %}
+
+              {% set floor = state_attr(s, 'comfort_floor') %}
+
+              {% set at_risk = state_attr(s, 'comfort_at_risk') %}
+
+              {% set reaches = state_attr(s, 'reaches_floor') %}
+
+              ### 🏠⏱️ {{ (mins / 60) | round(1) }} uur  _( {{ mins }} min )_
+
+
+              Zo lang kan het huis met de **warmtepomp uit** uitlopen op zijn
+              thermische massa vóór de binnentemperatuur de comfort-vloer van
+              **{{ floor }}°C** raakt. De Open-Meteo zon-forecast telt mee —
+              meer voorspelde zon ⇒ langere uitlooptijd.
+
+
+              {% if not reaches %}☀️ **Komt binnen 12 uur niet onder de
+              comfort-vloer** — ruim voldoende warmte/zon op voorraad.
+
+              {% elif at_risk %}⚠️ Bereikt de comfort-vloer binnen het
+              simulatievenster — knijp de WP niet te lang.
+
+              {% endif %}
+
+
+              Energy OS knijpt bij een duur tarief de warmtepomp alléén zolang
+              deze tijd boven de marge ligt
+              (`input_number.eos_comfort_coast_margin_min`); daaronder krijgt
+              comfort voorrang en draait de WP weer vrij.
+
+              {% else %}
+
+              *Nog niet beschikbaar — het RC-model is nog niet geconvergeerd, of
+              de sensor bestaat nog niet na een herstart/update. Energy OS valt
+              zolang terug op de buitentemp-heuristiek (alsof zonder
+              stooklijn).*
 
               {% endif %}
             grid_options:

@@ -112,6 +112,27 @@ OPEN_METEO_FORECAST_URL = (
 # Typische waarde ≈ effectief raamoppervlak (m²) × transmissie × absorptie (~8–12 m² netto)
 SOLAR_RADIATION_DEFAULT_FACTOR = 8.0  # W per W/m²
 
+# ---------------------------------------------------------------------------
+# Energy-OS brug: prijsgestuurd thermisch uitlopen + datahygiëne
+# ---------------------------------------------------------------------------
+# Comfort-vloer: laagste acceptabele binnentemperatuur. De coast-time sensor
+# berekent hoe lang het huis (met WP uit) op zijn thermische massa kan uitlopen
+# vóór de binnentemp deze grens raakt — gegeven de buitentemp- én zon-forecast.
+CONF_COMFORT_FLOOR_TEMP = "comfort_floor_temp"
+DEFAULT_COMFORT_FLOOR_TEMP = 19.0  # °C
+
+# Hoe ver vooruit en met welke resolutie de afkoeling wordt gesimuleerd.
+COAST_MAX_HOURS = 12
+COAST_STEP_MINUTES = 15
+
+# Optioneel: entity die aangeeft dat een externe regelaar (energy-os) de
+# warmtepomp knijpt. Leeg = uit (geen filtering). Bij een waarde < FREE wordt
+# de WP geknepen; die minuten worden uitgesloten van COP/warmteverlies-analyse,
+# zodat de fits niet vervuild raken door externe ingrepen.
+CONF_EOS_THROTTLE_ENTITY = "eos_throttle_entity"
+DEFAULT_EOS_THROTTLE_ENTITY = ""  # leeg = geen filtering
+EOS_THROTTLE_CAP_FREE = 20  # cap-waarde die "geen beperking" betekent
+
 # Zonproductie-fractie per HA weather condition (proxy voor shortwave_radiation).
 # Waarde × huidige solaredge_ac_power = geschatte zonproductie dat uur.
 # Bron: HA weather condition strings (https://www.home-assistant.io/integrations/weather/)

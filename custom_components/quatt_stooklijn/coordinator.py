@@ -24,6 +24,7 @@ from .analysis.stooklijn import (
 from .cache import KneeDataStore
 from .const import (
     CONF_BOILER_EFFICIENCY,
+    CONF_EOS_THROTTLE_ENTITY,
     CONF_GAS_CALORIFIC_VALUE,
     CONF_GAS_ENABLED,
     CONF_GAS_END_DATE,
@@ -124,6 +125,7 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             self.hass,
             config[CONF_TEMP_ENTITIES],
             config[CONF_POWER_ENTITY],
+            throttle_entity=config.get(CONF_EOS_THROTTLE_ENTITY) or None,
         )
 
         # Step 3b: Update persistent knee data store
@@ -226,6 +228,10 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             "daily_days": len(df_daily) if not df_daily.empty else 0,
             "hourly_hours": len(df_hourly) if not df_hourly.empty else 0,
             "minute_minutes": len(df_ha_merged) if df_ha_merged is not None and not df_ha_merged.empty else 0,
+            "throttle_excluded_minutes": (
+                df_ha_merged.attrs.get("throttle_excluded_minutes", 0)
+                if df_ha_merged is not None else 0
+            ),
             "cache_days": cache_stats["total_days"],
             "cache_oldest": cache_stats["oldest_date"],
             "cache_newest": cache_stats["newest_date"],

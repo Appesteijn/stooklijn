@@ -19,6 +19,7 @@ from homeassistant.core import HomeAssistant
 from ..const import (
     BIN_SIZE,
     DAYS_HISTORY,
+    EOS_THROTTLE_CAP_FREE,
     KEEP_THRESHOLD,
     MIN_HEATING_WATTS,
     MIN_MODULATION_WATTS,
@@ -360,8 +361,17 @@ async def async_fetch_live_history(
     temp_entities: list[str],
     power_entity: str,
     days: int = DAYS_HISTORY,
+    throttle_entity: str | None = None,
 ) -> pd.DataFrame | None:
-    """Fetch recent temperature and power history from HA recorder."""
+    """Fetch recent temperature and power history from HA recorder.
+
+    When ``throttle_entity`` is set (e.g. energy-os' ``input_number.eos_hp_cap_override``)
+    the minutes during which an external controller throttled the heat pump
+    (cap < EOS_THROTTLE_CAP_FREE) are dropped: while throttled the pump does not
+    follow its natural heating curve, so those samples would pollute the knee,
+    stooklijn and heat-loss fits. The number of excluded minutes is stored on
+    ``df.attrs["throttle_excluded_minutes"]``.
+    """
     from homeassistant.util import dt as dt_util
 
     end_dt = dt_util.utcnow()
@@ -433,7 +443,71 @@ async def async_fetch_live_history(
     # Merge on timestamp
     merged = pd.merge(df_temp, df_power, left_index=True, right_index=True, how="inner")
     _LOGGER.info("Merged live history: %d aligned data points", len(merged))
+
+    # Exclude minutes during which an external controller (energy-os) throttled
+    # the heat pump — those samples don't reflect the natural heating curve.
+    merged.attrs["throttle_excluded_minutes"] = 0
+    if throttle_entity:
+        cap_states = await get_instance(hass).async_add_executor_job(
+            _fetch_entity_states, throttle_entity
+        )
+        cap_records = []
+        for s in cap_states.get(throttle_entity, []):
+            try:
+                ts = s.last_changed
+                if ts.tzinfo is not None:
+                    ts = ts.replace(tzinfo=None)
+                cap_records.append({"timestamp": ts, "cap": float(s.state)})
+            except (ValueError, TypeError):
+                continue  # unknown/unavailable → treat as not throttled
+
+        merged, excluded = apply_throttle_mask(merged, cap_records)
+        if excluded:
+            _LOGGER.info(
+                "EOS throttle (%s): excluded %d throttled minutes from analysis",
+                throttle_entity, excluded,
+            )
+        merged.attrs["throttle_excluded_minutes"] = excluded
+
     return merged
+
+
+def apply_throttle_mask(
+    merged: pd.DataFrame,
+    cap_records: list[dict],
+    free_cap: float = EOS_THROTTLE_CAP_FREE,
+) -> tuple[pd.DataFrame, int]:
+    """Drop minutes during which the external HP cap was below ``free_cap``.
+
+    Pure helper (no HA dependencies) so it can be unit-tested directly.
+
+    Args:
+        merged: minute-indexed analysis frame (DatetimeIndex).
+        cap_records: list of ``{"timestamp": datetime, "cap": float}`` — the
+            external cap state changes (e.g. energy-os' eos_hp_cap_override).
+        free_cap: cap value that means "no throttling"; below it = throttled.
+
+    Returns ``(filtered_frame, excluded_minute_count)``. The cap is forward-filled
+    onto every analysis minute (it persists until the next change); minutes before
+    the first known cap value are treated as free (kept).
+    """
+    if not cap_records:
+        return merged, 0
+
+    df_cap = pd.DataFrame(cap_records)
+    df_cap["timestamp"] = pd.to_datetime(df_cap["timestamp"]).dt.floor("min")
+    cap_series = df_cap.groupby("timestamp")["cap"].last()
+    cap_aligned = (
+        cap_series.reindex(cap_series.index.union(merged.index))
+        .sort_index()
+        .ffill()
+        .reindex(merged.index)
+    )
+    throttled = (cap_aligned < free_cap).fillna(False)
+    excluded = int(throttled.sum())
+    if excluded:
+        merged = merged[~throttled.values]
+    return merged, excluded
 
 
 def calculate_stooklijn(

@@ -15,6 +15,7 @@ from custom_components.quatt_stooklijn.analysis.thermal_model import (
     OnlineRCModel,
     RLSEstimator,
     simulate_6h,
+    simulate_coast_time,
 )
 
 
@@ -364,3 +365,125 @@ class TestSimulate6h:
             forecast_q_solar=[0.0, 0.0],
         )
         assert len(results) == 2
+
+
+# --------------------------------------------------------------------------- #
+#  simulate_coast_time tests                                                  #
+# --------------------------------------------------------------------------- #
+
+
+class TestSimulateCoastTime:
+    """Tests voor de vrije-afkoel (coast-time) simulatie."""
+
+    @staticmethod
+    def _exact_model(U: float = 200.0, C: float = 5000.0, g: float = 5.0) -> OnlineRCModel:
+        """Model met exact ingestelde fysica (θ = [U/C, g/C, 1/C])."""
+        model = OnlineRCModel()
+        model._rls.initialise_from_physics(U, C, g)
+        model._rls.n_updates = RLS_MIN_UPDATES  # markeer als bruikbaar
+        return model
+
+    def test_cold_no_sun_reaches_floor(self):
+        """Koud, geen zon: huis koelt af tot comfort-vloer.
+
+        U=200, C=5000 → τ=25h. Van 20→19°C bij buiten 0°C duurt ≈77 min.
+        """
+        model = self._exact_model()
+        result = simulate_coast_time(
+            model,
+            t_indoor_now=20.0,
+            comfort_floor=19.0,
+            forecast_t_outdoor=[0.0] * 12,
+            forecast_q_solar=[0.0] * 12,
+        )
+        assert result["reaches_floor"] is True
+        assert result["comfort_at_risk"] is True
+        assert 70 <= result["coast_minutes"] <= 85
+
+    def test_sun_extends_coast_time(self):
+        """Voorspelde zon verlengt de coast-tijd (g·Q_solar remt afkoeling)."""
+        model = self._exact_model()
+        no_sun = simulate_coast_time(
+            model,
+            t_indoor_now=20.0,
+            comfort_floor=19.0,
+            forecast_t_outdoor=[0.0] * 12,
+            forecast_q_solar=[0.0] * 12,
+        )
+        with_sun = simulate_coast_time(
+            model,
+            t_indoor_now=20.0,
+            comfort_floor=19.0,
+            forecast_t_outdoor=[0.0] * 12,
+            forecast_q_solar=[100.0] * 12,  # W/m² zoninstraling
+        )
+        assert with_sun["coast_minutes"] > no_sun["coast_minutes"]
+
+    def test_sunny_mild_never_cools(self):
+        """Genoeg zon + mild weer: huis blijft warm, vloer nooit bereikt."""
+        model = self._exact_model()
+        result = simulate_coast_time(
+            model,
+            t_indoor_now=20.0,
+            comfort_floor=19.0,
+            forecast_t_outdoor=[10.0] * 12,
+            forecast_q_solar=[500.0] * 12,  # equilibrium ≈ 22.5°C
+            max_hours=12,
+        )
+        assert result["reaches_floor"] is False
+        assert result["comfort_at_risk"] is False
+        assert result["coast_minutes"] == 12 * 60
+
+    def test_already_below_floor(self):
+        """Binnen al onder de vloer → geen ruimte om uit te lopen."""
+        model = self._exact_model()
+        result = simulate_coast_time(
+            model,
+            t_indoor_now=18.0,
+            comfort_floor=19.0,
+            forecast_t_outdoor=[0.0] * 12,
+            forecast_q_solar=[0.0] * 12,
+        )
+        assert result["coast_minutes"] == 0
+        assert result["comfort_at_risk"] is True
+
+    def test_model_unusable_returns_none(self):
+        """Onbruikbaar model (θ₃≈0) → coast_minutes None."""
+        model = OnlineRCModel()
+        model._rls.theta = np.array([0.04, 0.0, 0.0])  # θ₃ = 0
+        result = simulate_coast_time(
+            model,
+            t_indoor_now=20.0,
+            comfort_floor=19.0,
+            forecast_t_outdoor=[0.0] * 12,
+            forecast_q_solar=[0.0] * 12,
+        )
+        assert result["coast_minutes"] is None
+
+    def test_better_insulation_coasts_longer(self):
+        """Hogere thermische massa (grotere τ) → langere coast-tijd."""
+        light = self._exact_model(U=200.0, C=5000.0)   # τ=25h
+        heavy = self._exact_model(U=200.0, C=10000.0)  # τ=50h
+        kwargs = dict(
+            t_indoor_now=20.0,
+            comfort_floor=19.0,
+            forecast_t_outdoor=[0.0] * 12,
+            forecast_q_solar=[0.0] * 12,
+        )
+        assert (
+            simulate_coast_time(heavy, **kwargs)["coast_minutes"]
+            > simulate_coast_time(light, **kwargs)["coast_minutes"]
+        )
+
+    def test_persists_short_forecast(self):
+        """Korte forecast wordt doorgetrokken (laatste waarde blijft gelden)."""
+        model = self._exact_model()
+        result = simulate_coast_time(
+            model,
+            t_indoor_now=20.0,
+            comfort_floor=19.0,
+            forecast_t_outdoor=[0.0],  # slechts 1 uur, rest geëxtrapoleerd
+            forecast_q_solar=[0.0],
+        )
+        assert result["reaches_floor"] is True
+        assert 70 <= result["coast_minutes"] <= 85
