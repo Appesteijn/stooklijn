@@ -31,6 +31,7 @@ def _stub_ha():
     _ensure_module("homeassistant.core")
     _ensure_module("homeassistant.config_entries")
     _ensure_module("homeassistant.helpers")
+    _ensure_module("homeassistant.helpers.entity")
     _ensure_module("homeassistant.helpers.update_coordinator")
     _ensure_module("homeassistant.helpers.entity_platform")
     _ensure_module("homeassistant.helpers.event")
@@ -86,6 +87,13 @@ def _stub_ha():
     sensor_mod.SensorEntityDescription = _SensorEntityDescription
     sensor_mod.SensorDeviceClass = MagicMock()
     sensor_mod.SensorStateClass = MagicMock()
+    sensor_mod.ENTITY_ID_FORMAT = "sensor.{}"
+
+    # Entity helpers
+    entity_mod = sys.modules["homeassistant.helpers.entity"]
+    entity_mod.async_generate_entity_id = (
+        lambda fmt, name, current_ids=None, hass=None: fmt.format(name)
+    )
 
     # Binary sensor stubs
     binary_sensor_mod = sys.modules["homeassistant.components.binary_sensor"]

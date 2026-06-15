@@ -9,6 +9,7 @@ import logging
 from typing import Any
 
 from homeassistant.components.sensor import (
+    ENTITY_ID_FORMAT,
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
@@ -18,6 +19,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -1118,6 +1120,15 @@ class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorE
         self._mpc = mpc_sensor
         self._attr_unique_id = f"{entry.entry_id}_coast_time_min"
         self._attr_device_info = get_device_info(entry.entry_id)
+        # Pin een deterministische entity-id, los van de device-naam/area.
+        # Anders bouwt HA de id voor deze (nieuwe) entity op uit de area van
+        # het device (bijv. "Bijkeuken") → sensor.bijkeuken_quatt_warmteanalyse_…,
+        # terwijl het dashboard en energy-os de schone id verwachten.
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            "quatt_warmteanalyse_veilige_uitlooptijd",
+            hass=coordinator.hass,
+        )
 
     @property
     def _comfort_floor(self) -> float:
