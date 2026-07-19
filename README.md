@@ -62,7 +62,7 @@ The sensor state shows how many adjustments are recommended (e.g. "3 aanpassinge
 | `stooklijn_punten` | 6 optimal heating curve breakpoints (-10°C to +15°C) |
 | `stooklijn_advies` | All breakpoints as readable text |
 
-> **Note:** The "nominaal vermogen" comparison requires that you enter your current Quatt stooklijn setting (two points) in the integration configuration (Step 3). Without this, the sensor can only show the recommended values, not the difference.
+> **Note:** The "nominaal vermogen" comparison no longer requires any manual input. The integration automatically estimates your current Quatt stooklijn from Home Assistant recorder data and evaluates the rated power at -10°C. Give it enough measured heating data (cold-weather operation) for a reliable estimate; the `nominaal_vermogen_betrouwbaar` attribute indicates whether the current value is trustworthy yet.
 
 ## Geluidsniveaucompensatie
 

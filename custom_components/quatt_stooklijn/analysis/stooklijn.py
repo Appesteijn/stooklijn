@@ -21,12 +21,17 @@ from ..const import (
     DAYS_HISTORY,
     EOS_THROTTLE_CAP_FREE,
     KEEP_THRESHOLD,
-    MIN_HEATING_WATTS,
     MIN_MODULATION_WATTS,
     MIN_POWER_FILTER,
     OUTLIER_STD_THRESHOLD,
 )
-from .utils import calc_r2, robust_linear_fit
+from .utils import (
+    MODE_HEATING,
+    calc_r2,
+    classify_heat_mode,
+    robust_linear_fit,
+    select_heating,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -765,10 +770,8 @@ def calculate_stooklijn(
                 [np.inf, -np.inf], np.nan
             ).dropna()
 
-            # Filter out non-heating days (summer) for regression
-            heating_data = plot_data[
-                plot_data["totalHeatPerHour"] >= MIN_HEATING_WATTS
-            ]
+            # Filter out non-heating days (summer/cooling) for regression
+            heating_data = select_heating(plot_data)
 
             if len(heating_data) > 5:
                 x_all = heating_data["avg_temperatureOutside"].values
@@ -838,7 +841,7 @@ def calculate_stooklijn(
             df_warm = df_daily[
                 (df_daily["avg_temperatureOutside"] >= dynamic_min_temp)
                 & (df_daily["avg_temperatureOutside"] <= t_max_valid)
-                & (df_daily["totalHeatPerHour"] >= MIN_HEATING_WATTS)
+                & (classify_heat_mode(df_daily["totalHeatPerHour"]) == MODE_HEATING)
             ][cols_needed_daily].dropna()
             if len(df_warm) > 1:
                 x_d = df_warm["avg_temperatureOutside"].values
@@ -866,7 +869,7 @@ def calculate_stooklijn(
             # Filter: only days with meaningful COP (heating days)
             cop_data = cop_data[cop_data["averageCOP"] > 0]
             if "totalHeatPerHour" in df_daily.columns:
-                valid_idx = df_daily["totalHeatPerHour"] >= MIN_HEATING_WATTS
+                valid_idx = classify_heat_mode(df_daily["totalHeatPerHour"]) == MODE_HEATING
                 cop_data = cop_data[cop_data.index.isin(df_daily[valid_idx].index)]
             result.cop_scatter_data = [
                 {

@@ -1,10 +1,16 @@
-"""Shared analysis utilities — regression, R², heat demand."""
+"""Shared analysis utilities — regression, R², heat demand, mode classification."""
 
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
-from ..const import OUTLIER_STD_THRESHOLD
+from ..const import MIN_HEATING_WATTS, OUTLIER_STD_THRESHOLD
+
+# Operating-mode labels, derived from net heat delivery (W).
+MODE_HEATING = "heating"
+MODE_COOLING = "cooling"
+MODE_IDLE = "idle"
 
 
 def robust_linear_fit(
@@ -46,3 +52,33 @@ def calc_r2(y_actual: np.ndarray, y_predicted: np.ndarray) -> float:
 def calc_heat_demand(slope: float, intercept: float, t_outdoor: float) -> float:
     """Calculate heat demand (W) from heat loss model, clamped to ≥ 0."""
     return max(0.0, slope * t_outdoor + intercept)
+
+
+def classify_heat_mode(heat_per_hour: pd.Series) -> pd.Series:
+    """Classify the operating mode of each record from its net heat delivery (W).
+
+    - ``heating``: net delivery ≥ ``MIN_HEATING_WATTS`` (genuine heating).
+    - ``cooling``: net heat extraction (negative delivery). The heat pump is
+      pulling heat out of the house — reserved for the future cooling analysis.
+    - ``idle``: everything in between (summer standstill, DHW-only, near-zero).
+
+    Returns a pandas Series of mode labels aligned to ``heat_per_hour``.
+    """
+    heat = pd.to_numeric(heat_per_hour, errors="coerce")
+    mode = pd.Series(MODE_IDLE, index=heat_per_hour.index, dtype="object")
+    mode[heat >= MIN_HEATING_WATTS] = MODE_HEATING
+    mode[heat < 0] = MODE_COOLING
+    return mode
+
+
+def select_heating(df: pd.DataFrame, heat_col: str = "totalHeatPerHour") -> pd.DataFrame:
+    """Return only genuine heating records, excluding cooling and idle days.
+
+    Single source of truth for the heating-only filter shared by the stooklijn
+    and heat-loss regressions, so cooling/summer data can never pollute a
+    heating fit. When cooling analysis is added it gets its own ``select_cooling``
+    counterpart rather than lowering this threshold.
+    """
+    if heat_col not in df.columns:
+        return df.iloc[0:0]
+    return df[classify_heat_mode(df[heat_col]) == MODE_HEATING]

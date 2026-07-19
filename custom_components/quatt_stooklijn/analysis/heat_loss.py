@@ -7,8 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from ..const import MIN_HEATING_WATTS
-from .utils import calc_r2, robust_linear_fit
+from .utils import calc_r2, robust_linear_fit, select_heating
 
 
 @dataclass
@@ -54,8 +53,8 @@ def calculate_heat_loss(
     if len(plot_data) < 5:
         return result
 
-    # Filter: only days with meaningful heating demand for regression
-    heating_data = plot_data[plot_data["totalHeatPerHour"] >= MIN_HEATING_WATTS]
+    # Filter: only genuine heating days (excludes cooling and idle/summer days)
+    heating_data = select_heating(plot_data)
 
     if len(heating_data) < 5:
         return result

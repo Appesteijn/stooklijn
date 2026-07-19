@@ -25,6 +25,7 @@ from ..const import (
     RECORDER_BOILER_HEAT_ENTITY,
     RECORDER_POWER_INPUT_ENTITY,
 )
+from .utils import classify_heat_mode
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -422,5 +423,12 @@ async def async_fetch_quatt_insights(
         df_daily = df_daily_recorder
     else:
         df_daily = pd.DataFrame()
+
+    # Label each day heating/cooling/idle from net heat delivery, so cooling
+    # days stay identifiable downstream instead of being silently dropped by
+    # the heating-only filters. Computed once on the merged frame so it always
+    # matches the final totalHeatPerHour.
+    if not df_daily.empty and "totalHeatPerHour" in df_daily.columns:
+        df_daily["mode"] = classify_heat_mode(df_daily["totalHeatPerHour"])
 
     return df_hourly, df_daily

@@ -53,7 +53,6 @@ from .const import (
     NOMINAL_FLOW_LPH,
     MPC_FORECAST_HOURS,
     MPC_SUPPLY_TEMP_MAX,
-    MPC_SUPPLY_TEMP_COOL_MIN,
     MPC_SUPPLY_TEMP_MIN,
     OPEN_METEO_FORECAST_URL,
     SOLAR_RADIATION_DEFAULT_FACTOR,
@@ -918,8 +917,11 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                     t_indoor, t_outdoor, q_solar_wm2, t_setpoint=20.0,
                 )
                 t_supply = t_return + q_needed / (1.16 * effective_flow)
+                # Heating branch: floor at MPC_SUPPLY_TEMP_MIN (HP is inefficient
+                # below ~20°C aanvoer). COOL_MIN (15°C) is reserved for the future
+                # cooling branch where aanvoer < retour.
                 return round(
-                    max(MPC_SUPPLY_TEMP_COOL_MIN, min(MPC_SUPPLY_TEMP_MAX, t_supply)),
+                    max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, t_supply)),
                     1,
                 )
 
