@@ -65,11 +65,34 @@ views:
             name: Knikpunt
             icon: mdi:chart-line-variant
             color: amber
+          # Toont de echte Quatt-setpoint als die bestaat. Die sensor komt uit
+          # de Quatt-integratie en wordt alleen aangemaakt bij een thermostaat
+          # op de OpenTherm-ingang — niet op elk systeem. Ontbreekt hij, dan
+          # valt de tile hieronder terug op het stooklijn-advies van deze
+          # integratie (altijd beschikbaar). Een niet-bestaande entity wordt
+          # door HA als 'unavailable' behandeld, dus de visibility-conditie klopt.
           - type: tile
             entity: sensor.heatpump_thermostat_control_setpoint
             name: Quatt Setpoint
             icon: mdi:thermometer-chevron-up
             color: red
+            visibility:
+              - condition: state
+                entity: sensor.heatpump_thermostat_control_setpoint
+                state_not:
+                  - unavailable
+                  - unknown
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
+            name: Stooklijn setpoint
+            icon: mdi:thermometer-chevron-up
+            color: red
+            visibility:
+              - condition: state
+                entity: sensor.heatpump_thermostat_control_setpoint
+                state:
+                  - unavailable
+                  - unknown
           - type: tile
             entity: sensor.quatt_warmteanalyse_last_analysis
             name: Laatste analyse

@@ -238,7 +238,6 @@ All `sensor.quatt_warmteanalyse_*` entities.
 | `sensor.heatpump_flowmeter_flowrate` | Flow rate (l/h) |
 | `sensor.heatpump_hp1_temperature_outside` | Outdoor temperature (HP1 sensor) |
 | `sensor.heatpump_hp1_temperature_water_in` | Return water temperature |
-| `sensor.heatpump_thermostat_control_setpoint` | Quatt's current setpoint |
 | `sensor.heatpump_thermostat_room_temperature` | Room temperature |
 | `sensor.heatpump_thermostat_room_setpoint` | Room setpoint |
 
@@ -249,6 +248,7 @@ If you have two heat pumps, the dashboard also references `sensor.heatpump_hp2_t
 | Entity ID | What to replace it with |
 |-----------|------------------------|
 | `sensor.thermostat_temperature_outside` | Your outdoor temperature sensor (Toon, Nest, weather station, etc.) |
+| `sensor.heatpump_thermostat_control_setpoint` | Only exists when a thermostat is connected to the Quatt's OpenTherm input and reports a control setpoint. If you steer the Quatt another way (OTGW, a thermostat on the boiler side, etc.) this entity is **not created** — that is not an error. No action needed: the setpoint tile shows the real Quatt value when it exists and automatically falls back to this integration's own `sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur` when it doesn't, and the supply-temperature chart and the limit card simply skip it if it's missing. |
 
 **Weather forecast — required for MPC shadow sensor:**
 
