@@ -91,5 +91,18 @@
       "name": "Wärmeanalyse ausführen",
       "description": "Führt die vollständige Analysepipeline aus: ruft Daten ab und berechnet Heizkurven, COP und Wärmeverlustkoeffizient."
     }
+  },
+  "entity": {
+    "sensor": {
+      "analysis_status": {
+        "state": {
+          "idle": "Noch nicht ausgeführt",
+          "running": "Läuft…",
+          "completed": "Abgeschlossen",
+          "no_data": "Abgeschlossen — noch keine Heizdaten",
+          "error": "Fehler"
+        }
+      }
+    }
   }
 }

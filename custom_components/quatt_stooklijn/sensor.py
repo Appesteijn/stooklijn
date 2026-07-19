@@ -232,6 +232,7 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
     QuattSensorDescription(
         key="analysis_status",
         name="Analysis Status",
+        translation_key="analysis_status",
         icon="mdi:information-outline",
         value_fn=lambda d: d.analysis_status,
         attr_fn=lambda _: None,
@@ -332,6 +333,7 @@ class QuattStooklijnSensor(
     _STATUS_ICONS = {
         "running": "mdi:progress-clock",
         "completed": "mdi:check-circle",
+        "no_data": "mdi:timer-sand",
         "error": "mdi:alert-circle",
         "idle": "mdi:information-outline",
     }

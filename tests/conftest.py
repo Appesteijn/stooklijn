@@ -79,6 +79,7 @@ def _stub_ha():
     class _SensorEntityDescription:
         key: str = ""
         name: str | None = None
+        translation_key: str | None = None
         native_unit_of_measurement: str | None = None
         device_class: object = None
         state_class: object = None

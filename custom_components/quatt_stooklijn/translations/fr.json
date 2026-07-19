@@ -91,5 +91,18 @@
       "name": "Lancer l'analyse thermique",
       "description": "Exécute le pipeline d'analyse complet : récupère les données et calcule les courbes de chauffe, le COP et le coefficient de déperdition thermique."
     }
+  },
+  "entity": {
+    "sensor": {
+      "analysis_status": {
+        "state": {
+          "idle": "Pas encore exécuté",
+          "running": "En cours…",
+          "completed": "Terminé",
+          "no_data": "Terminé — pas encore de données de chauffe",
+          "error": "Erreur"
+        }
+      }
+    }
   }
 }

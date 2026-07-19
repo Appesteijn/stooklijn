@@ -241,6 +241,22 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             "knee_store_newest": knee_stats["newest_date"],
         }
 
+        # Determine whether the run actually produced usable results. A run
+        # can finish cleanly yet compute nothing when there is no heating data
+        # to fit — typically a fresh install in summer or missing source
+        # sensors. In that case "completed" is misleading (it reads as "click
+        # succeeded"), so flag it as "no_data" instead. Any single usable
+        # headline output is enough to count as a real result.
+        has_output = (
+            stooklijn_result.knee_temperature is not None
+            or stooklijn_result.slope_local is not None
+            or stooklijn_result.slope_api is not None
+            or stooklijn_result.slope_optimal is not None
+            or heat_loss_hp.heat_loss_coefficient is not None
+            or average_cop is not None
+        )
+        analysis_status = "completed" if has_output else "no_data"
+
         # Assemble results
         self.data = QuattStooklijnData(
             stooklijn=stooklijn_result,
@@ -248,9 +264,18 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             heat_loss_gas=heat_loss_gas,
             average_cop=average_cop,
             last_analysis=datetime.now(timezone.utc),
-            analysis_status="completed",
+            analysis_status=analysis_status,
             data_stats=computed_data_stats,
         )
 
-        _LOGGER.info("Quatt Stooklijn analysis completed")
+        if has_output:
+            _LOGGER.info("Quatt Stooklijn analysis completed")
+        else:
+            # Not a failure — the run finished cleanly, there simply was no
+            # heating data yet to fit (e.g. summer / fresh install). Logged at
+            # info so it doesn't read as something to act on.
+            _LOGGER.info(
+                "Quatt Stooklijn analysis completed with no heating data yet "
+                "to fit; status=no_data"
+            )
         return self.data

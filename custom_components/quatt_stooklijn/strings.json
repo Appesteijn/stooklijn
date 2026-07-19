@@ -99,5 +99,18 @@
       "name": "Run Warmteanalyse",
       "description": "Runs the full analysis pipeline: fetches data, calculates heating curves, COP, and heat loss."
     }
+  },
+  "entity": {
+    "sensor": {
+      "analysis_status": {
+        "state": {
+          "idle": "Idle",
+          "running": "Running…",
+          "completed": "Completed",
+          "no_data": "Completed — no heating data yet",
+          "error": "Error"
+        }
+      }
+    }
   }
 }

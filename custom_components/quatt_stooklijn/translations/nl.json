@@ -91,5 +91,18 @@
       "name": "Warmteanalyse uitvoeren",
       "description": "Voert de volledige analysepipeline uit: haalt data op en berekent stooklijnen, COP en warmteverliescoëfficiënt."
     }
+  },
+  "entity": {
+    "sensor": {
+      "analysis_status": {
+        "state": {
+          "idle": "Nog niet gedraaid",
+          "running": "Bezig…",
+          "completed": "Voltooid",
+          "no_data": "Voltooid — nog geen stookdata",
+          "error": "Fout"
+        }
+      }
+    }
   }
 }
