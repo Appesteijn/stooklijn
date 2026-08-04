@@ -7,8 +7,8 @@
         "data": {
           "quatt_start_date": "Startdatum (JJJJ-MM-DD)",
           "quatt_end_date": "Einddatum (JJJJ-MM-DD)",
-          "temp_entities": "Buitentemperatuur sensoren (komma-gescheiden, op volgorde van prioriteit)",
-          "power_entity": "Totaal vermogen sensor entiteit"
+          "temp_entities": "Buitentemperatuur sensor(en) — de eerste die beschikbaar is wordt gebruikt",
+          "power_entity": "Warmtepomp warmtevermogen sensor (W)"
         }
       },
       "gas": {
@@ -45,7 +45,8 @@
           "ch_max_water_entity": "Quatt max. aanvoertemperatuur entiteit",
           "ch_max_water_source": "Stuuradvies bron (stooklijn of MPC)",
           "ch_max_water_hysteresis": "Minimale wijziging voor schrijfactie (°C)",
-          "ch_max_water_interval": "Schrijfinterval (minuten)"
+          "ch_max_water_interval": "Schrijfinterval (minuten)",
+          "supply_temp_entity": "Aanvoertemperatuur sensor (°C) — vergelijkingsbasis voor het advies"
         }
       }
     },
@@ -81,7 +82,12 @@
           "ch_max_water_entity": "Quatt max. aanvoertemperatuur entiteit",
           "ch_max_water_source": "Stuuradvies bron (stooklijn of MPC)",
           "ch_max_water_hysteresis": "Minimale wijziging voor schrijfactie (°C)",
-          "ch_max_water_interval": "Schrijfinterval (minuten)"
+          "ch_max_water_interval": "Schrijfinterval (minuten)",
+          "temp_entities": "Buitentemperatuur sensor(en) — de eerste die beschikbaar is wordt gebruikt",
+          "power_entity": "Warmtepomp warmtevermogen sensor (W)",
+          "supply_temp_entity": "Aanvoertemperatuur sensor (°C) — vergelijkingsbasis voor het advies",
+          "power_input_entity": "Opgenomen elektrisch vermogen sensor (W) — voor COP-berekening",
+          "boiler_heat_entity": "Gasketel warmtevermogen sensor (W) — voor gasdetectie"
         }
       }
     }

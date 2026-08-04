@@ -6,7 +6,7 @@ warmtepomp op basis van de MPC-aanbeveling en gasketelactiviteit.
 Logica (elke 5 min):
 1. HP inactief (debiet < MIN_FLOW_LPH)
    → reset naar geconfigureerd max, stop
-2. Gas actief (sensor.heatpump_boiler_heat_power > drempel)
+2. Gas actief (boiler-warmtevermogen > drempel)
    → één stap omhoog (HP mag harder draaien zodat ketel minder nodig is)
 3. Aanvoertemp > MPC-advies + dead band
    → één stap omlaag (te veel warmte)
@@ -32,23 +32,30 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_BOILER_HEAT_ENTITY,
     CONF_FLOW_ENTITY,
     CONF_SOUND_LEVEL_ENABLED,
+    CONF_SUPPLY_TEMP_ENTITY,
     CONF_SOUND_LEVEL_MAX_DAY,
     CONF_SOUND_LEVEL_MAX_NIGHT,
     CONF_SOUND_NIGHT_START_HOUR,
     CONF_SOUND_NIGHT_END_HOUR,
-    DEFAULT_FLOW_ENTITY,
     DEFAULT_SOUND_LEVEL_MAX,
     DEFAULT_SOUND_NIGHT_START_HOUR,
     DEFAULT_SOUND_NIGHT_END_HOUR,
-    DEFAULT_SUPPLY_TEMP_ENTITY,
     DOMAIN,
     MIN_FLOW_LPH,
     OTGW_CYCLE_SECONDS,
     OTGW_UNAVAILABLE_TIMEOUT,
 )
 from .coordinator import QuattStooklijnCoordinator
+from .discovery import (
+    ROLE_BOILER_HEAT,
+    ROLE_FLOW_RATE,
+    ROLE_SUPPLY_TEMP,
+    async_discover_quatt_entities,
+    async_resolve_entity,
+)
 from .helpers import get_device_info, get_float_state
 
 _LOGGER = logging.getLogger(__name__)
@@ -61,7 +68,6 @@ _NORMAL_IDX = len(_SOUND_LEVELS) - 1
 _MPC_ENTITY = "sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur"
 _DAY_SOUND_ENTITY = "select.cic_day_max_sound_level"
 _NIGHT_SOUND_ENTITY = "select.cic_night_max_sound_level"
-_BOILER_HEAT_ENTITY = "sensor.heatpump_boiler_heat_power"
 
 _GAS_THRESHOLD_W = 200.0  # W: boven deze waarde is de gasketel actief
 _DEAD_BAND = 2.0           # °C: geen actie binnen deze marge rond MPC-advies
@@ -77,7 +83,7 @@ async def async_setup_entry(
         return
 
     coordinator: QuattStooklijnCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([QuattSoundLevelSwitch(coordinator, entry)])
+    async_add_entities([QuattSoundLevelSwitch(hass, coordinator, entry)])
 
 
 class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
@@ -89,6 +95,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
 
     def __init__(
         self,
+        hass: HomeAssistant,
         coordinator: QuattStooklijnCoordinator,
         entry: ConfigEntry,
     ) -> None:
@@ -104,8 +111,18 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         self._last_is_night: bool | None = None
 
         merged = {**entry.data, **entry.options}
-        self._supply_entity = DEFAULT_SUPPLY_TEMP_ENTITY
-        self._flow_entity = merged.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY)
+        # Entity-IDs verschillen per installatie (zie discovery.py), dus ze
+        # worden opgezocht in plaats van hardcoded.
+        discovered = async_discover_quatt_entities(hass)
+        self._supply_entity = async_resolve_entity(
+            hass, merged, CONF_SUPPLY_TEMP_ENTITY, ROLE_SUPPLY_TEMP, discovered=discovered
+        )
+        self._flow_entity = async_resolve_entity(
+            hass, merged, CONF_FLOW_ENTITY, ROLE_FLOW_RATE, discovered=discovered
+        )
+        self._boiler_heat_entity = async_resolve_entity(
+            hass, merged, CONF_BOILER_HEAT_ENTITY, ROLE_BOILER_HEAT, discovered=discovered
+        )
 
         # Maximaal geluidsniveau (= max vermogen) dat compensatie mag instellen
         max_day = merged.get(CONF_SOUND_LEVEL_MAX_DAY, DEFAULT_SOUND_LEVEL_MAX)
@@ -239,7 +256,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         self._hp_inactive_since = None
 
         # 2. Gas actief? → stap omhoog zodat HP meer kan leveren
-        boiler_heat = get_float_state(self.hass, _BOILER_HEAT_ENTITY)
+        boiler_heat = get_float_state(self.hass, self._boiler_heat_entity)
         if boiler_heat is not None and boiler_heat > _GAS_THRESHOLD_W:
             if self._current_level_idx < effective_max:
                 self._current_level_idx += 1
@@ -357,7 +374,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         mpc_advised = get_float_state(self.hass, _MPC_ENTITY) if self.hass else None
         actual_supply = get_float_state(self.hass, self._supply_entity) if self.hass else None
         flow = get_float_state(self.hass, self._flow_entity) if self.hass else None
-        boiler_heat = get_float_state(self.hass, _BOILER_HEAT_ENTITY) if self.hass else None
+        boiler_heat = get_float_state(self.hass, self._boiler_heat_entity) if self.hass else None
         is_night = self._is_night()
         effective_max = self._effective_max_idx()
 

@@ -38,6 +38,8 @@ def _stub_ha():
     _ensure_module("homeassistant.helpers.aiohttp_client")
     _ensure_module("homeassistant.helpers.restore_state")
     _ensure_module("homeassistant.helpers.storage")
+    _ensure_module("homeassistant.helpers.entity_registry")
+    _ensure_module("homeassistant.helpers.selector")
     _ensure_module("homeassistant.components")
     _ensure_module("homeassistant.components.binary_sensor")
     _ensure_module("homeassistant.components.sensor")
@@ -65,10 +67,16 @@ def _stub_ha():
     config_entries = sys.modules["homeassistant.config_entries"]
     config_entries.ConfigEntry = MagicMock
     config_entries.ConfigFlow = type("ConfigFlow", (), {
-        "async_show_form": lambda *a, **kw: None,
-        "async_create_entry": lambda *a, **kw: None,
+        # HA geeft `domain=` mee bij het subclassen; zonder deze hook faalt de
+        # import van config_flow.py al op de class-definitie.
+        "__init_subclass__": classmethod(lambda cls, **kw: None),
+        "async_show_form": lambda self, **kw: {"type": "form", **kw},
+        "async_create_entry": lambda self, **kw: {"type": "create_entry", **kw},
     })
-    config_entries.OptionsFlow = type("OptionsFlow", (), {})
+    config_entries.OptionsFlow = type("OptionsFlow", (), {
+        "async_show_form": lambda self, **kw: {"type": "form", **kw},
+        "async_create_entry": lambda self, **kw: {"type": "create_entry", **kw},
+    })
 
     # Sensor stubs
     sensor_mod = sys.modules["homeassistant.components.sensor"]
@@ -170,10 +178,47 @@ def _stub_ha():
 
     # voluptuous stub
     vol = sys.modules["voluptuous"]
-    vol.Schema = lambda *a, **kw: None
+    # Schema geeft de mapping terug, zodat tests kunnen inspecteren welke velden
+    # een formulier aanbiedt en met welke voorgestelde waarde.
+    vol.Schema = lambda d=None, **kw: d
     vol.Required = lambda *a, **kw: a[0] if a else None
     vol.Optional = lambda *a, **kw: a[0] if a else None
     vol.Coerce = lambda t: t
+    vol.All = lambda *a, **kw: a[0] if a else None
+    vol.In = lambda choices: choices
+    vol.Range = lambda **kw: kw
+
+    # Entity registry stub — werkend genoeg om auto-detectie te testen.
+    er_mod = sys.modules["homeassistant.helpers.entity_registry"]
+
+    class _RegistryEntry:
+        def __init__(self, entity_id, unique_id, platform, disabled=False):
+            self.entity_id = entity_id
+            self.unique_id = unique_id
+            self.platform = platform
+            self.disabled = disabled
+
+    class _FakeRegistry:
+        def __init__(self, entries=()):
+            self.entities = {e.entity_id: e for e in entries}
+
+        def async_get(self, entity_id):
+            return self.entities.get(entity_id)
+
+    def _async_get_registry(hass):
+        # hass is in veel tests een MagicMock; die levert voor elk attribuut een
+        # nieuwe mock op. Alleen een echt neergezet register telt mee.
+        reg = getattr(hass, "_test_entity_registry", None)
+        return reg if isinstance(reg, _FakeRegistry) else _FakeRegistry()
+
+    er_mod.async_get = _async_get_registry
+    er_mod.RegistryEntry = _RegistryEntry
+    er_mod.FakeRegistry = _FakeRegistry
+
+    # Selector stub
+    sel_mod = sys.modules["homeassistant.helpers.selector"]
+    sel_mod.EntitySelectorConfig = lambda **kw: kw
+    sel_mod.EntitySelector = lambda config=None: {"selector": "entity", "config": config}
 
 
 # Run stubs before any component imports

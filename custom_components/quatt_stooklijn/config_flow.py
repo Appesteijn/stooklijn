@@ -7,9 +7,14 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    EntitySelector,
+    EntitySelectorConfig,
+)
 
 from .const import (
     CONF_BOILER_EFFICIENCY,
+    CONF_BOILER_HEAT_ENTITY,
     CONF_FLOW_ENTITY,
     CONF_GAS_ENABLED,
     CONF_GAS_ENTITY,
@@ -25,6 +30,7 @@ from .const import (
     CONF_CH_MAX_WATER_INTERVAL,
     CONF_COMFORT_FLOOR_TEMP,
     CONF_EOS_THROTTLE_ENTITY,
+    CONF_POWER_INPUT_ENTITY,
     CONF_SOUND_LEVEL_ENABLED,
     CONF_SOUND_LEVEL_MAX_DAY,
     CONF_SOUND_LEVEL_MAX_NIGHT,
@@ -34,30 +40,58 @@ from .const import (
     CONF_QUATT_START_DATE,
     CONF_RETURN_TEMP_ENTITY,
     CONF_SOLAR_ENTITY,
+    CONF_SUPPLY_TEMP_ENTITY,
     CONF_TEMP_ENTITIES,
     CONF_WEATHER_ENTITY,
     DEFAULT_BOILER_EFFICIENCY,
-    DEFAULT_CH_MAX_WATER_ENTITY,
     DEFAULT_CH_MAX_WATER_SOURCE,
     DEFAULT_CH_MAX_WATER_HYSTERESIS,
     DEFAULT_CH_MAX_WATER_INTERVAL,
     DEFAULT_COMFORT_FLOOR_TEMP,
     DEFAULT_EOS_THROTTLE_ENTITY,
-    DEFAULT_FLOW_ENTITY,
     DEFAULT_GAS_CALORIFIC_VALUE,
     DEFAULT_HOT_WATER_TEMP_THRESHOLD,
-    DEFAULT_INDOOR_TEMP_ENTITY,
-    DEFAULT_POWER_ENTITY,
+    DEFAULT_SOLAR_ENTITY,
     DEFAULT_SOUND_LEVEL_MAX,
     DEFAULT_SOUND_NIGHT_START_HOUR,
     DEFAULT_SOUND_NIGHT_END_HOUR,
-    DEFAULT_RETURN_TEMP_ENTITY,
-    DEFAULT_SOLAR_ENTITY,
-    DEFAULT_TEMP_ENTITIES,
     DEFAULT_WEATHER_ENTITY,
     DOMAIN,
     SOUND_LEVEL_OPTIONS,
 )
+from .discovery import (
+    ROLE_BOILER_HEAT,
+    ROLE_CH_MAX_WATER,
+    ROLE_FLOW_RATE,
+    ROLE_INDOOR_TEMP,
+    ROLE_OUTDOOR_TEMP,
+    ROLE_POWER_INPUT,
+    ROLE_RETURN_TEMP,
+    ROLE_SUPPLY_TEMP,
+    ROLE_TOTAL_POWER,
+    async_discover_quatt_entities,
+)
+
+
+def _entity(domain: str | list[str], *, multiple: bool = False) -> EntitySelector:
+    """Entity-kiezer in plaats van een vrij tekstveld.
+
+    Entity-IDs verschillen per Quatt-installatie (zie discovery.py), dus laten
+    typen leidt tot stille misconfiguratie: een niet-bestaande naam werd zonder
+    foutmelding geaccepteerd.
+    """
+    return EntitySelector(EntitySelectorConfig(domain=domain, multiple=multiple))
+
+
+def _prefill(key: str, value):
+    """Optioneel veld met een voorgestelde waarde (leeg blijven mag).
+
+    Wordt het veld leeggelaten, dan bepaalt de auto-detectie tijdens runtime de
+    entity — dat is robuuster dan een default vastleggen die later kan wijzigen.
+    """
+    if value in (None, "", []):
+        return vol.Optional(key)
+    return vol.Optional(key, description={"suggested_value": value})
 
 
 class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -81,31 +115,31 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_date_format"
 
             if not errors:
-                # Parse comma-separated temp entities
-                temp_str = user_input.get(CONF_TEMP_ENTITIES, "")
-                temp_entities = [
-                    e.strip() for e in temp_str.split(",") if e.strip()
-                ]
+                temp_entities = user_input.get(CONF_TEMP_ENTITIES) or []
+                if isinstance(temp_entities, str):
+                    # Terugvalpad voor YAML-import: komma-gescheiden string.
+                    temp_entities = [e.strip() for e in temp_entities.split(",") if e.strip()]
                 self._data = {
                     CONF_QUATT_START_DATE: user_input[CONF_QUATT_START_DATE],
                     CONF_TEMP_ENTITIES: temp_entities,
-                    CONF_POWER_ENTITY: user_input[CONF_POWER_ENTITY],
+                    CONF_POWER_ENTITY: user_input.get(CONF_POWER_ENTITY, ""),
                 }
                 return await self.async_step_gas()
+
+        detected = async_discover_quatt_entities(self.hass)
+        outdoor = detected.get(ROLE_OUTDOOR_TEMP)
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_QUATT_START_DATE): str,
-                    vol.Required(
-                        CONF_TEMP_ENTITIES,
-                        default="sensor.thermostat_temperature_outside, sensor.heatpump_hp1_temperature_outside, sensor.heatpump_hp2_temperature_outside",
-                    ): str,
-                    vol.Required(
-                        CONF_POWER_ENTITY,
-                        default=DEFAULT_POWER_ENTITY,
-                    ): str,
+                    _prefill(CONF_TEMP_ENTITIES, [outdoor] if outdoor else []): _entity(
+                        "sensor", multiple=True
+                    ),
+                    _prefill(CONF_POWER_ENTITY, detected.get(ROLE_TOTAL_POWER)): _entity(
+                        "sensor"
+                    ),
                 }
             ),
             errors=errors,
@@ -159,7 +193,7 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_GAS_ENABLED, default=False): bool,
-                    vol.Optional(CONF_GAS_ENTITY): str,
+                    vol.Optional(CONF_GAS_ENTITY): _entity("sensor"),
                     vol.Optional(CONF_GAS_START_DATE): str,
                     vol.Optional(CONF_GAS_END_DATE): str,
                     vol.Optional(
@@ -182,11 +216,18 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_options(self, user_input=None):
         """Step 3: Optional settings for stooklijn comparison."""
         if user_input is not None:
-            self._data[CONF_SOUND_LEVEL_ENABLED] = user_input.get(CONF_SOUND_LEVEL_ENABLED, False)
-            self._data[CONF_SOUND_LEVEL_MAX_DAY] = user_input.get(CONF_SOUND_LEVEL_MAX_DAY, DEFAULT_SOUND_LEVEL_MAX)
-            self._data[CONF_SOUND_LEVEL_MAX_NIGHT] = user_input.get(CONF_SOUND_LEVEL_MAX_NIGHT, DEFAULT_SOUND_LEVEL_MAX)
-            self._data[CONF_SOUND_NIGHT_START_HOUR] = user_input.get(CONF_SOUND_NIGHT_START_HOUR, DEFAULT_SOUND_NIGHT_START_HOUR)
-            self._data[CONF_SOUND_NIGHT_END_HOUR] = user_input.get(CONF_SOUND_NIGHT_END_HOUR, DEFAULT_SOUND_NIGHT_END_HOUR)
+            # Alles overnemen wat in deze stap is ingevuld. Eerder werden alleen
+            # de geluidsinstellingen bewaard en verdwenen de entity-velden.
+            self._data.update(user_input)
+            self._data.setdefault(CONF_SOUND_LEVEL_ENABLED, False)
+            self._data.setdefault(CONF_SOUND_LEVEL_MAX_DAY, DEFAULT_SOUND_LEVEL_MAX)
+            self._data.setdefault(CONF_SOUND_LEVEL_MAX_NIGHT, DEFAULT_SOUND_LEVEL_MAX)
+            self._data.setdefault(
+                CONF_SOUND_NIGHT_START_HOUR, DEFAULT_SOUND_NIGHT_START_HOUR
+            )
+            self._data.setdefault(
+                CONF_SOUND_NIGHT_END_HOUR, DEFAULT_SOUND_NIGHT_END_HOUR
+            )
 
             return self.async_create_entry(
                 title="Quatt Warmteanalyse",
@@ -195,44 +236,39 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="options",
-            data_schema=self._options_schema(),
+            data_schema=self._options_schema(async_discover_quatt_entities(self.hass)),
         )
 
     @staticmethod
-    def _options_schema():
-        """Return schema for options step."""
+    def _options_schema(detected: dict[str, str]):
+        """Return schema for options step, voorgevuld met auto-detectie."""
         return vol.Schema(
             {
-                vol.Optional(
-                    CONF_FLOW_ENTITY,
-                    default=DEFAULT_FLOW_ENTITY,
-                ): str,
-                vol.Optional(
-                    CONF_RETURN_TEMP_ENTITY,
-                    default=DEFAULT_RETURN_TEMP_ENTITY,
-                ): str,
+                _prefill(CONF_FLOW_ENTITY, detected.get(ROLE_FLOW_RATE)): _entity("sensor"),
+                _prefill(CONF_RETURN_TEMP_ENTITY, detected.get(ROLE_RETURN_TEMP)): _entity(
+                    "sensor"
+                ),
+                # Aanvoertemperatuur: vergelijkingsbasis voor het stooklijn- en
+                # MPC-advies. Stond eerder hardcoded en was dus onbereikbaar voor
+                # installaties met een andere Quatt-naamgeving.
+                _prefill(CONF_SUPPLY_TEMP_ENTITY, detected.get(ROLE_SUPPLY_TEMP)): _entity(
+                    "sensor"
+                ),
                 # --- MPC / zonnewinst ---
                 # Zonnestroom-sensor in Watt. Gebruik bij voorkeur de output van
                 # je omvormer (bijv. sensor.solaredge_ac_power). Heb je geen PV,
                 # laat dan leeg of gebruik een stralingsensor (W/m² × dakoppervlak).
-                vol.Optional(
-                    CONF_SOLAR_ENTITY,
-                    default=DEFAULT_SOLAR_ENTITY,
-                ): str,
+                _prefill(CONF_SOLAR_ENTITY, DEFAULT_SOLAR_ENTITY): _entity("sensor"),
                 # Weersverwachting-entiteit voor het MPC forecast-venster.
                 # Standaard weather.home (Open-Meteo via HA weather integratie).
-                vol.Optional(
-                    CONF_WEATHER_ENTITY,
-                    default=DEFAULT_WEATHER_ENTITY,
-                ): str,
+                _prefill(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY): _entity("weather"),
                 # Kamertemperatuur voor RC-model kalibratie (solar gain learning).
                 # Gebruik bij voorkeur een sensor dicht bij een groot zuidraam:
                 # die reageert het snelst op zon en geeft het scherpste leersignaal.
                 # Elke kamerthermometer werkt; hoe dichter bij de zon, hoe beter.
-                vol.Optional(
-                    CONF_INDOOR_TEMP_ENTITY,
-                    default=DEFAULT_INDOOR_TEMP_ENTITY,
-                ): str,
+                _prefill(CONF_INDOOR_TEMP_ENTITY, detected.get(ROLE_INDOOR_TEMP)): _entity(
+                    "sensor"
+                ),
                 # --- Geluidsniveau compensatie ---
                 # Schakel in om de warmtepomp actief bij te sturen via
                 # select.cic_day_max_sound_level en select.cic_night_max_sound_level.
@@ -284,10 +320,17 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
             return self.async_create_entry(title="", data=result)
 
         data = {**self._config_entry.data, **self._config_entry.options}
+        # Auto-detectie levert de voorgestelde waarde als er nog niets is
+        # ingesteld — of als de ingestelde entity niet (meer) bestaat.
+        detected = async_discover_quatt_entities(self.hass)
 
-        def _float_default(key):
-            val = data.get(key)
-            return str(val) if val is not None else ""
+        def _current(key: str, role: str | None = None, fallback=None):
+            value = data.get(key)
+            if value:
+                return value
+            if role and role in detected:
+                return detected[role]
+            return fallback
 
         return self.async_show_form(
             step_id="init",
@@ -297,26 +340,46 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_QUATT_START_DATE,
                         default=data.get(CONF_QUATT_START_DATE, ""),
                     ): str,
-                    vol.Optional(
-                        CONF_FLOW_ENTITY,
-                        default=data.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY),
-                    ): str,
-                    vol.Optional(
+                    _prefill(
+                        CONF_TEMP_ENTITIES,
+                        data.get(CONF_TEMP_ENTITIES)
+                        or ([detected[ROLE_OUTDOOR_TEMP]] if ROLE_OUTDOOR_TEMP in detected else []),
+                    ): _entity("sensor", multiple=True),
+                    _prefill(
+                        CONF_POWER_ENTITY, _current(CONF_POWER_ENTITY, ROLE_TOTAL_POWER)
+                    ): _entity("sensor"),
+                    _prefill(
+                        CONF_FLOW_ENTITY, _current(CONF_FLOW_ENTITY, ROLE_FLOW_RATE)
+                    ): _entity("sensor"),
+                    _prefill(
                         CONF_RETURN_TEMP_ENTITY,
-                        default=data.get(CONF_RETURN_TEMP_ENTITY, DEFAULT_RETURN_TEMP_ENTITY),
-                    ): str,
-                    vol.Optional(
+                        _current(CONF_RETURN_TEMP_ENTITY, ROLE_RETURN_TEMP),
+                    ): _entity("sensor"),
+                    _prefill(
+                        CONF_SUPPLY_TEMP_ENTITY,
+                        _current(CONF_SUPPLY_TEMP_ENTITY, ROLE_SUPPLY_TEMP),
+                    ): _entity("sensor"),
+                    # Bronnen voor de recorder-statistieken (COP, gasketel-aandeel).
+                    _prefill(
+                        CONF_POWER_INPUT_ENTITY,
+                        _current(CONF_POWER_INPUT_ENTITY, ROLE_POWER_INPUT),
+                    ): _entity("sensor"),
+                    _prefill(
+                        CONF_BOILER_HEAT_ENTITY,
+                        _current(CONF_BOILER_HEAT_ENTITY, ROLE_BOILER_HEAT),
+                    ): _entity("sensor"),
+                    _prefill(
                         CONF_SOLAR_ENTITY,
-                        default=data.get(CONF_SOLAR_ENTITY, DEFAULT_SOLAR_ENTITY),
-                    ): str,
-                    vol.Optional(
+                        _current(CONF_SOLAR_ENTITY, fallback=DEFAULT_SOLAR_ENTITY),
+                    ): _entity("sensor"),
+                    _prefill(
                         CONF_WEATHER_ENTITY,
-                        default=data.get(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY),
-                    ): str,
-                    vol.Optional(
+                        _current(CONF_WEATHER_ENTITY, fallback=DEFAULT_WEATHER_ENTITY),
+                    ): _entity("weather"),
+                    _prefill(
                         CONF_INDOOR_TEMP_ENTITY,
-                        default=data.get(CONF_INDOOR_TEMP_ENTITY, DEFAULT_INDOOR_TEMP_ENTITY),
-                    ): str,
+                        _current(CONF_INDOOR_TEMP_ENTITY, ROLE_INDOOR_TEMP),
+                    ): _entity("sensor"),
                     vol.Optional(
                         CONF_SOUND_LEVEL_ENABLED,
                         default=data.get(CONF_SOUND_LEVEL_ENABLED, False),
@@ -342,10 +405,10 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_CH_MAX_WATER_ENABLED,
                         default=data.get(CONF_CH_MAX_WATER_ENABLED, False),
                     ): bool,
-                    vol.Optional(
+                    _prefill(
                         CONF_CH_MAX_WATER_ENTITY,
-                        default=data.get(CONF_CH_MAX_WATER_ENTITY, DEFAULT_CH_MAX_WATER_ENTITY),
-                    ): str,
+                        _current(CONF_CH_MAX_WATER_ENTITY, ROLE_CH_MAX_WATER),
+                    ): _entity("number"),
                     vol.Optional(
                         CONF_CH_MAX_WATER_SOURCE,
                         default=data.get(CONF_CH_MAX_WATER_SOURCE, DEFAULT_CH_MAX_WATER_SOURCE),
@@ -369,10 +432,10 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     # Optioneel: entity die aangeeft dat energy-os de WP knijpt
                     # (cap < 20). Die periodes worden uitgesloten van de
                     # COP/warmteverlies-analyse. Leeg = uit (geen filtering).
-                    vol.Optional(
+                    _prefill(
                         CONF_EOS_THROTTLE_ENTITY,
-                        default=data.get(CONF_EOS_THROTTLE_ENTITY, DEFAULT_EOS_THROTTLE_ENTITY),
-                    ): str,
+                        data.get(CONF_EOS_THROTTLE_ENTITY, DEFAULT_EOS_THROTTLE_ENTITY),
+                    ): _entity(["sensor", "input_number", "number"]),
                 }
             ),
         )

@@ -7,8 +7,8 @@
         "data": {
           "quatt_start_date": "Startdatum (JJJJ-MM-TT)",
           "quatt_end_date": "Enddatum (JJJJ-MM-TT)",
-          "temp_entities": "Außentemperatur-Sensoren (kommagetrennt, in Prioritätsreihenfolge)",
-          "power_entity": "Gesamtleistungs-Sensor Entität"
+          "temp_entities": "Außentemperatur-Sensor(en) — der erste verfügbare wird verwendet",
+          "power_entity": "Wärmepumpen-Wärmeleistung (W)"
         }
       },
       "gas": {
@@ -45,7 +45,8 @@
           "ch_max_water_entity": "Quatt max. Vorlauftemperatur Entität",
           "ch_max_water_source": "Steuerquelle (Heizkurve oder MPC)",
           "ch_max_water_hysteresis": "Minimale Änderung vor Schreibaktion (°C)",
-          "ch_max_water_interval": "Schreibintervall (Minuten)"
+          "ch_max_water_interval": "Schreibintervall (Minuten)",
+          "supply_temp_entity": "Vorlauftemperatur-Sensor (°C) — Referenz für die Empfehlung"
         }
       }
     },
@@ -81,7 +82,12 @@
           "ch_max_water_entity": "Quatt max. Vorlauftemperatur Entität",
           "ch_max_water_source": "Steuerquelle (Heizkurve oder MPC)",
           "ch_max_water_hysteresis": "Minimale Änderung vor Schreibaktion (°C)",
-          "ch_max_water_interval": "Schreibintervall (Minuten)"
+          "ch_max_water_interval": "Schreibintervall (Minuten)",
+          "temp_entities": "Außentemperatur-Sensor(en) — der erste verfügbare wird verwendet",
+          "power_entity": "Wärmepumpen-Wärmeleistung (W)",
+          "supply_temp_entity": "Vorlauftemperatur-Sensor (°C) — Referenz für die Empfehlung",
+          "power_input_entity": "Elektrische Leistungsaufnahme (W) — für die COP-Berechnung",
+          "boiler_heat_entity": "Gaskessel-Wärmeleistung (W) — zur Gaserkennung"
         }
       }
     }

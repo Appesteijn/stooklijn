@@ -18,7 +18,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 import homeassistant.util.dt as dt_util
 
-from .const import CH_MAX_WATER_ENTITY_LEGACY, DEFAULT_CH_MAX_WATER_SOURCE
+from .const import DEFAULT_CH_MAX_WATER_SOURCE
+from .discovery import ROLE_CH_MAX_WATER, async_resolve_entity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -129,22 +130,31 @@ class ChMaxWaterController:
             return None
 
     def _resolve_number_entity(self) -> str | None:
-        """Geef de entity-ID terug die beschikbaar is (geconfigureerd of legacy fallback)."""
+        """Geef de entity-ID terug die daadwerkelijk bruikbaar is.
+
+        De Quatt-integratie gebruikt per installatie een andere naam voor deze
+        number-entity; auto-detectie bepaalt de juiste (zie discovery.py).
+        """
         state = self._hass.states.get(self._number_entity)
         if state is not None and state.state not in ("unknown", "unavailable"):
             return self._number_entity
-        # Probeer de legacy entity-ID (Quatt ≤1.0.2: heatpump_ prefix).
-        legacy = CH_MAX_WATER_ENTITY_LEGACY
-        if self._number_entity != legacy:
-            state_legacy = self._hass.states.get(legacy)
-            if state_legacy is not None and state_legacy.state not in ("unknown", "unavailable"):
+
+        detected = async_resolve_entity(
+            self._hass, {}, None, ROLE_CH_MAX_WATER
+        )
+        if detected and detected != self._number_entity:
+            state_detected = self._hass.states.get(detected)
+            if state_detected is not None and state_detected.state not in (
+                "unknown",
+                "unavailable",
+            ):
                 _LOGGER.warning(
-                    "ChMaxWater: '%s' niet gevonden, gebruik legacy '%s'. "
+                    "ChMaxWater: '%s' niet gevonden, gebruik gedetecteerde '%s'. "
                     "Pas de entity-instelling aan om deze melding te voorkomen.",
                     self._number_entity,
-                    legacy,
+                    detected,
                 )
-                return legacy
+                return detected
         return None
 
     def _clamp(self, value: float, entity_id: str) -> float | None:

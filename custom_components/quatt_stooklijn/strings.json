@@ -7,8 +7,8 @@
         "data": {
           "quatt_start_date": "Start date (YYYY-MM-DD)",
           "quatt_end_date": "End date (YYYY-MM-DD)",
-          "temp_entities": "Temperature sensor entities (comma-separated, in priority order)",
-          "power_entity": "Total power sensor entity"
+          "temp_entities": "Outside temperature sensor(s) — the first available one is used",
+          "power_entity": "Heat pump heat output sensor (W)"
         }
       },
       "gas": {
@@ -49,7 +49,8 @@
           "ch_max_water_entity": "Quatt max. supply temperature entity",
           "ch_max_water_source": "Control source (stooklijn or MPC)",
           "ch_max_water_hysteresis": "Minimum change before writing (°C)",
-          "ch_max_water_interval": "Write interval (minutes)"
+          "ch_max_water_interval": "Write interval (minutes)",
+          "supply_temp_entity": "Supply temperature sensor (°C) — reference for the advice"
         }
       }
     },
@@ -89,7 +90,12 @@
           "ch_max_water_entity": "Quatt max. supply temperature entity",
           "ch_max_water_source": "Control source (stooklijn or MPC)",
           "ch_max_water_hysteresis": "Minimum change before writing (°C)",
-          "ch_max_water_interval": "Write interval (minutes)"
+          "ch_max_water_interval": "Write interval (minutes)",
+          "temp_entities": "Outside temperature sensor(s) — the first available one is used",
+          "power_entity": "Heat pump heat output sensor (W)",
+          "supply_temp_entity": "Supply temperature sensor (°C) — reference for the advice",
+          "power_input_entity": "Electrical power input sensor (W) — for COP calculation",
+          "boiler_heat_entity": "Gas boiler heat output sensor (W) — for gas detection"
         }
       }
     }

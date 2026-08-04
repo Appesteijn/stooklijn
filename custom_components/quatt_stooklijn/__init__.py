@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 
 from .ch_max_water import ChMaxWaterController
+from .discovery import ROLE_CH_MAX_WATER, async_resolve_entity
 from .const import (
     CONF_CH_MAX_WATER_ENABLED,
     CONF_CH_MAX_WATER_ENTITY,
@@ -19,7 +20,6 @@ from .const import (
     CONF_CH_MAX_WATER_HYSTERESIS,
     CONF_CH_MAX_WATER_INTERVAL,
     CONF_SOUND_LEVEL_ENABLED,
-    DEFAULT_CH_MAX_WATER_ENTITY,
     DEFAULT_CH_MAX_WATER_SOURCE,
     DEFAULT_CH_MAX_WATER_HYSTERESIS,
     DEFAULT_CH_MAX_WATER_INTERVAL,
@@ -196,7 +196,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if merged_config.get(CONF_CH_MAX_WATER_ENABLED, False):
         controller = ChMaxWaterController(
             hass=hass,
-            number_entity=merged_config.get(CONF_CH_MAX_WATER_ENTITY, DEFAULT_CH_MAX_WATER_ENTITY),
+            # Leeg laten mag: ChMaxWaterController detecteert dan zelf de
+            # juiste number-entity (zie discovery.py).
+            number_entity=async_resolve_entity(
+                hass, merged_config, CONF_CH_MAX_WATER_ENTITY, ROLE_CH_MAX_WATER
+            ),
             source=merged_config.get(CONF_CH_MAX_WATER_SOURCE, DEFAULT_CH_MAX_WATER_SOURCE),
             hysteresis=merged_config.get(CONF_CH_MAX_WATER_HYSTERESIS, DEFAULT_CH_MAX_WATER_HYSTERESIS),
             interval_minutes=merged_config.get(CONF_CH_MAX_WATER_INTERVAL, DEFAULT_CH_MAX_WATER_INTERVAL),

@@ -7,8 +7,8 @@
         "data": {
           "quatt_start_date": "Date de début (AAAA-MM-JJ)",
           "quatt_end_date": "Date de fin (AAAA-MM-JJ)",
-          "temp_entities": "Capteurs de température extérieure (séparés par des virgules, par ordre de priorité)",
-          "power_entity": "Entité capteur de puissance totale"
+          "temp_entities": "Capteur(s) de température extérieure — le premier disponible est utilisé",
+          "power_entity": "Capteur de puissance thermique de la pompe à chaleur (W)"
         }
       },
       "gas": {
@@ -45,7 +45,8 @@
           "ch_max_water_entity": "Entité température de départ max. Quatt",
           "ch_max_water_source": "Source de pilotage (courbe de chauffe ou MPC)",
           "ch_max_water_hysteresis": "Changement minimal avant écriture (°C)",
-          "ch_max_water_interval": "Intervalle d'écriture (minutes)"
+          "ch_max_water_interval": "Intervalle d'écriture (minutes)",
+          "supply_temp_entity": "Capteur de température de départ (°C) — référence pour le conseil"
         }
       }
     },
@@ -81,7 +82,12 @@
           "ch_max_water_entity": "Entité température de départ max. Quatt",
           "ch_max_water_source": "Source de pilotage (courbe de chauffe ou MPC)",
           "ch_max_water_hysteresis": "Changement minimal avant écriture (°C)",
-          "ch_max_water_interval": "Intervalle d'écriture (minutes)"
+          "ch_max_water_interval": "Intervalle d'écriture (minutes)",
+          "temp_entities": "Capteur(s) de température extérieure — le premier disponible est utilisé",
+          "power_entity": "Capteur de puissance thermique de la pompe à chaleur (W)",
+          "supply_temp_entity": "Capteur de température de départ (°C) — référence pour le conseil",
+          "power_input_entity": "Capteur de puissance électrique absorbée (W) — pour le calcul du COP",
+          "boiler_heat_entity": "Capteur de puissance thermique de la chaudière (W) — détection gaz"
         }
       }
     }

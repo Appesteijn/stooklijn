@@ -20,10 +20,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from ..cache import QuattInsightsCache
-from ..const import (
-    API_FETCH_DAYS,
-    RECORDER_BOILER_HEAT_ENTITY,
-    RECORDER_POWER_INPUT_ENTITY,
+from ..const import API_FETCH_DAYS
+from ..discovery import (
+    ROLE_BOILER_HEAT,
+    ROLE_OUTDOOR_TEMP,
+    ROLE_POWER_INPUT,
+    ROLE_TOTAL_POWER,
+    async_discover_quatt_entities,
+    async_resolve_entity,
 )
 from .utils import classify_heat_mode
 
@@ -48,6 +52,8 @@ async def _async_fetch_recorder_daily(
     end_date: str,
     power_entity: str,
     temp_entity: str,
+    power_input_entity: str | None = None,
+    boiler_heat_entity: str | None = None,
 ) -> pd.DataFrame:
     """Fetch daily mean statistics from HA recorder.
 
@@ -59,11 +65,16 @@ async def _async_fetch_recorder_daily(
         datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
     )
 
+    # Entity-IDs verschillen per installatie (zie discovery.py); niet hardcoden.
+    if power_input_entity is None:
+        power_input_entity = async_resolve_entity(hass, {}, None, ROLE_POWER_INPUT)
+    if boiler_heat_entity is None:
+        boiler_heat_entity = async_resolve_entity(hass, {}, None, ROLE_BOILER_HEAT)
+
     statistic_ids = {
-        power_entity,
-        temp_entity,
-        RECORDER_POWER_INPUT_ENTITY,
-        RECORDER_BOILER_HEAT_ENTITY,
+        sid
+        for sid in (power_entity, temp_entity, power_input_entity, boiler_heat_entity)
+        if sid
     }
 
     def _fetch_stats() -> dict:
@@ -103,9 +114,9 @@ async def _async_fetch_recorder_daily(
             if sensor_id == power_entity:
                 # Mean W * 24h = daily Wh
                 records[day]["totalHpHeat"] = mean_val * 24
-            elif sensor_id == RECORDER_POWER_INPUT_ENTITY:
+            elif sensor_id == power_input_entity:
                 records[day]["totalHpElectric"] = mean_val * 24
-            elif sensor_id == RECORDER_BOILER_HEAT_ENTITY:
+            elif sensor_id == boiler_heat_entity:
                 records[day]["totalBoilerHeat"] = mean_val * 24
             elif sensor_id == temp_entity:
                 records[day]["avg_temperatureOutside"] = mean_val
@@ -259,8 +270,8 @@ async def async_fetch_quatt_insights(
     hass: HomeAssistant,
     start_date: str,
     end_date: str,
-    power_entity: str = "sensor.heatpump_total_power",
-    temp_entity: str = "sensor.heatpump_hp1_temperature_outside",
+    power_entity: str | None = None,
+    temp_entity: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Fetch Quatt data using a hybrid approach.
 
@@ -294,8 +305,23 @@ async def async_fetch_quatt_insights(
 
     # === Step 1: Recorder statistics for full history ===
     _LOGGER.info("Fetching recorder statistics for %s to %s...", start_date, end_date)
+    # Entity-IDs verschillen per installatie (zie discovery.py); niet hardcoden.
+    discovered = async_discover_quatt_entities(hass)
+    power_entity = power_entity or async_resolve_entity(
+        hass, {}, None, ROLE_TOTAL_POWER, discovered=discovered
+    )
+    temp_entity = temp_entity or async_resolve_entity(
+        hass, {}, None, ROLE_OUTDOOR_TEMP, discovered=discovered
+    )
+
     df_daily_recorder = await _async_fetch_recorder_daily(
-        hass, start_date, end_date, power_entity, temp_entity
+        hass,
+        start_date,
+        end_date,
+        power_entity,
+        temp_entity,
+        async_resolve_entity(hass, {}, None, ROLE_POWER_INPUT, discovered=discovered),
+        async_resolve_entity(hass, {}, None, ROLE_BOILER_HEAT, discovered=discovered),
     )
 
     # === Step 2: Cached hourly data for historical period (before API window) ===

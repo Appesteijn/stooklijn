@@ -35,17 +35,13 @@ from .const import (
     CONF_RETURN_TEMP_ENTITY,
     CONF_SOLAR_ENTITY,
     CONF_SOUND_LEVEL_ENABLED,
+    CONF_SUPPLY_TEMP_ENTITY,
     CONF_TEMP_ENTITIES,
     CONF_WEATHER_ENTITY,
     COAST_MAX_HOURS,
     COAST_STEP_MINUTES,
     DEFAULT_COMFORT_FLOOR_TEMP,
-    DEFAULT_FLOW_ENTITY,
-    DEFAULT_INDOOR_TEMP_ENTITY,
-    DEFAULT_POWER_ENTITY,
-    DEFAULT_RETURN_TEMP_ENTITY,
     DEFAULT_SOLAR_ENTITY,
-    DEFAULT_SUPPLY_TEMP_ENTITY,
     DEFAULT_WEATHER_ENTITY,
     DOMAIN,
     MIN_FLOW_LPH,
@@ -56,6 +52,17 @@ from .const import (
     MPC_SUPPLY_TEMP_MIN,
     OPEN_METEO_FORECAST_URL,
     SOLAR_RADIATION_DEFAULT_FACTOR,
+)
+from .discovery import (
+    ROLE_FLOW_RATE,
+    ROLE_RETURN_TEMP,
+    ROLE_INDOOR_TEMP,
+    ROLE_OUTDOOR_TEMP,
+    ROLE_SUPPLY_TEMP,
+    ROLE_TOTAL_POWER,
+    async_discover_quatt_entities,
+    async_resolve_entity,
+    async_resolve_from_list,
 )
 from .coordinator import QuattStooklijnCoordinator, QuattStooklijnData
 from .helpers import get_device_info, get_effective_flow, get_float_state
@@ -285,9 +292,15 @@ async def async_setup_entry(
     # Coast-time sensor deelt het RC-model + forecast van de MPC-sensor.
     entities.append(QuattCoastTimeSensor(coordinator, entry, mpc_sensor))
 
-    supply_entity = DEFAULT_SUPPLY_TEMP_ENTITY
+    merged_cfg = {**entry.data, **entry.options}
+    discovered = async_discover_quatt_entities(hass)
+    supply_entity = async_resolve_entity(
+        hass, merged_cfg, CONF_SUPPLY_TEMP_ENTITY, ROLE_SUPPLY_TEMP, discovered=discovered
+    )
     entry_slug = entry.entry_id
-    flow_entity = {**entry.data, **entry.options}.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY)
+    flow_entity = async_resolve_entity(
+        hass, merged_cfg, CONF_FLOW_ENTITY, ROLE_FLOW_RATE, discovered=discovered
+    )
     entities.append(QuattAdviceErrorSensor(
         coordinator, entry, "stooklijn",
         f"sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur",
@@ -391,7 +404,7 @@ class QuattEstimatedCopSensor(
     @property
     def _outdoor_entity(self) -> str:
         temp_entities = {**self._entry.data, **self._entry.options}.get(CONF_TEMP_ENTITIES, [])
-        return temp_entities[0] if temp_entities else "sensor.heatpump_hp1_temperature_outside"
+        return async_resolve_from_list(self.hass, temp_entities, ROLE_OUTDOOR_TEMP)
 
     async def async_added_to_hass(self) -> None:
         """Register state listener for outdoor temperature."""
@@ -467,15 +480,17 @@ class QuattSupplyTempSensor(
     @property
     def _outdoor_entity(self) -> str:
         temp_entities = {**self._entry.data, **self._entry.options}.get(CONF_TEMP_ENTITIES, [])
-        return temp_entities[0] if temp_entities else "sensor.heatpump_hp1_temperature_outside"
+        return async_resolve_from_list(self.hass, temp_entities, ROLE_OUTDOOR_TEMP)
 
     @property
     def _flow_entity(self) -> str:
-        return {**self._entry.data, **self._entry.options}.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY)
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_resolve_entity(self.hass, cfg, CONF_FLOW_ENTITY, ROLE_FLOW_RATE)
 
     @property
     def _return_temp_entity(self) -> str:
-        return {**self._entry.data, **self._entry.options}.get(CONF_RETURN_TEMP_ENTITY, DEFAULT_RETURN_TEMP_ENTITY)
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_resolve_entity(self.hass, cfg, CONF_RETURN_TEMP_ENTITY, ROLE_RETURN_TEMP)
 
     async def async_added_to_hass(self) -> None:
         """Register state listeners for live input sensors."""
@@ -645,15 +660,17 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     @property
     def _outdoor_entity(self) -> str:
         temp_entities = {**self._entry.data, **self._entry.options}.get(CONF_TEMP_ENTITIES, [])
-        return temp_entities[0] if temp_entities else "sensor.heatpump_hp1_temperature_outside"
+        return async_resolve_from_list(self.hass, temp_entities, ROLE_OUTDOOR_TEMP)
 
     @property
     def _flow_entity(self) -> str:
-        return {**self._entry.data, **self._entry.options}.get(CONF_FLOW_ENTITY, DEFAULT_FLOW_ENTITY)
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_resolve_entity(self.hass, cfg, CONF_FLOW_ENTITY, ROLE_FLOW_RATE)
 
     @property
     def _return_temp_entity(self) -> str:
-        return {**self._entry.data, **self._entry.options}.get(CONF_RETURN_TEMP_ENTITY, DEFAULT_RETURN_TEMP_ENTITY)
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_resolve_entity(self.hass, cfg, CONF_RETURN_TEMP_ENTITY, ROLE_RETURN_TEMP)
 
     @property
     def _solar_entity(self) -> str:
@@ -666,12 +683,16 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     @property
     def _indoor_temp_entity(self) -> str:
         cfg = {**self._entry.data, **self._entry.options}
-        return cfg.get(CONF_INDOOR_TEMP_ENTITY, DEFAULT_INDOOR_TEMP_ENTITY)
+        return async_resolve_entity(
+            self.hass, cfg, CONF_INDOOR_TEMP_ENTITY, ROLE_INDOOR_TEMP
+        )
 
     @property
     def _power_entity(self) -> str:
         cfg = {**self._entry.data, **self._entry.options}
-        return cfg.get(CONF_POWER_ENTITY, DEFAULT_POWER_ENTITY)
+        return async_resolve_entity(
+            self.hass, cfg, CONF_POWER_ENTITY, ROLE_TOTAL_POWER
+        )
 
     def _get_current_solar_radiation_wm2(self) -> float:
         """Return current hour's shortwave radiation from Open-Meteo (W/m²).

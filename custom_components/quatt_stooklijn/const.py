@@ -23,25 +23,19 @@ DEFAULT_HOT_WATER_TEMP_THRESHOLD = 18.0  # °C
 # Supply temperature sensor config
 CONF_FLOW_ENTITY = "flow_entity"
 CONF_RETURN_TEMP_ENTITY = "return_temp_entity"
+CONF_SUPPLY_TEMP_ENTITY = "supply_temp_entity"
 
-DEFAULT_FLOW_ENTITY = "sensor.heatpump_flowmeter_flowrate"
-DEFAULT_RETURN_TEMP_ENTITY = "sensor.heatpump_hp1_temperature_water_in"
-DEFAULT_SUPPLY_TEMP_ENTITY = "sensor.heatpump_flowmeter_temperature"
+# NB: hier staan bewust géén standaard entity-IDs meer. De Quatt-integratie
+# gebruikt per installatie een andere naamgeving (zie de v2→v3 device-migratie,
+# uitgelegd in discovery.py), dus een vaste default werkt maar voor een deel van
+# de gebruikers. De entity-ID wordt bepaald door discovery.async_resolve_entity();
+# terugvalnamen staan in discovery.FALLBACK_ENTITIES — één bron van waarheid.
 MIN_FLOW_LPH = 30   # l/h — below this the pump is not actively circulating
 NOMINAL_FLOW_LPH = 800  # l/h — fallback when HP is off, for theoretical supply temp
 
-# Default temperature entities (in priority order)
-DEFAULT_TEMP_ENTITIES = [
-    "sensor.heatpump_hp1_temperature_outside",
-    "sensor.heatpump_hp2_temperature_outside",
-    "sensor.thermostat_temperature_outside",
-]
-DEFAULT_POWER_ENTITY = "sensor.heatpump_total_power"
-
 # Recorder statistics sensors (derived from Quatt integration)
-RECORDER_POWER_INPUT_ENTITY = "sensor.heatpump_total_power_input"
-RECORDER_COP_ENTITY = "sensor.heatpump_total_quatt_cop"
-RECORDER_BOILER_HEAT_ENTITY = "sensor.heatpump_boiler_heat_power"
+CONF_POWER_INPUT_ENTITY = "power_input_entity"
+CONF_BOILER_HEAT_ENTITY = "boiler_heat_entity"
 
 # How many days of detailed hourly data to fetch from Quatt API
 API_FETCH_DAYS = 30
@@ -71,8 +65,6 @@ CONF_INDOOR_TEMP_ENTITY = "indoor_temp_entity"
 
 DEFAULT_SOLAR_ENTITY = "sensor.solaredge_ac_power"
 DEFAULT_WEATHER_ENTITY = "weather.home"
-# Meest representatieve kamerthermometer in Quatt-setups; pas aan naar jouw sensor.
-DEFAULT_INDOOR_TEMP_ENTITY = "sensor.heatpump_thermostat_room_temperature"
 
 # Raamfactor: verhouding PV-opbrengst (W) → zoninstraling woonkamer (W)
 # Empirisch: SolarEdge 2000 W ≈ ~600 W netto zonnewinst via zuidgevel-ramen
@@ -174,9 +166,6 @@ CONF_CH_MAX_WATER_SOURCE = "ch_max_water_source"
 CONF_CH_MAX_WATER_HYSTERESIS = "ch_max_water_hysteresis"
 CONF_CH_MAX_WATER_INTERVAL = "ch_max_water_interval"
 
-DEFAULT_CH_MAX_WATER_ENTITY = "number.cic_max_water_temperature"
-# Quatt ≤1.0.2 used a different entity ID; kept for auto-detection fallback.
-CH_MAX_WATER_ENTITY_LEGACY = "number.heatpump_cic_max_water_temperature"
 DEFAULT_CH_MAX_WATER_SOURCE = "stooklijn"   # "stooklijn" | "mpc"
 DEFAULT_CH_MAX_WATER_HYSTERESIS = 1.0       # °C
 DEFAULT_CH_MAX_WATER_INTERVAL = 30          # minuten

@@ -97,8 +97,10 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             self.hass,
             config[CONF_QUATT_START_DATE],
             date.today().isoformat(),
-            power_entity=config.get(CONF_POWER_ENTITY, "sensor.heatpump_total_power"),
-            temp_entity=temp_entities[0] if temp_entities else "sensor.heatpump_hp1_temperature_outside",
+            # None = laat async_fetch_quatt_insights zelf detecteren welke
+            # entity-IDs deze installatie gebruikt (zie discovery.py).
+            power_entity=config.get(CONF_POWER_ENTITY) or None,
+            temp_entity=temp_entities[0] if temp_entities else None,
         )
 
         # Step 2: Fetch gas data (if enabled)

@@ -35,8 +35,9 @@ def _make_switch(max_day="normal", max_night="normal") -> QuattSoundLevelSwitch:
         CONF_SOUND_LEVEL_MAX_DAY: max_day,
         CONF_SOUND_LEVEL_MAX_NIGHT: max_night,
     }
-    sw = QuattSoundLevelSwitch(coordinator, entry)
-    sw.hass = MagicMock()
+    hass = MagicMock()
+    sw = QuattSoundLevelSwitch(hass, coordinator, entry)
+    sw.hass = hass
     sw.hass.services.async_call = AsyncMock()
     sw.async_write_ha_state = MagicMock()
     return sw

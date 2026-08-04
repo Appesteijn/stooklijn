@@ -10,12 +10,12 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import CONF_SOUND_LEVEL_ENABLED, DOMAIN
+from .const import CONF_BOILER_HEAT_ENTITY, CONF_SOUND_LEVEL_ENABLED, DOMAIN
+from .discovery import ROLE_BOILER_HEAT, async_resolve_entity
 from .helpers import get_device_info, get_float_state
 
 _LOGGER = logging.getLogger(__name__)
 
-_BOILER_HEAT_ENTITY = "sensor.heatpump_boiler_heat_power"
 _GAS_THRESHOLD_W = 200.0
 
 
@@ -28,7 +28,7 @@ async def async_setup_entry(
     if not {**entry.data, **entry.options}.get(CONF_SOUND_LEVEL_ENABLED, False):
         return
 
-    async_add_entities([QuattGasActiveSensor(entry)])
+    async_add_entities([QuattGasActiveSensor(hass, entry)])
 
 
 class QuattGasActiveSensor(BinarySensorEntity):
@@ -39,10 +39,17 @@ class QuattGasActiveSensor(BinarySensorEntity):
     _attr_icon = "mdi:fire"
     _attr_device_class = BinarySensorDeviceClass.HEAT
 
-    def __init__(self, entry: ConfigEntry) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self._attr_unique_id = f"{entry.entry_id}_gas_boiler_active"
         self._attr_device_info = get_device_info(entry.entry_id)
         self._boiler_heat: float | None = None
+        # Entity-ID verschilt per installatie — zie discovery.py.
+        self._boiler_heat_entity = async_resolve_entity(
+            hass,
+            {**entry.data, **entry.options},
+            CONF_BOILER_HEAT_ENTITY,
+            ROLE_BOILER_HEAT,
+        )
 
     @property
     def is_on(self) -> bool:
@@ -53,11 +60,11 @@ class QuattGasActiveSensor(BinarySensorEntity):
         return {"boiler_heat_w": round(self._boiler_heat) if self._boiler_heat is not None else None}
 
     async def async_added_to_hass(self) -> None:
-        self._boiler_heat = get_float_state(self.hass, _BOILER_HEAT_ENTITY)
+        self._boiler_heat = get_float_state(self.hass, self._boiler_heat_entity)
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass,
-                [_BOILER_HEAT_ENTITY],
+                [self._boiler_heat_entity],
                 self._handle_change,
             )
         )
