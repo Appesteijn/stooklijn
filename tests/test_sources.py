@@ -5,6 +5,8 @@ entity-ID, dus de spiegel moet blijven kloppen terwijl de onderliggende bron
 wisselt. En het moet aflèèsbaar zijn welke integratie levert, niet af te leiden.
 """
 
+import pathlib
+import re
 from unittest.mock import MagicMock
 
 import pytest
@@ -17,6 +19,8 @@ from custom_components.quatt_stooklijn.discovery import (
 )
 from custom_components.quatt_stooklijn.sources import (
     MIRROR_ROLES,
+    MIRROR_SPECS,
+    OVERVIEW_SLUG,
     SOURCE_OPENQUATT,
     SOURCE_OTHER,
     SOURCE_QUATT,
@@ -99,25 +103,42 @@ class TestIsUsable:
 
 class TestClassifySource:
     def test_herkent_beide_integraties(self):
-        discovered = {ROLE_SUPPLY_TEMP: "sensor.heatpump_flowmeter_temperature"}
-        openquatt = {ROLE_SUPPLY_TEMP: "sensor.openquatt_water_supply_temp_selected"}
+        hass = _hass([*QUATT_ENTRIES, *OQ_ENTRIES])
+        oq = {"sensor.openquatt_water_supply_temp_selected"}
 
         assert classify_source(
-            "sensor.heatpump_flowmeter_temperature", discovered, openquatt
+            hass, "sensor.heatpump_flowmeter_temperature", oq
         ) == SOURCE_QUATT
         assert classify_source(
-            "sensor.openquatt_water_supply_temp_selected", discovered, openquatt
+            hass, "sensor.openquatt_water_supply_temp_selected", oq
         ) == SOURCE_OPENQUATT
 
     def test_onbekende_bron_is_overig(self):
         """Een eigen template-sensor is een geldige bron, maar niet van beide."""
-        assert classify_source("sensor.mijn_eigen", {}, {}) == SOURCE_OTHER
+        assert classify_source(_hass([]), "sensor.mijn_eigen", set()) == SOURCE_OTHER
 
     def test_naam_is_geen_bewijs(self):
-        """Entiteiten kunnen hernoemd zijn; de detectiekaart is leidend."""
-        openquatt = {ROLE_SUPPLY_TEMP: "sensor.iets_heel_anders"}
-        assert classify_source("sensor.openquatt_lijkt_erop", {}, openquatt) == SOURCE_OTHER
-        assert classify_source("sensor.iets_heel_anders", {}, openquatt) == SOURCE_OPENQUATT
+        """Entiteiten kunnen hernoemd zijn; het register is leidend."""
+        entries = [_quatt("sensor.openquatt_lijkt_erop", "cic", "computedPower")]
+        assert classify_source(
+            _hass(entries), "sensor.openquatt_lijkt_erop", set()
+        ) == SOURCE_QUATT
+
+    def test_quatt_sensor_die_geen_rol_won_is_geen_overig(self):
+        """De reden dat dit niet meer op de rol-detectiekaart mag draaien.
+
+        Discovery kiest per rol één entity. sensor.thermostat_temperature_outside
+        verliest het van hp1, maar komt onmiskenbaar uit de Quatt-integratie —
+        dat als "overig" tonen is misleidend.
+        """
+        entries = [
+            *QUATT_ENTRIES,
+            _quatt("sensor.thermostat_temperature_outside", "thermostat",
+                   "temperatureOutside"),
+        ]
+        assert classify_source(
+            _hass(entries), "sensor.thermostat_temperature_outside", set()
+        ) == SOURCE_QUATT
 
 
 class TestSourceRegistry:
@@ -255,3 +276,61 @@ class TestSourceRegistry:
         registry = SourceRegistry(_hass([]), {})
         registry.async_evaluate()
         assert registry.integrations_in_use() == []
+
+
+class TestEntityIdStabiliteit:
+    """De entity-ID's van de spiegels zijn een publiek contract.
+
+    Dashboards en automatiseringen hangen eraan. In v0.8.8 liet ik HA ze zelf
+    genereren, en die bouwt hem op uit de area van het device — resultaat:
+    sensor.bijkeuken_quatt_warmteanalyse_… en een dashboard dat nergens meer
+    naar wees. Vandaar dat de slug nu vastligt in de spec, en deze test.
+    """
+
+    def test_slugs_zijn_uniek(self):
+        slugs = [spec.slug for spec in MIRROR_SPECS] + [OVERVIEW_SLUG]
+        assert len(slugs) == len(set(slugs))
+
+    def test_slugs_zijn_bruikbare_object_ids(self):
+        for slug in [spec.slug for spec in MIRROR_SPECS] + [OVERVIEW_SLUG]:
+            assert slug
+            assert slug == slug.lower()
+            assert re.fullmatch(r"[a-z0-9_]+", slug), slug
+
+    def test_elke_rol_heeft_precies_een_spiegel(self):
+        assert len(MIRROR_SPECS) == len(MIRROR_ROLES) == len(set(MIRROR_ROLES))
+
+    def test_dashboard_verwijst_niet_meer_naar_ruwe_meetsensoren(self):
+        """Het dashboard hoort aan de spiegels te hangen, niet aan de bron.
+
+        number.cic_max_water_temperature is de uitzondering: dat is een
+        instelknop waar naartoe geschreven wordt, geen meting.
+        """
+        dashboard = (
+            pathlib.Path(__file__).parent.parent
+            / "custom_components/quatt_stooklijn/dashboard.yaml"
+        ).read_text()
+
+        verboden = re.findall(r"sensor\.heatpump_[a-z0-9_]+", dashboard)
+        assert verboden == [], f"nog niet omgehangen: {sorted(set(verboden))}"
+
+    def test_dashboard_gebruikt_bestaande_spiegels(self):
+        """Elke quatt_warmteanalyse-spiegel in het dashboard moet ook bestaan."""
+        dashboard = (
+            pathlib.Path(__file__).parent.parent
+            / "custom_components/quatt_stooklijn/dashboard.yaml"
+        ).read_text()
+
+        bekend = {spec.slug for spec in MIRROR_SPECS} | {OVERVIEW_SLUG}
+        gebruikt = set(
+            re.findall(r"sensor\.quatt_warmteanalyse_([a-z0-9_]+)", dashboard)
+        )
+        # Alleen de slugs die op een spiegel lijken controleren; het dashboard
+        # verwijst ook naar analyse-sensoren met heel andere namen.
+        for slug in gebruikt & {
+            "aanvoertemperatuur", "retourtemperatuur", "buitentemperatuur",
+            "kamertemperatuur", "thermostaat_setpoint", "kamer_setpoint",
+            "debiet", "thermisch_vermogen", "opgenomen_vermogen",
+            "ketelvermogen", "cop", "databronnen",
+        }:
+            assert slug in bekend

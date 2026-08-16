@@ -201,19 +201,15 @@ def async_discover_quatt_entities(hass: HomeAssistant) -> dict[str, str]:
 
 
 @callback
-def async_discover_openquatt_entities(hass: HomeAssistant) -> dict[str, str]:
-    """Zoek per rol de bijbehorende OpenQuatt-entity op via het entity-register.
+def _async_openquatt_node(hass: HomeAssistant) -> dict[str, str]:
+    """Geef ``{entity-naam: entity_id}`` van de ESPHome-node die OpenQuatt draait.
 
-    Werkt als ``async_discover_quatt_entities``, maar tegen de ESPHome-node die
-    OpenQuatt draait. Omdat ESPHome-entiteiten van álle nodes hetzelfde platform
-    delen, worden ze eerst op MAC-adres gegroepeerd; alleen de groep die
-    ``OPENQUATT_SIGNATURE_NAME`` bevat telt mee.
-
-    Geen OpenQuatt in huis, dan is het resultaat leeg — dat is geen fout.
+    ESPHome-entiteiten van álle nodes delen hetzelfde platform, dus ze worden
+    eerst op MAC-adres gegroepeerd; alleen de groep die
+    ``OPENQUATT_SIGNATURE_NAME`` bevat telt mee. Leeg = geen OpenQuatt.
     """
     registry = er.async_get(hass)
 
-    # mac → {entity-naam: entity_id}, voor alle ESPHome-nodes.
     by_node: dict[str, dict[str, str]] = {}
     for reg_entry in registry.entities.values():
         if reg_entry.platform != OPENQUATT_PLATFORM or reg_entry.disabled:
@@ -226,11 +222,32 @@ def async_discover_openquatt_entities(hass: HomeAssistant) -> dict[str, str]:
         mac, _index, _domain, name = parts
         by_node.setdefault(mac, {}).setdefault(name, reg_entry.entity_id)
 
-    node = next(
+    return next(
         (names for names in by_node.values() if OPENQUATT_SIGNATURE_NAME in names),
-        None,
+        {},
     )
-    if node is None:
+
+
+@callback
+def async_openquatt_node_entities(hass: HomeAssistant) -> set[str]:
+    """Álle entity-ID's die op de OpenQuatt-node zitten.
+
+    Nodig om te bepalen of een willekeurige entity van OpenQuatt komt, ook als
+    het niet degene is die voor een rol is gekozen.
+    """
+    return set(_async_openquatt_node(hass).values())
+
+
+@callback
+def async_discover_openquatt_entities(hass: HomeAssistant) -> dict[str, str]:
+    """Zoek per rol de bijbehorende OpenQuatt-entity op via het entity-register.
+
+    Werkt als ``async_discover_quatt_entities``, maar tegen de ESPHome-node die
+    OpenQuatt draait. Geen OpenQuatt in huis, dan is het resultaat leeg — dat is
+    geen fout.
+    """
+    node = _async_openquatt_node(hass)
+    if not node:
         _LOGGER.debug(
             "OpenQuatt auto-detectie: geen ESPHome-node met '%s' gevonden",
             OPENQUATT_SIGNATURE_NAME,

@@ -12,7 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 
 from .ch_max_water import ChMaxWaterController
-from .sources import SourceRegistry
+from .sources import ENTITY_PREFIX, MIRROR_SPECS, OVERVIEW_SLUG, SourceRegistry
 from .discovery import ROLE_CH_MAX_WATER, async_resolve_entity
 from .const import (
     CONF_CH_MAX_WATER_ENABLED,
@@ -60,6 +60,50 @@ async def _async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> 
 
     if migrated:
         _LOGGER.info("%d entiteit(en) hernoemd naar quatt_warmteanalyse_*", migrated)
+
+
+async def _async_migrate_source_entity_ids(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
+    """Herstel spiegel-entity-ID's die met een area-prefix zijn aangemaakt.
+
+    In v0.8.8 kregen de spiegelsensoren hun entity-id van Home Assistant, en die
+    bouwt hem op uit de area van het device. Bij een device in een area levert
+    dat ``sensor.bijkeuken_quatt_warmteanalyse_aanvoertemperatuur`` op, terwijl
+    het dashboard de schone id verwacht. Vanaf v0.8.9 wordt de id vastgepind;
+    entiteiten die al met de prefix bestaan worden hier eenmalig hernoemd.
+
+    Matcht op unique_id, niet op naam — dat is de enige stabiele sleutel.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+
+    wanted = {
+        f"{entry.entry_id}_source_{spec.role}": f"sensor.{ENTITY_PREFIX}_{spec.slug}"
+        for spec in MIRROR_SPECS
+    }
+    wanted[f"{entry.entry_id}_source_overview"] = (
+        f"sensor.{ENTITY_PREFIX}_{OVERVIEW_SLUG}"
+    )
+
+    migrated = 0
+    for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        target = wanted.get(reg_entry.unique_id)
+        if target is None or reg_entry.entity_id == target:
+            continue
+        if registry.async_get(target) is not None:
+            _LOGGER.warning(
+                "Kan %s niet hernoemen naar %s: die id is al in gebruik",
+                reg_entry.entity_id, target,
+            )
+            continue
+        registry.async_update_entity(reg_entry.entity_id, new_entity_id=target)
+        migrated += 1
+        _LOGGER.info("Bronsensor hernoemd: %s → %s", reg_entry.entity_id, target)
+
+    if migrated:
+        _LOGGER.info("%d bronsensor(en) teruggezet op hun vaste entity-id", migrated)
 
 
 async def _async_setup_dashboard(hass: HomeAssistant) -> None:
@@ -142,6 +186,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     source_registry = SourceRegistry(hass, merged_config)
     hass.data[DOMAIN][f"{entry.entry_id}_sources"] = source_registry
     entry.async_on_unload(source_registry.async_setup())
+
+    # Moet vóór het laden van de platforms: staat er nog een spiegelsensor met
+    # een area-prefix in het register, dan pakt HA díé entity-id op basis van de
+    # unique_id en negeert de vastgepinde id in de entiteit zelf.
+    await _async_migrate_source_entity_ids(hass, entry)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

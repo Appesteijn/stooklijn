@@ -33,11 +33,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_time_interval
 import homeassistant.util.dt as dt_util
 
 from .discovery import (
-    OPENQUATT_PLATFORM,
     QUATT_PLATFORM,
     ROLE_BOILER_HEAT,
     ROLE_CONTROL_SETPOINT,
@@ -52,6 +52,7 @@ from .discovery import (
     ROLE_TOTAL_POWER,
     async_discover_openquatt_entities,
     async_discover_quatt_entities,
+    async_openquatt_node_entities,
     async_resolve_candidates,
 )
 
@@ -83,49 +84,70 @@ class MirrorSpec:
     unit: str | None
     device_class: str | None
     icon: str
+    # Vastgelegde object-id, niet afgeleid van de naam. HA bouwt de entity-id
+    # voor een nieuwe entity op uit de área van het device, dus zonder dit
+    # wordt het sensor.bijkeuken_quatt_warmteanalyse_… — en dan klopt geen
+    # enkele dashboardverwijzing meer. Wijzig deze slugs nooit: er hangen
+    # dashboards en automatiseringen aan.
+    slug: str
 
 
 MIRROR_SPECS: tuple[MirrorSpec, ...] = (
     MirrorSpec(ROLE_SUPPLY_TEMP, "Aanvoertemperatuur", "°C", "temperature",
-               "mdi:thermometer-water"),
+               "mdi:thermometer-water", "aanvoertemperatuur"),
     MirrorSpec(ROLE_RETURN_TEMP, "Retourtemperatuur", "°C", "temperature",
-               "mdi:thermometer-chevron-down"),
+               "mdi:thermometer-chevron-down", "retourtemperatuur"),
     MirrorSpec(ROLE_OUTDOOR_TEMP, "Buitentemperatuur", "°C", "temperature",
-               "mdi:home-thermometer-outline"),
+               "mdi:home-thermometer-outline", "buitentemperatuur"),
     MirrorSpec(ROLE_INDOOR_TEMP, "Kamertemperatuur", "°C", "temperature",
-               "mdi:home-thermometer"),
+               "mdi:home-thermometer", "kamertemperatuur"),
     MirrorSpec(ROLE_CONTROL_SETPOINT, "Thermostaat Setpoint", "°C", "temperature",
-               "mdi:thermostat"),
+               "mdi:thermostat", "thermostaat_setpoint"),
     MirrorSpec(ROLE_ROOM_SETPOINT, "Kamer Setpoint", "°C", "temperature",
-               "mdi:home-thermometer-outline"),
-    MirrorSpec(ROLE_FLOW_RATE, "Debiet", "L/h", None, "mdi:pump"),
+               "mdi:home-thermometer-outline", "kamer_setpoint"),
+    MirrorSpec(ROLE_FLOW_RATE, "Debiet", "L/h", None, "mdi:pump", "debiet"),
     MirrorSpec(ROLE_TOTAL_POWER, "Thermisch Vermogen", "W", "power",
-               "mdi:heat-wave"),
+               "mdi:heat-wave", "thermisch_vermogen"),
     MirrorSpec(ROLE_POWER_INPUT, "Opgenomen Vermogen", "W", "power",
-               "mdi:flash"),
-    MirrorSpec(ROLE_BOILER_HEAT, "Ketelvermogen", "W", "power", "mdi:fire"),
-    MirrorSpec(ROLE_COP, "COP", None, None, "mdi:chart-line"),
+               "mdi:flash", "opgenomen_vermogen"),
+    MirrorSpec(ROLE_BOILER_HEAT, "Ketelvermogen", "W", "power", "mdi:fire",
+               "ketelvermogen"),
+    MirrorSpec(ROLE_COP, "COP", None, None, "mdi:chart-line", "cop"),
 )
+
+# Object-id van de overzichtssensor, om dezelfde reden vastgelegd.
+OVERVIEW_SLUG = "databronnen"
+
+# Prefix waaronder alle entiteiten van deze integratie leven.
+ENTITY_PREFIX = "quatt_warmteanalyse"
 
 MIRROR_ROLES: tuple[str, ...] = tuple(spec.role for spec in MIRROR_SPECS)
 
 
 @callback
 def classify_source(
+    hass: HomeAssistant,
     entity_id: str,
-    discovered: dict[str, str],
-    openquatt: dict[str, str],
+    openquatt_entities: set[str],
 ) -> str:
     """Bepaal van welke integratie een entity-ID afkomstig is.
 
-    Gebruikt de detectiekaarten in plaats van het entity-register: die zijn hier
-    al opgehaald, en een naam als ``sensor.openquatt_...`` is geen bewijs — een
-    gebruiker kan entiteiten hernoemen.
+    Op het entity-register, niet op de naam: ``sensor.openquatt_...`` is geen
+    bewijs, want entiteiten kunnen hernoemd zijn.
+
+    Ook niet op de rol-detectiekaarten. Die bevatten per rol één gekozen entity,
+    dus een Quatt-sensor die nét niet de voorkeur kreeg — bijvoorbeeld
+    ``sensor.thermostat_temperature_outside`` waar hp1 voorging — zou dan ten
+    onrechte als "overig" worden aangemerkt.
     """
-    if entity_id in discovered.values():
-        return SOURCE_QUATT
-    if entity_id in openquatt.values():
+    if entity_id in openquatt_entities:
         return SOURCE_OPENQUATT
+
+    reg_entry = er.async_get(hass).async_get(entity_id)
+    if reg_entry is None:
+        return SOURCE_OTHER
+    if reg_entry.platform == QUATT_PLATFORM:
+        return SOURCE_QUATT
     return SOURCE_OTHER
 
 
@@ -236,6 +258,7 @@ class SourceRegistry:
         """
         discovered = async_discover_quatt_entities(self._hass)
         openquatt = async_discover_openquatt_entities(self._hass)
+        openquatt_entities = async_openquatt_node_entities(self._hass)
         changed: list[str] = []
 
         for role, source in self._roles.items():
@@ -256,7 +279,9 @@ class SourceRegistry:
             previous = source.active
             source.active = best
             source.integration = (
-                classify_source(best, discovered, openquatt) if best else None
+                classify_source(self._hass, best, openquatt_entities)
+                if best
+                else None
             )
             source.switched_at = dt_util.now()
             changed.append(role)

@@ -66,7 +66,13 @@ from .discovery import (
 )
 from .coordinator import QuattStooklijnCoordinator, QuattStooklijnData
 from .helpers import get_device_info, get_effective_flow, get_float_state
-from .sources import MIRROR_SPECS, MirrorSpec, SourceRegistry
+from .sources import (
+    ENTITY_PREFIX,
+    MIRROR_SPECS,
+    OVERVIEW_SLUG,
+    MirrorSpec,
+    SourceRegistry,
+)
 from .thermal_store import ThermalModelStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -325,9 +331,9 @@ async def async_setup_entry(
     # OpenQuatt hem levert. Dashboards horen hieraan te hangen.
     registry: SourceRegistry = hass.data[DOMAIN][f"{entry.entry_id}_sources"]
     entities.extend(
-        QuattSourceMirrorSensor(entry, registry, spec) for spec in MIRROR_SPECS
+        QuattSourceMirrorSensor(hass, entry, registry, spec) for spec in MIRROR_SPECS
     )
-    entities.append(QuattSourceOverviewSensor(entry, registry))
+    entities.append(QuattSourceOverviewSensor(hass, entry, registry))
 
     async_add_entities(entities)
 
@@ -1568,6 +1574,7 @@ class QuattSourceMirrorSensor(SensorEntity):
 
     def __init__(
         self,
+        hass: HomeAssistant,
         entry: ConfigEntry,
         registry: SourceRegistry,
         spec: MirrorSpec,
@@ -1577,6 +1584,10 @@ class QuattSourceMirrorSensor(SensorEntity):
         self._spec = spec
         self._attr_name = spec.name
         self._attr_unique_id = f"{entry.entry_id}_source_{spec.role}"
+        # Deterministische entity-id — zie de toelichting bij MirrorSpec.slug.
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT, f"{ENTITY_PREFIX}_{spec.slug}", hass=hass
+        )
         self._attr_icon = spec.icon
         self._attr_native_unit_of_measurement = spec.unit
         self._attr_device_class = spec.device_class
@@ -1667,11 +1678,16 @@ class QuattSourceOverviewSensor(SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_should_poll = False
 
-    def __init__(self, entry: ConfigEntry, registry: SourceRegistry) -> None:
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, registry: SourceRegistry
+    ) -> None:
         self._entry = entry
         self._registry = registry
         self._attr_unique_id = f"{entry.entry_id}_source_overview"
         self._attr_device_info = get_device_info(entry.entry_id)
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT, f"{ENTITY_PREFIX}_{OVERVIEW_SLUG}", hass=hass
+        )
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
