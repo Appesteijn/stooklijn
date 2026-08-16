@@ -13,7 +13,129 @@ from custom_components.quatt_stooklijn.analysis.stooklijn import (
     _find_knee_by_grid_search,
     apply_throttle_mask,
     calculate_stooklijn,
+    coalesce_series,
+    states_to_minute_series,
 )
+
+
+class _State:
+    """Minimale nabootsing van een recorder-state."""
+
+    def __init__(self, state, last_changed):
+        self.state = state
+        self.last_changed = last_changed
+
+
+def _minutes(start: str, values: list[float]) -> pd.Series:
+    """Minuut-geïndexeerde reeks vanaf ``start``, één waarde per minuut."""
+    index = pd.date_range(start=start, periods=len(values), freq="min")
+    return pd.Series(values, index=index, name="temp")
+
+
+class TestStatesToMinuteSeries:
+    def test_condenseert_naar_minuten(self):
+        base = datetime(2026, 8, 1, 12, 0, 0)
+        states = [
+            _State("10.0", base),
+            _State("12.0", base + timedelta(seconds=30)),  # zelfde minuut
+            _State("20.0", base + timedelta(minutes=1)),
+        ]
+        got = states_to_minute_series(states, "temp")
+        assert len(got) == 2
+        assert got.iloc[0] == 11.0  # mediaan van 10 en 12
+        assert got.iloc[1] == 20.0
+
+    def test_niet_numerieke_states_vallen_weg(self):
+        """unknown/unavailable moeten een gat blijven, geen ingevulde waarde."""
+        base = datetime(2026, 8, 1, 12, 0, 0)
+        states = [
+            _State("10.0", base),
+            _State("unavailable", base + timedelta(minutes=1)),
+            _State("unknown", base + timedelta(minutes=2)),
+            _State("13.0", base + timedelta(minutes=3)),
+        ]
+        got = states_to_minute_series(states, "temp")
+        assert len(got) == 2
+        assert list(got.values) == [10.0, 13.0]
+
+    def test_niets_numeriek_geeft_none(self):
+        base = datetime(2026, 8, 1, 12, 0, 0)
+        states = [_State("unavailable", base)]
+        assert states_to_minute_series(states, "temp") is None
+
+    def test_lege_invoer_geeft_none(self):
+        assert states_to_minute_series([], "temp") is None
+        assert states_to_minute_series(None, "temp") is None
+
+
+class TestCoalesceSeries:
+    def test_primaire_bron_wint_bij_overlap(self):
+        primary = _minutes("2026-08-01 12:00", [1.0, 2.0, 3.0])
+        secondary = _minutes("2026-08-01 12:00", [9.0, 9.0, 9.0])
+        got, _ = coalesce_series([("a", primary), ("b", secondary)])
+        assert list(got.values) == [1.0, 2.0, 3.0]
+
+    def test_tweede_bron_vult_het_gat(self):
+        """Het scenario waar dit voor gebouwd is: bron valt weg, andere loopt door."""
+        primary = _minutes("2026-08-01 12:00", [1.0, 2.0])
+        secondary = _minutes("2026-08-01 12:02", [3.0, 4.0])
+        got, stats = coalesce_series([("quatt", primary), ("openquatt", secondary)])
+
+        assert list(got.values) == [1.0, 2.0, 3.0, 4.0]
+        assert stats["sources"] == {"quatt": 2, "openquatt": 2}
+
+    def test_bron_zonder_bijdrage_komt_niet_in_sources(self):
+        primary = _minutes("2026-08-01 12:00", [1.0, 2.0, 3.0])
+        secondary = _minutes("2026-08-01 12:00", [1.1, 2.1, 3.1])
+        _, stats = coalesce_series([("a", primary), ("b", secondary)])
+        assert stats["sources"] == {"a": 3}
+
+    def test_offset_ook_zonder_bijdrage(self):
+        """Twee bronnen die volledig overlappen zijn juist de beste ijkcheck."""
+        primary = _minutes("2026-08-01 12:00", [10.0, 10.0, 10.0])
+        secondary = _minutes("2026-08-01 12:00", [12.0, 12.0, 12.0])
+        _, stats = coalesce_series([("a", primary), ("b", secondary)])
+        assert stats["sources"] == {"a": 3}
+        assert stats["offsets"] == {"b": 2.0}
+
+    def test_geen_overlap_geeft_geen_offset(self):
+        primary = _minutes("2026-08-01 12:00", [1.0])
+        secondary = _minutes("2026-08-01 13:00", [50.0])
+        _, stats = coalesce_series([("a", primary), ("b", secondary)])
+        assert stats["offsets"] == {}
+
+    def test_lege_en_none_bronnen_worden_overgeslagen(self):
+        primary = _minutes("2026-08-01 12:00", [1.0, 2.0])
+        got, stats = coalesce_series(
+            [("leeg", None), ("ook_leeg", pd.Series(dtype=float)), ("a", primary)]
+        )
+        assert list(got.values) == [1.0, 2.0]
+        assert stats["sources"] == {"a": 2}
+
+    def test_eerste_niet_lege_bron_is_de_primaire(self):
+        """Een lege eerste kandidaat mag de voorkeursvolgorde niet verschuiven."""
+        secondary = _minutes("2026-08-01 12:00", [5.0])
+        tertiary = _minutes("2026-08-01 12:00", [7.0])
+        _, stats = coalesce_series([("leeg", None), ("b", secondary), ("c", tertiary)])
+        assert stats["offsets"] == {"c": 2.0}
+
+    def test_alles_leeg_geeft_none(self):
+        got, stats = coalesce_series([("a", None), ("b", None)])
+        assert got is None
+        assert stats == {"sources": {}, "offsets": {}}
+
+    def test_zonder_bronnen(self):
+        got, stats = coalesce_series([])
+        assert got is None
+        assert stats == {"sources": {}, "offsets": {}}
+
+    def test_derde_bron_vult_wat_de_tweede_overlaat(self):
+        primary = _minutes("2026-08-01 12:00", [1.0])
+        secondary = _minutes("2026-08-01 12:01", [2.0])
+        tertiary = _minutes("2026-08-01 12:02", [3.0])
+        got, stats = coalesce_series([("a", primary), ("b", secondary), ("c", tertiary)])
+        assert list(got.values) == [1.0, 2.0, 3.0]
+        assert stats["sources"] == {"a": 1, "b": 1, "c": 1}
 
 
 class TestFindKneeByGridSearch:

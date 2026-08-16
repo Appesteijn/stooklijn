@@ -35,6 +35,14 @@ from .utils import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Twee sensoren die dezelfde grootheid meten horen het eens te zijn. Wijkt een
+# aanvullende bron gemiddeld meer dan dit af van de primaire bron op de minuten
+# die ze delen, dan zit er een sprong in de samengevoegde reeks en zijn de fits
+# die erop gebouwd worden verdacht. Per grootheid, want een afwijking van 1,0
+# is groot in °C en verwaarloosbaar in W.
+SOURCE_OFFSET_WARN_TEMP = 1.0    # °C
+SOURCE_OFFSET_WARN_POWER = 250.0  # W
+
 
 @dataclass
 class StooklijnResult:
@@ -361,14 +369,103 @@ def extract_knee_points_from_recorder(
     return result
 
 
+def states_to_minute_series(states, column: str) -> pd.Series | None:
+    """Condense recorder states into a minute-indexed series of floats.
+
+    Non-numeric states (``unknown``, ``unavailable``) are dropped rather than
+    interpolated: a gap has to stay visible as a gap, otherwise
+    :func:`coalesce_series` cannot tell where a second source needs to fill in.
+
+    Returns ``None`` when nothing numeric survives.
+    """
+    records = []
+    for s in states or []:
+        try:
+            ts = s.last_changed
+            if ts.tzinfo is not None:
+                ts = ts.replace(tzinfo=None)
+            records.append({"timestamp": ts, column: float(s.state)})
+        except (ValueError, TypeError):
+            continue
+
+    if not records:
+        return None
+
+    df = pd.DataFrame(records)
+    df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.floor("min")
+    return df.groupby("timestamp")[column].median()
+
+
+def coalesce_series(
+    sources: list[tuple[str, pd.Series | None]],
+) -> tuple[pd.Series | None, dict]:
+    """Stitch several recorder series for the same quantity into one.
+
+    The first source is authoritative: later sources only fill minutes the
+    earlier ones left empty. That keeps a source switch halfway through the
+    analysis window from silently cutting the series in half — the case that
+    matters here is a Quatt-cloud sensor going ``unavailable`` while the
+    OpenQuatt sensor for the same physical measurement keeps recording.
+
+    Pure helper (no HA dependencies) so it can be unit-tested directly.
+
+    Args:
+        sources: ``(entity_id, series)`` pairs, most-preferred first. Minute-
+            indexed series as produced by :func:`states_to_minute_series`;
+            ``None`` entries are skipped.
+
+    Returns ``(combined_series, stats)`` with two separate maps:
+
+    - ``stats["sources"]``: per entity that actually supplied minutes, how many.
+      Only contributors appear here — this is what "was er gestitcht?" answers.
+    - ``stats["offsets"]``: per secondary source, the mean difference with the
+      primary on the minutes they share. Computed for *every* source that
+      overlaps, contributor or not: a source that runs the whole window
+      alongside the primary contributes nothing yet is the most informative
+      calibration check there is. Two sensors measuring the same thing should
+      agree; a large offset means a stitch would introduce a step.
+    """
+    combined: pd.Series | None = None
+    primary: pd.Series | None = None
+    stats: dict = {"sources": {}, "offsets": {}}
+
+    for entity_id, series in sources:
+        if series is None or series.empty:
+            continue
+
+        if combined is None:
+            combined = series.copy()
+            primary = series
+            stats["sources"][entity_id] = int(series.notna().sum())
+            continue
+
+        overlap = primary.index.intersection(series.index)
+        if len(overlap) > 0:
+            delta = (series.loc[overlap] - primary.loc[overlap]).mean()
+            if pd.notna(delta):
+                stats["offsets"][entity_id] = round(float(delta), 3)
+
+        filled_before = int(combined.notna().sum())
+        combined = combined.combine_first(series)
+        contributed = int(combined.notna().sum()) - filled_before
+        if contributed > 0:
+            stats["sources"][entity_id] = contributed
+
+    return combined, stats
+
+
 async def async_fetch_live_history(
     hass: HomeAssistant,
     temp_entities: list[str],
-    power_entity: str,
+    power_entities: str | list[str],
     days: int = DAYS_HISTORY,
     throttle_entity: str | None = None,
 ) -> pd.DataFrame | None:
     """Fetch recent temperature and power history from HA recorder.
+
+    Both ``temp_entities`` and ``power_entities`` are candidate lists in order
+    of preference — see :func:`coalesce_series` for how they are stitched. A
+    bare string is accepted for ``power_entities`` for backwards compatibility.
 
     When ``throttle_entity`` is set (e.g. energy-os' ``input_number.eos_hp_cap_override``)
     the minutes during which an external controller throttled the heat pump
@@ -376,11 +473,18 @@ async def async_fetch_live_history(
     follow its natural heating curve, so those samples would pollute the knee,
     stooklijn and heat-loss fits. The number of excluded minutes is stored on
     ``df.attrs["throttle_excluded_minutes"]``.
+
+    Which entity supplied how many minutes ends up on
+    ``df.attrs["temp_sources"]`` / ``df.attrs["power_sources"]``, with any
+    calibration offset between sources on ``df.attrs["source_offsets"]``.
     """
     from homeassistant.util import dt as dt_util
 
     end_dt = dt_util.utcnow()
     start_dt = end_dt - timedelta(days=days)
+
+    if isinstance(power_entities, str):
+        power_entities = [power_entities]
 
     def _fetch_entity_states(entity_id):
         """Fetch states for a single entity from recorder."""
@@ -391,51 +495,22 @@ async def async_fetch_live_history(
             entity_id,
         )
 
-    # Find temperature data (first available entity in priority order)
-    df_temp = None
-    for temp_entity in temp_entities:
-        states = await get_instance(hass).async_add_executor_job(
-            _fetch_entity_states, temp_entity
-        )
-        entity_states = states.get(temp_entity, [])
-        if entity_states:
-            records = []
-            for s in entity_states:
-                try:
-                    ts = s.last_changed
-                    if ts.tzinfo is not None:
-                        ts = ts.replace(tzinfo=None)
-                    records.append({"timestamp": ts, "temp": float(s.state)})
-                except (ValueError, TypeError):
-                    continue
-            if records:
-                df_t = pd.DataFrame(records)
-                df_t["timestamp"] = pd.to_datetime(df_t["timestamp"]).dt.floor("min")
-                df_temp = df_t.groupby("timestamp")["temp"].median()
-                _LOGGER.info("Using temperature from: %s (%d records)", temp_entity, len(records))
-                break
-
-    # Power data
-    df_power = None
-    power_states_dict = await get_instance(hass).async_add_executor_job(
-        _fetch_entity_states, power_entity
-    )
-    power_states = power_states_dict.get(power_entity, [])
-    if power_states:
-        records = []
-        for s in power_states:
-            try:
-                ts = s.last_changed
-                if ts.tzinfo is not None:
-                    ts = ts.replace(tzinfo=None)
-                records.append({"timestamp": ts, "power": float(s.state)})
-            except (ValueError, TypeError):
+    async def _fetch_series(entity_ids, column: str):
+        """Fetch every candidate and stitch them into one series."""
+        collected = []
+        for entity_id in entity_ids or []:
+            if not entity_id:
                 continue
-        if records:
-            df_p = pd.DataFrame(records)
-            df_p["timestamp"] = pd.to_datetime(df_p["timestamp"]).dt.floor("min")
-            df_power = df_p.groupby("timestamp")["power"].median()
-            _LOGGER.info("Power data: %d records from %s", len(records), power_entity)
+            states = await get_instance(hass).async_add_executor_job(
+                _fetch_entity_states, entity_id
+            )
+            collected.append(
+                (entity_id, states_to_minute_series(states.get(entity_id, []), column))
+            )
+        return coalesce_series(collected)
+
+    df_temp, temp_stats = await _fetch_series(temp_entities, "temp")
+    df_power, power_stats = await _fetch_series(power_entities, "power")
 
     if df_temp is None or df_power is None:
         _LOGGER.warning(
@@ -444,6 +519,32 @@ async def async_fetch_live_history(
             df_power is not None,
         )
         return None
+
+    _LOGGER.info(
+        "Live history sources — temperature: %s, power: %s",
+        temp_stats["sources"],
+        power_stats["sources"],
+    )
+
+    source_offsets: dict[str, float] = {}
+    for stats, unit, warn_at in (
+        (temp_stats, "°C", SOURCE_OFFSET_WARN_TEMP),
+        (power_stats, "W", SOURCE_OFFSET_WARN_POWER),
+    ):
+        for entity_id, offset in stats["offsets"].items():
+            source_offsets[entity_id] = offset
+            # Alleen waarschuwen als deze bron ook echt minuten heeft geleverd:
+            # zonder bijdrage zit er geen sprong in de reeks en is het verschil
+            # puur informatief.
+            if abs(offset) >= warn_at and entity_id in stats["sources"]:
+                _LOGGER.warning(
+                    "Source '%s' differs from the primary source by %.2f %s on "
+                    "average where they overlap; the stitched series has a step "
+                    "in it and the fits built on it may be off",
+                    entity_id,
+                    offset,
+                    unit,
+                )
 
     # Merge on timestamp
     merged = pd.merge(df_temp, df_power, left_index=True, right_index=True, how="inner")
@@ -473,6 +574,12 @@ async def async_fetch_live_history(
                 throttle_entity, excluded,
             )
         merged.attrs["throttle_excluded_minutes"] = excluded
+
+    # Pas hier zetten, niet vóór de throttle-mask: die geeft een nieuw frame
+    # terug en pandas garandeert niet dat ``attrs`` een boolean-index overleeft.
+    merged.attrs["temp_sources"] = temp_stats["sources"]
+    merged.attrs["power_sources"] = power_stats["sources"]
+    merged.attrs["source_offsets"] = source_offsets
 
     return merged
 

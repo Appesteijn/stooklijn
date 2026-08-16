@@ -32,6 +32,14 @@ _LOGGER = logging.getLogger(__name__)
 # Platform (integratie-domein) van de officiële Quatt-integratie.
 QUATT_PLATFORM = "quatt"
 
+# OpenQuatt draait op ESPHome; er is geen eigen platform-naam om op te filteren.
+OPENQUATT_PLATFORM = "esphome"
+
+# Entity-naam die alleen op een OpenQuatt-node voorkomt. Hiermee wordt bepaald
+# wélke ESPHome-node OpenQuatt is — zonder deze check zou een willekeurige
+# andere node met een sensor "Total Heat Power" ook meegenomen worden.
+OPENQUATT_SIGNATURE_NAME = "OpenQuatt Version"
+
 # Logische rollen die deze integratie nodig heeft.
 ROLE_SUPPLY_TEMP = "supply_temp"
 ROLE_FLOW_RATE = "flow_rate"
@@ -107,6 +115,30 @@ FALLBACK_ENTITIES: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Rol → OpenQuatt entity-namen, in volgorde van voorkeur.
+#
+# ESPHome bouwt zijn unique_id op als "<mac>/<n>/<domain>/<Naam>", waarbij de
+# naam letterlijk uit de firmware-YAML komt. Die naam is dus de stabiele sleutel
+# — de entity-ID juist niet. Dat is hier geen theoretisch punt: OpenQuatt heeft
+# zowel een "Curve Tsupply @ -10°C" als een "Curve Tsupply @ 10°C", en HA heeft
+# daar `number.openquatt_curve_tsupply_10degc` en `..._10degc_2` van gemaakt.
+# Op entity-ID matchen verwisselt die twee stilletjes; op naam matchen niet.
+OPENQUATT_NAMES: dict[str, tuple[str, ...]] = {
+    ROLE_SUPPLY_TEMP: ("Water Supply Temp (Selected)",),
+    ROLE_FLOW_RATE: ("Flow average (Selected)", "HP1 - Flow"),
+    ROLE_RETURN_TEMP: ("HP1 - Water in temperature", "HP2 - Water in temperature"),
+    ROLE_OUTDOOR_TEMP: (
+        "Outside Temperature (Selected)",
+        "HP1 - Outside temperature",
+        "HP2 - Outside temperature",
+    ),
+    ROLE_TOTAL_POWER: ("Total Heat Power",),
+    ROLE_POWER_INPUT: ("Total Power Input",),
+    ROLE_BOILER_HEAT: ("Boiler Heat Power",),
+    ROLE_INDOOR_TEMP: ("Room Temperature (Selected)",),
+    ROLE_CH_MAX_WATER: ("Maximum water temperature",),
+}
+
 
 @callback
 def async_discover_quatt_entities(hass: HomeAssistant) -> dict[str, str]:
@@ -144,6 +176,57 @@ def async_discover_quatt_entities(hass: HomeAssistant) -> dict[str, str]:
             "Quatt auto-detectie: geen entiteiten van platform '%s' gevonden",
             QUATT_PLATFORM,
         )
+    return resolved
+
+
+@callback
+def async_discover_openquatt_entities(hass: HomeAssistant) -> dict[str, str]:
+    """Zoek per rol de bijbehorende OpenQuatt-entity op via het entity-register.
+
+    Werkt als ``async_discover_quatt_entities``, maar tegen de ESPHome-node die
+    OpenQuatt draait. Omdat ESPHome-entiteiten van álle nodes hetzelfde platform
+    delen, worden ze eerst op MAC-adres gegroepeerd; alleen de groep die
+    ``OPENQUATT_SIGNATURE_NAME`` bevat telt mee.
+
+    Geen OpenQuatt in huis, dan is het resultaat leeg — dat is geen fout.
+    """
+    registry = er.async_get(hass)
+
+    # mac → {entity-naam: entity_id}, voor alle ESPHome-nodes.
+    by_node: dict[str, dict[str, str]] = {}
+    for reg_entry in registry.entities.values():
+        if reg_entry.platform != OPENQUATT_PLATFORM or reg_entry.disabled:
+            continue
+        # unique_id = "<mac>/<index>/<domain>/<naam>". De naam mag zelf een '/'
+        # bevatten, dus splitsen met maxsplit=3.
+        parts = reg_entry.unique_id.split("/", 3)
+        if len(parts) != 4:
+            continue
+        mac, _index, _domain, name = parts
+        by_node.setdefault(mac, {}).setdefault(name, reg_entry.entity_id)
+
+    node = next(
+        (names for names in by_node.values() if OPENQUATT_SIGNATURE_NAME in names),
+        None,
+    )
+    if node is None:
+        _LOGGER.debug(
+            "OpenQuatt auto-detectie: geen ESPHome-node met '%s' gevonden",
+            OPENQUATT_SIGNATURE_NAME,
+        )
+        return {}
+
+    resolved: dict[str, str] = {}
+    for role, names in OPENQUATT_NAMES.items():
+        for name in names:
+            if name in node:
+                resolved[role] = node[name]
+                break
+
+    _LOGGER.debug(
+        "OpenQuatt auto-detectie: %d van %d rollen gevonden — %s",
+        len(resolved), len(OPENQUATT_NAMES), resolved,
+    )
     return resolved
 
 
@@ -231,3 +314,56 @@ def async_resolve_from_list(
         if candidate and async_entity_exists(hass, candidate):
             return candidate
     return async_resolve_entity(hass, {}, None, role, discovered=discovered)
+
+
+@callback
+def async_resolve_candidates(
+    hass: HomeAssistant,
+    configured: str | list[str] | None,
+    role: str,
+    *,
+    discovered: dict[str, str] | None = None,
+    openquatt: dict[str, str] | None = None,
+) -> list[str]:
+    """Geef álle bruikbare entity-IDs voor een rol, in volgorde van voorkeur.
+
+    Waar ``async_resolve_entity`` één winnaar kiest, levert dit de hele reeks op:
+    eerst wat de gebruiker heeft ingesteld, dan de Quatt-detectie, dan de
+    OpenQuatt-detectie, dan bekende terugvalnamen. Alleen entiteiten die
+    daadwerkelijk bestaan komen erin, zonder dubbelen.
+
+    Bedoeld voor de historische analyse, die een bronwissel midden in het
+    venster moet kunnen overbruggen: de eerste bron blijft leidend, de volgende
+    vullen alleen de gaten die de eerste laat vallen. Voor live sensoren blijft
+    ``async_resolve_entity`` de juiste keuze — die hoort één bron te volgen.
+
+    De Quatt-detectie staat bewust vóór OpenQuatt: bestaande installaties
+    houden zo exact dezelfde primaire bron als voorheen.
+    """
+    if discovered is None:
+        discovered = async_discover_quatt_entities(hass)
+    if openquatt is None:
+        openquatt = async_discover_openquatt_entities(hass)
+
+    if configured is None:
+        configured_list: list[str] = []
+    elif isinstance(configured, str):
+        configured_list = [configured]
+    else:
+        configured_list = list(configured)
+
+    ordered = [
+        *configured_list,
+        discovered.get(role),
+        openquatt.get(role),
+        *FALLBACK_ENTITIES.get(role, ()),
+    ]
+
+    candidates: list[str] = []
+    for entity_id in ordered:
+        entity_id = (entity_id or "").strip()
+        if not entity_id or entity_id in candidates:
+            continue
+        if async_entity_exists(hass, entity_id):
+            candidates.append(entity_id)
+    return candidates

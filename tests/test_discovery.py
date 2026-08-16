@@ -20,13 +20,16 @@ from custom_components.quatt_stooklijn.discovery import (
     ROLE_RETURN_TEMP,
     ROLE_SUPPLY_TEMP,
     ROLE_TOTAL_POWER,
+    async_discover_openquatt_entities,
     async_discover_quatt_entities,
     async_entity_exists,
+    async_resolve_candidates,
     async_resolve_entity,
     async_resolve_from_list,
 )
 
 HUB = "CIC-abc123"
+OQ_MAC = "58:E6:C5:6E:9D:78"
 
 
 def _entry(entity_id, device_id, sensor_key, platform="quatt", disabled=False):
@@ -34,6 +37,16 @@ def _entry(entity_id, device_id, sensor_key, platform="quatt", disabled=False):
         entity_id=entity_id,
         unique_id=f"{HUB}:{device_id}:{sensor_key}",
         platform=platform,
+        disabled=disabled,
+    )
+
+
+def _oq(entity_id, name, domain="sensor", mac=OQ_MAC, disabled=False):
+    """ESPHome-registerregel zoals OpenQuatt die aanmaakt."""
+    return er.RegistryEntry(
+        entity_id=entity_id,
+        unique_id=f"{mac}/0/{domain}/{name}",
+        platform="esphome",
         disabled=disabled,
     )
 
@@ -121,6 +134,131 @@ class TestDiscovery:
                           "hp2.temperatureOutside")]
         found = async_discover_quatt_entities(_hass(entries))
         assert found[ROLE_OUTDOOR_TEMP] == "sensor.heatpump_2_temperature_outside"
+
+
+# Zoals de HCQ Q-edition ze in het register zet.
+OPENQUATT = [
+    _oq("sensor.openquatt_openquatt_version", "OpenQuatt Version", "text_sensor"),
+    _oq("sensor.openquatt_water_supply_temp_selected", "Water Supply Temp (Selected)"),
+    _oq("sensor.openquatt_flow_average_selected", "Flow average (Selected)"),
+    _oq("sensor.openquatt_hp1_water_in_temperature", "HP1 - Water in temperature"),
+    _oq("sensor.openquatt_outside_temperature_selected", "Outside Temperature (Selected)"),
+    _oq("sensor.openquatt_total_heat_power", "Total Heat Power"),
+    _oq("sensor.openquatt_total_power_input", "Total Power Input"),
+    _oq("sensor.openquatt_boiler_heat_power", "Boiler Heat Power"),
+    _oq("sensor.openquatt_room_temperature_selected", "Room Temperature (Selected)"),
+    _oq("number.openquatt_maximum_water_temperature", "Maximum water temperature", "number"),
+]
+
+
+class TestOpenQuattDiscovery:
+    def test_alle_rollen_gevonden(self):
+        found = async_discover_openquatt_entities(_hass(OPENQUATT))
+        assert found[ROLE_SUPPLY_TEMP] == "sensor.openquatt_water_supply_temp_selected"
+        assert found[ROLE_FLOW_RATE] == "sensor.openquatt_flow_average_selected"
+        assert found[ROLE_RETURN_TEMP] == "sensor.openquatt_hp1_water_in_temperature"
+        assert found[ROLE_OUTDOOR_TEMP] == "sensor.openquatt_outside_temperature_selected"
+        assert found[ROLE_TOTAL_POWER] == "sensor.openquatt_total_heat_power"
+        assert found[ROLE_POWER_INPUT] == "sensor.openquatt_total_power_input"
+        assert found[ROLE_BOILER_HEAT] == "sensor.openquatt_boiler_heat_power"
+        assert found[ROLE_INDOOR_TEMP] == "sensor.openquatt_room_temperature_selected"
+        assert found[ROLE_CH_MAX_WATER] == "number.openquatt_maximum_water_temperature"
+
+    def test_zonder_openquatt_leeg(self):
+        assert async_discover_openquatt_entities(_hass(MODERN)) == {}
+
+    def test_esphome_node_zonder_signature_telt_niet_mee(self):
+        """Een andere ESPHome-node mag geen rollen leveren.
+
+        ESPHome-entiteiten van álle nodes delen hetzelfde platform, dus zonder
+        de signature-check zou een willekeurige node met een sensor die toevallig
+        'Total Heat Power' heet als OpenQuatt worden aangezien.
+        """
+        vreemde_node = [
+            _oq("sensor.andere_total_heat_power", "Total Heat Power", mac="AA:BB:CC:DD:EE:FF"),
+        ]
+        assert async_discover_openquatt_entities(_hass(vreemde_node)) == {}
+
+    def test_alleen_de_openquatt_node_wint_bij_meerdere_nodes(self):
+        entries = [
+            *OPENQUATT,
+            _oq("sensor.andere_total_heat_power", "Total Heat Power", mac="AA:BB:CC:DD:EE:FF"),
+        ]
+        found = async_discover_openquatt_entities(_hass(entries))
+        assert found[ROLE_TOTAL_POWER] == "sensor.openquatt_total_heat_power"
+
+    def test_uitgeschakelde_entity_telt_niet_mee(self):
+        entries = [
+            _oq("sensor.openquatt_openquatt_version", "OpenQuatt Version", "text_sensor"),
+            _oq("sensor.openquatt_total_heat_power", "Total Heat Power", disabled=True),
+        ]
+        assert ROLE_TOTAL_POWER not in async_discover_openquatt_entities(_hass(entries))
+
+    def test_matcht_op_naam_niet_op_entity_id(self):
+        """HA's entity-ID's zijn hier onbetrouwbaar, de ESPHome-naam niet.
+
+        OpenQuatt heeft zowel 'Curve Tsupply @ -10°C' als '@ 10°C'; HA maakt daar
+        `..._10degc` en `..._10degc_2` van. Zo'n botsing mag de rol niet kunnen
+        laten omslaan — daarom wordt op naam gematcht.
+        """
+        entries = [
+            _oq("sensor.openquatt_openquatt_version", "OpenQuatt Version", "text_sensor"),
+            # Verwarrend genummerde entity-ID's, in omgekeerde volgorde.
+            _oq("sensor.openquatt_temp_selected_2", "Outside Temperature (Selected)"),
+            _oq("sensor.openquatt_temp_selected", "HP1 - Outside temperature"),
+        ]
+        found = async_discover_openquatt_entities(_hass(entries))
+        assert found[ROLE_OUTDOOR_TEMP] == "sensor.openquatt_temp_selected_2"
+
+    def test_valt_terug_op_hp1_als_selected_ontbreekt(self):
+        entries = [
+            _oq("sensor.openquatt_openquatt_version", "OpenQuatt Version", "text_sensor"),
+            _oq("sensor.openquatt_hp1_outside_temperature", "HP1 - Outside temperature"),
+        ]
+        found = async_discover_openquatt_entities(_hass(entries))
+        assert found[ROLE_OUTDOOR_TEMP] == "sensor.openquatt_hp1_outside_temperature"
+
+
+class TestResolveCandidates:
+    def test_quatt_voor_openquatt(self):
+        """Bestaande installaties houden dezelfde primaire bron."""
+        got = async_resolve_candidates(_hass([*LEGACY, *OPENQUATT]), None, ROLE_TOTAL_POWER)
+        assert got[0] == "sensor.heatpump_total_power"
+        assert "sensor.openquatt_total_heat_power" in got
+
+    def test_ingestelde_entity_staat_vooraan(self):
+        hass = _hass([*MODERN, *OPENQUATT], states={"sensor.mijn_eigen": "1200"})
+        got = async_resolve_candidates(hass, "sensor.mijn_eigen", ROLE_TOTAL_POWER)
+        assert got[0] == "sensor.mijn_eigen"
+        assert got[1] == "sensor.cic_total_power"
+
+    def test_lijst_als_configuratie(self):
+        """De buitentemperatuur wordt als voorkeurslijst geconfigureerd."""
+        hass = _hass([*MODERN, *OPENQUATT])
+        got = async_resolve_candidates(
+            hass,
+            ["sensor.bestaat_niet", "sensor.heatpump_1_temperature_outside"],
+            ROLE_OUTDOOR_TEMP,
+        )
+        assert got[0] == "sensor.heatpump_1_temperature_outside"
+        assert "sensor.bestaat_niet" not in got
+
+    def test_geen_dubbelen(self):
+        hass = _hass([*MODERN, *OPENQUATT])
+        got = async_resolve_candidates(hass, "sensor.cic_total_power", ROLE_TOTAL_POWER)
+        assert got.count("sensor.cic_total_power") == 1
+
+    def test_alleen_openquatt_aanwezig(self):
+        got = async_resolve_candidates(_hass(OPENQUATT), None, ROLE_SUPPLY_TEMP)
+        assert got == ["sensor.openquatt_water_supply_temp_selected"]
+
+    def test_niets_gevonden_geeft_lege_lijst(self):
+        """Anders dan async_resolve_entity verzint dit geen naam die niet bestaat."""
+        assert async_resolve_candidates(_hass([]), None, ROLE_SUPPLY_TEMP) == []
+
+    def test_lege_string_telt_niet_als_configuratie(self):
+        got = async_resolve_candidates(_hass(MODERN), "  ", ROLE_SUPPLY_TEMP)
+        assert got == ["sensor.flowmeter_temperature"]
 
 
 class TestResolve:

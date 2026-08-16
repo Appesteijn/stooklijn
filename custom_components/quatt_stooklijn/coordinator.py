@@ -39,6 +39,13 @@ from .const import (
     DEFAULT_HOT_WATER_TEMP_THRESHOLD,
     DOMAIN,
 )
+from .discovery import (
+    ROLE_OUTDOOR_TEMP,
+    ROLE_TOTAL_POWER,
+    async_discover_openquatt_entities,
+    async_discover_quatt_entities,
+    async_resolve_candidates,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -121,12 +128,35 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
                 temp_entities=config.get(CONF_TEMP_ENTITIES),
             )
 
-        # Step 3: Fetch live history for knee detection
+        # Step 3: Fetch live history for knee detection.
+        #
+        # Beide grootheden komen binnen als kandidatenlijst in plaats van één
+        # entity. Een bron kan midden in het venster wegvallen — een
+        # Quatt-cloudsensor die op 'unavailable' gaat terwijl OpenQuatt dezelfde
+        # meting lokaal blijft opnemen — en dan levert één entity een halve
+        # reeks op. De eerste kandidaat blijft leidend; de rest vult alleen de
+        # gaten (zie analysis.stooklijn.coalesce_series).
         _LOGGER.info("Fetching live history for stooklijn analysis...")
+        discovered = async_discover_quatt_entities(self.hass)
+        openquatt = async_discover_openquatt_entities(self.hass)
+        temp_candidates = async_resolve_candidates(
+            self.hass,
+            config.get(CONF_TEMP_ENTITIES),
+            ROLE_OUTDOOR_TEMP,
+            discovered=discovered,
+            openquatt=openquatt,
+        )
+        power_candidates = async_resolve_candidates(
+            self.hass,
+            config.get(CONF_POWER_ENTITY),
+            ROLE_TOTAL_POWER,
+            discovered=discovered,
+            openquatt=openquatt,
+        )
         df_ha_merged = await async_fetch_live_history(
             self.hass,
-            config[CONF_TEMP_ENTITIES],
-            config[CONF_POWER_ENTITY],
+            temp_candidates,
+            power_candidates,
             throttle_entity=config.get(CONF_EOS_THROTTLE_ENTITY) or None,
         )
 
@@ -233,6 +263,22 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             "throttle_excluded_minutes": (
                 df_ha_merged.attrs.get("throttle_excluded_minutes", 0)
                 if df_ha_merged is not None else 0
+            ),
+            # Welke entity hoeveel minuten leverde, plus het gemiddelde verschil
+            # met de primaire bron waar ze elkaar overlappen. Zo is in de
+            # diagnose-sensor te zien dát er gestitcht is, en of de bronnen het
+            # onderling eens waren.
+            "temp_sources": (
+                df_ha_merged.attrs.get("temp_sources", {})
+                if df_ha_merged is not None else {}
+            ),
+            "power_sources": (
+                df_ha_merged.attrs.get("power_sources", {})
+                if df_ha_merged is not None else {}
+            ),
+            "source_offsets": (
+                df_ha_merged.attrs.get("source_offsets", {})
+                if df_ha_merged is not None else {}
             ),
             "cache_days": cache_stats["total_days"],
             "cache_oldest": cache_stats["oldest_date"],
