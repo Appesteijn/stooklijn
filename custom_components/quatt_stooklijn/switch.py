@@ -53,10 +53,9 @@ from .discovery import (
     ROLE_BOILER_HEAT,
     ROLE_FLOW_RATE,
     ROLE_SUPPLY_TEMP,
-    async_discover_quatt_entities,
-    async_resolve_entity,
 )
 from .helpers import get_device_info, get_float_state
+from .sources import async_source_entity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -111,18 +110,6 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         self._last_is_night: bool | None = None
 
         merged = {**entry.data, **entry.options}
-        # Entity-IDs verschillen per installatie (zie discovery.py), dus ze
-        # worden opgezocht in plaats van hardcoded.
-        discovered = async_discover_quatt_entities(hass)
-        self._supply_entity = async_resolve_entity(
-            hass, merged, CONF_SUPPLY_TEMP_ENTITY, ROLE_SUPPLY_TEMP, discovered=discovered
-        )
-        self._flow_entity = async_resolve_entity(
-            hass, merged, CONF_FLOW_ENTITY, ROLE_FLOW_RATE, discovered=discovered
-        )
-        self._boiler_heat_entity = async_resolve_entity(
-            hass, merged, CONF_BOILER_HEAT_ENTITY, ROLE_BOILER_HEAT, discovered=discovered
-        )
 
         # Maximaal geluidsniveau (= max vermogen) dat compensatie mag instellen
         max_day = merged.get(CONF_SOUND_LEVEL_MAX_DAY, DEFAULT_SOUND_LEVEL_MAX)
@@ -162,6 +149,33 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
     def _effective_max_idx(self) -> int:
         """Max niveau-index voor de huidige dagperiode."""
         return self._max_night_idx if self._is_night() else self._max_day_idx
+
+    # Entity-ID's worden per aanroep opgezocht in plaats van bij het opstarten
+    # vastgelegd: welke integratie een meting levert kan tijdens bedrijf wisselen
+    # (zie sources.py).
+    @property
+    def _supply_entity(self) -> str:
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_SUPPLY_TEMP,
+            config=cfg, conf_key=CONF_SUPPLY_TEMP_ENTITY,
+        )
+
+    @property
+    def _flow_entity(self) -> str:
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_FLOW_RATE,
+            config=cfg, conf_key=CONF_FLOW_ENTITY,
+        )
+
+    @property
+    def _boiler_heat_entity(self) -> str:
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_BOILER_HEAT,
+            config=cfg, conf_key=CONF_BOILER_HEAT_ENTITY,
+        )
 
     @property
     def is_on(self) -> bool:

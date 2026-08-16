@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 from homeassistant.helpers import entity_registry as er
 
+from custom_components.quatt_stooklijn.const import DOMAIN
 from custom_components.quatt_stooklijn.discovery import (
     ROLE_OUTDOOR_TEMP,
     ROLE_SUPPLY_TEMP,
@@ -25,6 +26,7 @@ from custom_components.quatt_stooklijn.sources import (
     SOURCE_OTHER,
     SOURCE_QUATT,
     SourceRegistry,
+    async_source_entity,
     classify_source,
     is_usable,
 )
@@ -276,6 +278,67 @@ class TestSourceRegistry:
         registry = SourceRegistry(_hass([]), {})
         registry.async_evaluate()
         assert registry.integrations_in_use() == []
+
+
+class TestAsyncSourceEntity:
+    """De helper waarmee de rest van de integratie zijn bron opvraagt."""
+
+    def _hass_met_registry(self, entries, states, config=None):
+        hass = _hass(entries, states=states)
+        registry = SourceRegistry(hass, config or {})
+        registry.async_evaluate()
+        hass.data = {DOMAIN: {"entry1_sources": registry}}
+        return hass
+
+    def test_gebruikt_de_actieve_bron(self):
+        """De kern: kiezen op beschikbaarheid, niet op bestaan.
+
+        async_resolve_entity zou hier de Quatt-sensor teruggeven — die bestáát,
+        hij geeft alleen 'unknown'. Dat is precies hoe het RC-model bleef hangen
+        op een dode sensor terwijl OpenQuatt de waarde gewoon leverde.
+        """
+        hass = self._hass_met_registry(
+            [*QUATT_ENTRIES, *OQ_ENTRIES],
+            {
+                "sensor.heatpump_flowmeter_temperature": "unknown",
+                "sensor.openquatt_water_supply_temp_selected": "35.2",
+            },
+        )
+        got = async_source_entity(hass, "entry1", ROLE_SUPPLY_TEMP)
+        assert got == "sensor.openquatt_water_supply_temp_selected"
+
+    def test_zonder_registry_valt_terug_op_de_losse_resolver(self):
+        """Tijdens het opstarten kan een entiteit er eerder zijn dan de registry."""
+        hass = _hass(QUATT_ENTRIES, states={})
+        hass.data = {}
+        got = async_source_entity(hass, "entry1", ROLE_SUPPLY_TEMP)
+        assert got == "sensor.heatpump_flowmeter_temperature"
+
+    def test_zonder_bruikbare_bron_valt_terug(self):
+        """Niets levert iets: dan is een naam tonen beter dan None."""
+        hass = self._hass_met_registry(
+            QUATT_ENTRIES,
+            {"sensor.heatpump_flowmeter_temperature": "unavailable"},
+        )
+        got = async_source_entity(hass, "entry1", ROLE_SUPPLY_TEMP)
+        assert got == "sensor.heatpump_flowmeter_temperature"
+
+    def test_volgt_een_bronwissel(self):
+        states = {
+            "sensor.heatpump_flowmeter_temperature": "35.0",
+            "sensor.openquatt_water_supply_temp_selected": "35.2",
+        }
+        hass = self._hass_met_registry([*QUATT_ENTRIES, *OQ_ENTRIES], states)
+        assert async_source_entity(hass, "entry1", ROLE_SUPPLY_TEMP) == (
+            "sensor.heatpump_flowmeter_temperature"
+        )
+
+        states["sensor.heatpump_flowmeter_temperature"] = "unknown"
+        hass.data[DOMAIN]["entry1_sources"].async_evaluate()
+
+        assert async_source_entity(hass, "entry1", ROLE_SUPPLY_TEMP) == (
+            "sensor.openquatt_water_supply_temp_selected"
+        )
 
 
 class TestEntityIdStabiliteit:

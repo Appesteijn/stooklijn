@@ -60,9 +60,6 @@ from .discovery import (
     ROLE_OUTDOOR_TEMP,
     ROLE_SUPPLY_TEMP,
     ROLE_TOTAL_POWER,
-    async_discover_quatt_entities,
-    async_resolve_entity,
-    async_resolve_from_list,
 )
 from .coordinator import QuattStooklijnCoordinator, QuattStooklijnData
 from .helpers import get_device_info, get_effective_flow, get_float_state
@@ -72,6 +69,7 @@ from .sources import (
     OVERVIEW_SLUG,
     MirrorSpec,
     SourceRegistry,
+    async_source_entity,
 )
 from .thermal_store import ThermalModelStore
 
@@ -280,6 +278,31 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
 ]
 
 
+def candidate_entities(
+    hass: HomeAssistant,
+    entry_id: str,
+    roles: tuple[str, ...],
+    extra: tuple[str, ...] = (),
+) -> list[str]:
+    """Alle entity-ID's die voor deze rollen ooit de bron kunnen zijn.
+
+    Bedoeld voor state-change listeners. Alleen de nu actieve bron volgen is te
+    weinig: valt die weg, dan komt er per definitie geen state-change meer
+    binnen van de entity die het overneemt.
+    """
+    from .sources import SourceRegistry
+
+    registry: SourceRegistry | None = hass.data.get(DOMAIN, {}).get(
+        f"{entry_id}_sources"
+    )
+    tracked: set[str] = {e for e in extra if e}
+    for role in roles:
+        source = registry.get(role) if registry else None
+        if source:
+            tracked.update(c for c in source.candidates if c)
+    return sorted(tracked)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -299,24 +322,16 @@ async def async_setup_entry(
     # Coast-time sensor deelt het RC-model + forecast van de MPC-sensor.
     entities.append(QuattCoastTimeSensor(coordinator, entry, mpc_sensor))
 
-    merged_cfg = {**entry.data, **entry.options}
-    discovered = async_discover_quatt_entities(hass)
-    supply_entity = async_resolve_entity(
-        hass, merged_cfg, CONF_SUPPLY_TEMP_ENTITY, ROLE_SUPPLY_TEMP, discovered=discovered
-    )
-    entry_slug = entry.entry_id
-    flow_entity = async_resolve_entity(
-        hass, merged_cfg, CONF_FLOW_ENTITY, ROLE_FLOW_RATE, discovered=discovered
-    )
+    # Geen entity-ID's meer meegeven: die werden hier één keer bij het opstarten
+    # bepaald en daarna nooit meer. De sensor zoekt ze nu zelf op via de
+    # bronregistry, zodat een bronwissel ook hier doorkomt.
     entities.append(QuattAdviceErrorSensor(
         coordinator, entry, "stooklijn",
-        f"sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur",
-        supply_entity, flow_entity,
+        "sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur",
     ))
     entities.append(QuattAdviceErrorSensor(
         coordinator, entry, "mpc",
-        f"sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur",
-        supply_entity, flow_entity,
+        "sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur",
     ))
     entities.append(QuattAdviceSensor(coordinator, entry))
     entities.append(QuattOpenQuattCurveSensor(coordinator, entry))
@@ -418,8 +433,11 @@ class QuattEstimatedCopSensor(
 
     @property
     def _outdoor_entity(self) -> str:
-        temp_entities = {**self._entry.data, **self._entry.options}.get(CONF_TEMP_ENTITIES, [])
-        return async_resolve_from_list(self.hass, temp_entities, ROLE_OUTDOOR_TEMP)
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_OUTDOOR_TEMP,
+            config=cfg, conf_key=CONF_TEMP_ENTITIES,
+        )
 
     async def async_added_to_hass(self) -> None:
         """Register state listener for outdoor temperature."""
@@ -427,7 +445,9 @@ class QuattEstimatedCopSensor(
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass,
-                [self._outdoor_entity],
+                candidate_entities(
+                    self.hass, self._entry.entry_id, (ROLE_OUTDOOR_TEMP,)
+                ),
                 self._handle_state_change,
             )
         )
@@ -494,18 +514,27 @@ class QuattSupplyTempSensor(
 
     @property
     def _outdoor_entity(self) -> str:
-        temp_entities = {**self._entry.data, **self._entry.options}.get(CONF_TEMP_ENTITIES, [])
-        return async_resolve_from_list(self.hass, temp_entities, ROLE_OUTDOOR_TEMP)
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_OUTDOOR_TEMP,
+            config=cfg, conf_key=CONF_TEMP_ENTITIES,
+        )
 
     @property
     def _flow_entity(self) -> str:
         cfg = {**self._entry.data, **self._entry.options}
-        return async_resolve_entity(self.hass, cfg, CONF_FLOW_ENTITY, ROLE_FLOW_RATE)
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_FLOW_RATE,
+            config=cfg, conf_key=CONF_FLOW_ENTITY,
+        )
 
     @property
     def _return_temp_entity(self) -> str:
         cfg = {**self._entry.data, **self._entry.options}
-        return async_resolve_entity(self.hass, cfg, CONF_RETURN_TEMP_ENTITY, ROLE_RETURN_TEMP)
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_RETURN_TEMP,
+            config=cfg, conf_key=CONF_RETURN_TEMP_ENTITY,
+        )
 
     async def async_added_to_hass(self) -> None:
         """Register state listeners for live input sensors."""
@@ -514,7 +543,10 @@ class QuattSupplyTempSensor(
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass,
-                [self._outdoor_entity, self._flow_entity, self._return_temp_entity],
+                candidate_entities(
+                    self.hass, self._entry.entry_id,
+                    (ROLE_OUTDOOR_TEMP, ROLE_FLOW_RATE, ROLE_RETURN_TEMP),
+                ),
                 self._handle_state_change,
             )
         )
@@ -674,18 +706,27 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
 
     @property
     def _outdoor_entity(self) -> str:
-        temp_entities = {**self._entry.data, **self._entry.options}.get(CONF_TEMP_ENTITIES, [])
-        return async_resolve_from_list(self.hass, temp_entities, ROLE_OUTDOOR_TEMP)
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_OUTDOOR_TEMP,
+            config=cfg, conf_key=CONF_TEMP_ENTITIES,
+        )
 
     @property
     def _flow_entity(self) -> str:
         cfg = {**self._entry.data, **self._entry.options}
-        return async_resolve_entity(self.hass, cfg, CONF_FLOW_ENTITY, ROLE_FLOW_RATE)
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_FLOW_RATE,
+            config=cfg, conf_key=CONF_FLOW_ENTITY,
+        )
 
     @property
     def _return_temp_entity(self) -> str:
         cfg = {**self._entry.data, **self._entry.options}
-        return async_resolve_entity(self.hass, cfg, CONF_RETURN_TEMP_ENTITY, ROLE_RETURN_TEMP)
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_RETURN_TEMP,
+            config=cfg, conf_key=CONF_RETURN_TEMP_ENTITY,
+        )
 
     @property
     def _solar_entity(self) -> str:
@@ -698,15 +739,17 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     @property
     def _indoor_temp_entity(self) -> str:
         cfg = {**self._entry.data, **self._entry.options}
-        return async_resolve_entity(
-            self.hass, cfg, CONF_INDOOR_TEMP_ENTITY, ROLE_INDOOR_TEMP
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_INDOOR_TEMP,
+            config=cfg, conf_key=CONF_INDOOR_TEMP_ENTITY,
         )
 
     @property
     def _power_entity(self) -> str:
         cfg = {**self._entry.data, **self._entry.options}
-        return async_resolve_entity(
-            self.hass, cfg, CONF_POWER_ENTITY, ROLE_TOTAL_POWER
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_TOTAL_POWER,
+            config=cfg, conf_key=CONF_POWER_ENTITY,
         )
 
     def _get_current_solar_radiation_wm2(self) -> float:
@@ -797,8 +840,11 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass,
-                [self._outdoor_entity, self._flow_entity,
-                 self._return_temp_entity, self._solar_entity],
+                candidate_entities(
+                    self.hass, self._entry.entry_id,
+                    (ROLE_OUTDOOR_TEMP, ROLE_FLOW_RATE, ROLE_RETURN_TEMP),
+                    extra=(self._solar_entity,),
+                ),
                 self._handle_state_change,
             )
         )
@@ -1230,7 +1276,10 @@ class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorE
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass,
-                [self._mpc._outdoor_entity, self._mpc._indoor_temp_entity],
+                candidate_entities(
+                    self.hass, self._entry.entry_id,
+                    (ROLE_OUTDOOR_TEMP, ROLE_INDOOR_TEMP),
+                ),
                 self._handle_state_change,
             )
         )
@@ -1260,14 +1309,10 @@ class QuattAdviceErrorSensor(
         entry: ConfigEntry,
         mode: str,
         advised_entity: str,
-        supply_temp_entity: str,
-        flow_entity: str,
     ) -> None:
         super().__init__(coordinator)
         self._entry = entry
         self._advised_entity = advised_entity
-        self._supply_temp_entity = supply_temp_entity
-        self._flow_entity = flow_entity
         self._attr_unique_id = f"{entry.entry_id}_{mode}_advice_error"
         self._attr_name = (
             "MPC Fout Aanvoertemperatuur"
@@ -1276,14 +1321,38 @@ class QuattAdviceErrorSensor(
         )
         self._attr_device_info = get_device_info(entry.entry_id)
 
+    @property
+    def _supply_temp_entity(self) -> str:
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_SUPPLY_TEMP,
+            config=cfg, conf_key=CONF_SUPPLY_TEMP_ENTITY,
+        )
+
+    @property
+    def _flow_entity(self) -> str:
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_FLOW_RATE,
+            config=cfg, conf_key=CONF_FLOW_ENTITY,
+        )
+
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+        # Volg álle kandidaten, niet alleen de nu actieve: anders komt een
+        # bronwissel niet binnen (zie de spiegelsensoren, zelfde reden).
+        registry = self.hass.data.get(DOMAIN, {}).get(
+            f"{self._entry.entry_id}_sources"
+        )
+        tracked = {self._advised_entity}
+        for role in (ROLE_SUPPLY_TEMP, ROLE_FLOW_RATE):
+            source = registry.get(role) if registry else None
+            tracked.update(source.candidates if source else ())
+        tracked.discard(None)
+
         self.async_on_remove(
             async_track_state_change_event(
-                self.hass,
-                [self._advised_entity, self._supply_temp_entity,
-                 self._flow_entity],
-                self._handle_state_change,
+                self.hass, sorted(tracked), self._handle_state_change,
             )
         )
 

@@ -11,8 +11,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import CONF_BOILER_HEAT_ENTITY, CONF_SOUND_LEVEL_ENABLED, DOMAIN
-from .discovery import ROLE_BOILER_HEAT, async_resolve_entity
+from .discovery import ROLE_BOILER_HEAT
 from .helpers import get_device_info, get_float_state
+from .sources import async_source_entity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,15 +41,18 @@ class QuattGasActiveSensor(BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.HEAT
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_gas_boiler_active"
         self._attr_device_info = get_device_info(entry.entry_id)
         self._boiler_heat: float | None = None
-        # Entity-ID verschilt per installatie — zie discovery.py.
-        self._boiler_heat_entity = async_resolve_entity(
-            hass,
-            {**entry.data, **entry.options},
-            CONF_BOILER_HEAT_ENTITY,
-            ROLE_BOILER_HEAT,
+
+    @property
+    def _boiler_heat_entity(self) -> str:
+        """Per aanroep opzoeken — welke integratie dit levert kan wisselen."""
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_BOILER_HEAT,
+            config=cfg, conf_key=CONF_BOILER_HEAT_ENTITY,
         )
 
     @property
@@ -61,10 +65,16 @@ class QuattGasActiveSensor(BinarySensorEntity):
 
     async def async_added_to_hass(self) -> None:
         self._boiler_heat = get_float_state(self.hass, self._boiler_heat_entity)
+        # Alle kandidaten volgen, niet alleen de actieve: valt die weg, dan komt
+        # er per definitie geen state-change meer binnen van zijn opvolger.
+        from .sensor import candidate_entities
+
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass,
-                [self._boiler_heat_entity],
+                candidate_entities(
+                    self.hass, self._entry.entry_id, (ROLE_BOILER_HEAT,)
+                ),
                 self._handle_change,
             )
         )

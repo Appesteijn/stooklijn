@@ -54,6 +54,7 @@ from .discovery import (
     async_discover_quatt_entities,
     async_openquatt_node_entities,
     async_resolve_candidates,
+    async_resolve_entity,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -149,6 +150,40 @@ def classify_source(
     if reg_entry.platform == QUATT_PLATFORM:
         return SOURCE_QUATT
     return SOURCE_OTHER
+
+
+@callback
+def async_source_entity(
+    hass: HomeAssistant,
+    entry_id: str,
+    role: str,
+    *,
+    config: dict | None = None,
+    conf_key: str | None = None,
+) -> str | None:
+    """Geef de entity-ID die deze rol op dit moment levert.
+
+    Dit is wat de rest van de integratie hoort te gebruiken in plaats van
+    ``async_resolve_entity``. Die kiest op *bestaan*: een Quatt-sensor die er
+    nog staat maar ``unknown`` teruggeeft wint het van een OpenQuatt-sensor die
+    de meting wél levert. De registry kiest op *beschikbaarheid* en lost dat op.
+
+    Valt terug op de losse resolver als de registry er nog niet is — tijdens het
+    opstarten kan een entiteit al gebouwd worden voordat de eerste evaluatie is
+    gedraaid — of als geen enkele kandidaat een waarde geeft. Dan is er niets te
+    kiezen en is een naam tonen beter dan niets.
+    """
+    from .const import DOMAIN
+
+    registry: SourceRegistry | None = hass.data.get(DOMAIN, {}).get(
+        f"{entry_id}_sources"
+    )
+    if registry is not None:
+        active = registry.active_entity(role)
+        if active:
+            return active
+
+    return async_resolve_entity(hass, config or {}, conf_key, role)
 
 
 @callback
