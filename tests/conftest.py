@@ -174,6 +174,8 @@ def _stub_ha():
     # dt_util
     dt_mod = sys.modules["homeassistant.util.dt"]
     dt_mod.utcnow = lambda: datetime.now(timezone.utc)
+    # now() geeft in HA de lokale tijd; hier volstaat een tijdzone-bewuste waarde.
+    dt_mod.now = lambda: datetime.now(timezone.utc).astimezone()
     dt_mod.parse_datetime = lambda s: datetime.fromisoformat(s)
 
     # voluptuous stub

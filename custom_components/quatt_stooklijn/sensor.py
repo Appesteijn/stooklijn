@@ -66,6 +66,7 @@ from .discovery import (
 )
 from .coordinator import QuattStooklijnCoordinator, QuattStooklijnData
 from .helpers import get_device_info, get_effective_flow, get_float_state
+from .sources import MIRROR_SPECS, MirrorSpec, SourceRegistry
 from .thermal_store import ThermalModelStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -319,6 +320,14 @@ async def async_setup_entry(
 
     if {**entry.data, **entry.options}.get(CONF_CH_MAX_WATER_ENABLED, False):
         entities.append(QuattChMaxWaterSensor(entry))
+
+    # Spiegelsensoren: één stabiel entity-ID per meting, ongeacht of Quatt of
+    # OpenQuatt hem levert. Dashboards horen hieraan te hangen.
+    registry: SourceRegistry = hass.data[DOMAIN][f"{entry.entry_id}_sources"]
+    entities.extend(
+        QuattSourceMirrorSensor(entry, registry, spec) for spec in MIRROR_SPECS
+    )
+    entities.append(QuattSourceOverviewSensor(entry, registry))
 
     async_add_entities(entities)
 
@@ -1543,6 +1552,154 @@ class QuattOpenQuattCurveSensor(
             attrs[f"bp_{i}_buiten"] = bp["buiten_temp"]
             attrs[f"bp_{i}_aanvoer"] = bp["aanvoer_temp"]
         return attrs
+
+
+class QuattSourceMirrorSensor(SensorEntity):
+    """Spiegelt één meting, ongeacht welke integratie hem levert.
+
+    Het bestaansrecht: een dashboard kan niet resolven. Het hardcodeert een
+    entity-ID, en als die bron wegvalt blijft de kaart leeg zonder uitleg. Deze
+    sensor heeft een stabiel entity-ID dat blijft werken terwijl de onderliggende
+    bron wisselt, en zet in zijn attributen wie er op dit moment levert.
+    """
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+
+    def __init__(
+        self,
+        entry: ConfigEntry,
+        registry: SourceRegistry,
+        spec: MirrorSpec,
+    ) -> None:
+        self._entry = entry
+        self._registry = registry
+        self._spec = spec
+        self._attr_name = spec.name
+        self._attr_unique_id = f"{entry.entry_id}_source_{spec.role}"
+        self._attr_icon = spec.icon
+        self._attr_native_unit_of_measurement = spec.unit
+        self._attr_device_class = spec.device_class
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_device_info = get_device_info(entry.entry_id)
+        self._tracked: list[str] = []
+        self._remove_tracker = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._resubscribe()
+        # Ook op de klok meelopen: de kandidatenlijst zelf kan veranderen als er
+        # een integratie bijkomt, en daar is geen state-change van een entity
+        # die we al volgen.
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass, self._handle_tick, timedelta(minutes=1)
+            )
+        )
+
+    def _resubscribe(self) -> None:
+        """Volg álle kandidaten, niet alleen de actieve.
+
+        Dit is precies waar de oude opzet op stukliep: die abonneerde zich één
+        keer op de bij het opstarten gekozen entity. Kwam een betere bron later
+        terug, dan kwam die state-change nooit binnen.
+        """
+        source = self._registry.get(self._spec.role)
+        candidates = list(source.candidates) if source else []
+        if candidates == self._tracked:
+            return
+
+        if self._remove_tracker is not None:
+            self._remove_tracker()
+            self._remove_tracker = None
+
+        self._tracked = candidates
+        if candidates:
+            self._remove_tracker = async_track_state_change_event(
+                self.hass, candidates, self._handle_source_change
+            )
+
+    @callback
+    def _handle_source_change(self, _event) -> None:
+        self.async_write_ha_state()
+
+    @callback
+    def _handle_tick(self, _now) -> None:
+        self._resubscribe()
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> float | None:
+        entity_id = self._registry.active_entity(self._spec.role)
+        if entity_id is None:
+            return None
+        return get_float_state(self.hass, entity_id)
+
+    @property
+    def available(self) -> bool:
+        return self._registry.active_entity(self._spec.role) is not None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        source = self._registry.get(self._spec.role)
+        if source is None:
+            return {}
+        return {
+            "source_entity": source.active,
+            "source_integration": source.integration,
+            "candidates": list(source.candidates),
+            "switched_at": (
+                source.switched_at.isoformat() if source.switched_at else None
+            ),
+        }
+
+
+class QuattSourceOverviewSensor(SensorEntity):
+    """Overzicht: welke integratie levert welke meting.
+
+    State is de lijst integraties die op dit moment iets leveren; de volledige
+    rol-naar-entity kaart staat in de attributen.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Databronnen"
+    _attr_icon = "mdi:source-branch"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_should_poll = False
+
+    def __init__(self, entry: ConfigEntry, registry: SourceRegistry) -> None:
+        self._entry = entry
+        self._registry = registry
+        self._attr_unique_id = f"{entry.entry_id}_source_overview"
+        self._attr_device_info = get_device_info(entry.entry_id)
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass, self._handle_tick, timedelta(minutes=1)
+            )
+        )
+
+    @callback
+    def _handle_tick(self, _now) -> None:
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> str:
+        in_use = self._registry.integrations_in_use()
+        return " + ".join(in_use) if in_use else "geen"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        summary = self._registry.summary()
+        missing = [role for role, info in summary.items() if info["entity"] is None]
+        return {
+            "roles": summary,
+            "missing_roles": missing,
+            "roles_total": len(summary),
+            "roles_resolved": len(summary) - len(missing),
+        }
 
 
 class QuattChMaxWaterSensor(SensorEntity):

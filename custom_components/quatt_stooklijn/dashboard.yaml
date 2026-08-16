@@ -72,13 +72,13 @@ views:
           # integratie (altijd beschikbaar). Een niet-bestaande entity wordt
           # door HA als 'unavailable' behandeld, dus de visibility-conditie klopt.
           - type: tile
-            entity: sensor.heatpump_thermostat_control_setpoint
+            entity: sensor.quatt_warmteanalyse_thermostaat_setpoint
             name: Quatt Setpoint
             icon: mdi:thermometer-chevron-up
             color: red
             visibility:
               - condition: state
-                entity: sensor.heatpump_thermostat_control_setpoint
+                entity: sensor.quatt_warmteanalyse_thermostaat_setpoint
                 state_not:
                   - unavailable
                   - unknown
@@ -89,7 +89,7 @@ views:
             color: red
             visibility:
               - condition: state
-                entity: sensor.heatpump_thermostat_control_setpoint
+                entity: sensor.quatt_warmteanalyse_thermostaat_setpoint
                 state:
                   - unavailable
                   - unknown
@@ -115,13 +115,13 @@ views:
               labels: true
               points: false
             entities:
-              - entity: sensor.heatpump_thermostat_room_temperature
+              - entity: sensor.quatt_warmteanalyse_kamertemperatuur
                 name: Kamer
                 color: "#E53935"
-              - entity: sensor.heatpump_thermostat_room_setpoint
+              - entity: sensor.quatt_warmteanalyse_kamer_setpoint
                 name: Setpoint
                 color: "#FF8A80"
-              - entity: sensor.thermostat_temperature_outside
+              - entity: sensor.quatt_warmteanalyse_buitentemperatuur
                 name: Buiten
                 color: "#78909C"
             grid_options:
@@ -1172,7 +1172,7 @@ views:
               labels: true
               points: false
             entities:
-              - entity: sensor.heatpump_flowmeter_temperature
+              - entity: sensor.quatt_warmteanalyse_aanvoertemperatuur
                 name: Werkelijk
                 color: "#90A4AE"
               - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
@@ -1238,7 +1238,7 @@ views:
               labels: true
               points: false
             entities:
-              - entity: sensor.heatpump_hp1_temperature_outside
+              - entity: sensor.quatt_warmteanalyse_buitentemperatuur
                 name: Buitentemp
                 color: "#78909C"
             grid_options:
@@ -1281,7 +1281,7 @@ views:
                 padding:
                   right: 55
             series:
-              - entity: sensor.heatpump_thermostat_control_setpoint
+              - entity: sensor.quatt_warmteanalyse_thermostaat_setpoint
                 name: Thermostaat vraagt
                 yaxis_id: temp
                 color: "#FF9800"
@@ -1303,7 +1303,7 @@ views:
                 yaxis_id: temp
                 color: "#F44336"
                 stroke_width: 3
-              - entity: sensor.heatpump_flowmeter_temperature
+              - entity: sensor.quatt_warmteanalyse_aanvoertemperatuur
                 name: Werkelijke aanvoer
                 yaxis_id: temp
                 color: "#2196F3"
@@ -1311,6 +1311,39 @@ views:
             grid_options:
               columns: full
               rows: auto
+
+      # ── Databronnen: welke integratie levert welke meting ──
+      - type: grid
+        cards:
+          - type: markdown
+            title: Databronnen
+            content: >
+              {% set s = 'sensor.quatt_warmteanalyse_databronnen' %}
+
+              {% set rollen = state_attr(s, 'roles') or {} %}
+
+              {% set ontbreekt = state_attr(s, 'missing_roles') or [] %}
+
+              Actief: **{{ states(s) }}** — {{ state_attr(s, 'roles_resolved') }} van
+              {{ state_attr(s, 'roles_total') }} metingen hebben een bron.
+
+              | Meting | Integratie | Entiteit |
+
+              |:--|:--|:--|
+
+              {% for rol, info in rollen.items() -%}
+              | {{ rol }} | {% if info.integration %}{{ info.integration }}{% else %}**geen**{% endif %} | {% if info.entity %}`{{ info.entity }}`{% else %}*—*{% endif %} |
+              {% endfor %}
+
+              {% if ontbreekt %}
+
+              > Zonder bron: {{ ontbreekt | join(', ') }}. Deze metingen leveren
+              > niets, ook niet aan de analyse.
+
+              {% endif %}
+        grid_options:
+          columns: full
+          rows: auto
 
       # ── Aanvoertemperatuur begrenzing — huidige status ──
       - type: grid
@@ -1320,11 +1353,13 @@ views:
             content: >
               {% set s = 'sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling' %}
 
-              {% set setpoint = states('sensor.heatpump_thermostat_control_setpoint') | float(none) %}
+              {% set setpoint = states('sensor.quatt_warmteanalyse_thermostaat_setpoint') | float(none) %}
 
               {% set limiet = states('number.cic_max_water_temperature') | float(none) %}
 
-              {% set werkelijk = states('sensor.heatpump_flowmeter_temperature') | float(none) %}
+              {% set werkelijk = states('sensor.quatt_warmteanalyse_aanvoertemperatuur') | float(none) %}
+
+              {% set bron_aanvoer = state_attr('sensor.quatt_warmteanalyse_aanvoertemperatuur', 'source_integration') %}
 
               {% set mpc = states('sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur') | float(none) %}
 
@@ -1351,7 +1386,7 @@ views:
 
               | Thermostaat vraagt | {% if setpoint %}{{ setpoint | round(1) }}°C{% else %}*n/b*{% endif %} |
 
-              | Werkelijke aanvoer | {% if werkelijk %}{{ werkelijk | round(1) }}°C{% else %}*n/b*{% endif %} |
+              | Werkelijke aanvoer | {% if werkelijk %}{{ werkelijk | round(1) }}°C{% if bron_aanvoer %} <small>via {{ bron_aanvoer }}</small>{% endif %}{% else %}*n/b*{% endif %} |
 
               | **Verlaging** | {% if setpoint and limiet %}{% set v = setpoint - limiet %}{% if v > 0 %}**−{{ v | round(1) }}°C**{% else %}niet actief{% endif %}{% else %}*n/b*{% endif %} |
 
@@ -1398,14 +1433,14 @@ views:
               legend:
                 show: true
             series:
-              - entity: sensor.heatpump_total_power
+              - entity: sensor.quatt_warmteanalyse_thermisch_vermogen
                 name: HP vermogen
                 yaxis_id: power
                 color: "#FF5722"
                 stroke_width: 2
                 type: area
                 opacity: 0.15
-              - entity: sensor.heatpump_boiler_heat_power
+              - entity: sensor.quatt_warmteanalyse_ketelvermogen
                 name: Gasketel
                 yaxis_id: power
                 color: "#FF9800"
@@ -1504,14 +1539,14 @@ views:
                 padding:
                   right: 55
             series:
-              - entity: sensor.heatpump_flowmeter_flowrate
+              - entity: sensor.quatt_warmteanalyse_debiet
                 name: Debiet
                 yaxis_id: flow
                 color: "#03A9F4"
                 stroke_width: 2
                 type: area
                 opacity: 0.1
-              - entity: sensor.heatpump_hp1_temperature_outside
+              - entity: sensor.quatt_warmteanalyse_buitentemperatuur
                 name: Buitentemperatuur
                 yaxis_id: temp
                 color: "#78909C"

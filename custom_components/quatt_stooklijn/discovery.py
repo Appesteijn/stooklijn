@@ -50,6 +50,9 @@ ROLE_POWER_INPUT = "power_input"
 ROLE_BOILER_HEAT = "boiler_heat"
 ROLE_INDOOR_TEMP = "indoor_temp"
 ROLE_CH_MAX_WATER = "ch_max_water"
+ROLE_CONTROL_SETPOINT = "control_setpoint"
+ROLE_ROOM_SETPOINT = "room_setpoint"
+ROLE_COP = "cop"
 
 # Rol → Quatt sensor-keys, in volgorde van voorkeur. Deze keys komen uit
 # sensor_descriptions_cic.py / sensor_descriptions_heat.py / number.py van de
@@ -70,6 +73,9 @@ QUATT_KEYS: dict[str, tuple[str, ...]] = {
     ROLE_BOILER_HEAT: ("boiler.computedBoilerHeatPower",),
     ROLE_INDOOR_TEMP: ("thermostat.otFtRoomTemperature",),
     ROLE_CH_MAX_WATER: ("chMaxWaterTemperature",),
+    ROLE_CONTROL_SETPOINT: ("thermostat.otFtControlSetpoint",),
+    ROLE_ROOM_SETPOINT: ("thermostat.otFtRoomSetpoint",),
+    ROLE_COP: ("computedQuattCop",),
 }
 
 # Terugvalnamen als auto-detectie niets vindt (Quatt-integratie afwezig, of een
@@ -113,6 +119,18 @@ FALLBACK_ENTITIES: dict[str, tuple[str, ...]] = {
         "number.heatpump_cic_max_water_temperature",
         "number.cic_max_water_temperature",
     ),
+    ROLE_CONTROL_SETPOINT: (
+        "sensor.heatpump_thermostat_control_setpoint",
+        "sensor.thermostat_control_setpoint",
+    ),
+    ROLE_ROOM_SETPOINT: (
+        "sensor.heatpump_thermostat_room_setpoint",
+        "sensor.thermostat_room_setpoint",
+    ),
+    ROLE_COP: (
+        "sensor.heatpump_total_quatt_cop",
+        "sensor.cic_total_quatt_cop",
+    ),
 }
 
 # Rol → OpenQuatt entity-namen, in volgorde van voorkeur.
@@ -137,6 +155,9 @@ OPENQUATT_NAMES: dict[str, tuple[str, ...]] = {
     ROLE_BOILER_HEAT: ("Boiler Heat Power",),
     ROLE_INDOOR_TEMP: ("Room Temperature (Selected)",),
     ROLE_CH_MAX_WATER: ("Maximum water temperature",),
+    ROLE_CONTROL_SETPOINT: ("OT - Control Setpoint",),
+    ROLE_ROOM_SETPOINT: ("Room Setpoint (Selected)", "OT - Room Setpoint"),
+    ROLE_COP: ("Total COP",),
 }
 
 

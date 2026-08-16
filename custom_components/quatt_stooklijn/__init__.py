@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 
 from .ch_max_water import ChMaxWaterController
+from .sources import SourceRegistry
 from .discovery import ROLE_CH_MAX_WATER, async_resolve_entity
 from .const import (
     CONF_CH_MAX_WATER_ENABLED,
@@ -135,6 +136,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     merged_config = {**entry.data, **entry.options}
     coordinator = QuattStooklijnCoordinator(hass, merged_config)
     hass.data[DOMAIN][entry.entry_id] = coordinator
+
+    # Bronregistratie moet klaarstaan vóór de platforms laden: de
+    # spiegelsensoren halen hem daar op tijdens hun setup.
+    source_registry = SourceRegistry(hass, merged_config)
+    hass.data[DOMAIN][f"{entry.entry_id}_sources"] = source_registry
+    entry.async_on_unload(source_registry.async_setup())
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -260,6 +267,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
+        hass.data[DOMAIN].pop(f"{entry.entry_id}_sources", None)
 
     # Remove service if no entries left
     if not hass.data[DOMAIN]:
