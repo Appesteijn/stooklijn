@@ -937,6 +937,37 @@ views:
               }}°C** |
 
 
+              {% set kal = 'sensor.quatt_warmteanalyse_openquatt_power_house_kalibratie' %}
+
+              {% set a = state_attr(kal, 'zero_power_temp') %}
+
+              {% if a is not none %}
+
+              **Power House huismodel** — {{ states(kal) }}
+
+              | Parameter | Nu | Advies |
+
+              |:--|--:|--:|
+
+              | House cold temp | {{ state_attr(kal, 'cold_temp_huidig') }}°C |
+              **{{ state_attr(kal, 'cold_temp') }}°C** |
+
+              | Rated max house power | {{ state_attr(kal, 'rated_power_huidig')
+              }} W | **{{ state_attr(kal, 'rated_power') }} W** |
+
+
+              Stookgrens staat op **{{ a }}°C** en wordt overgenomen, niet
+              geadviseerd — de regressie ziet geen enkele dag boven 16°C, dus
+              het nulpunt is extrapolatie (meting zegt {{ state_attr(kal,
+              'balanspunt_gemeten') }}°C).
+
+
+              *{{ state_attr(kal, 'toelichting') }}* (bron: {{ state_attr(kal,
+              'capaciteitsbron') }})
+
+              {% endif %}
+
+
               Maak een HA-automation die deze waarden naar je OpenQuatt
               entiteiten schrijft.
 

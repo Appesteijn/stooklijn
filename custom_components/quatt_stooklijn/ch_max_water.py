@@ -1,8 +1,12 @@
-"""Periodieke bijsturing van chMaxWaterTemperature op basis van stooklijn of MPC.
+"""Periodieke bijsturing van de max-aanvoertemperatuur op stooklijn of MPC.
 
-Schrijft maximaal één keer per interval naar de Quatt remote API (via de
-number.set_value service). Schrijft alleen als de aanbevolen waarde meer dan
-`hysteresis` graden afwijkt van de laatst geschreven waarde.
+Schrijft maximaal één keer per interval naar de number-entity van de regelaar
+die op dat moment daadwerkelijk stuurt — de Quatt CiC, of OpenQuatt als die de
+buitenunits regelt. Welke dat is bepaalt `async_resolve_setting_entity`; zie
+daar waarom een schrijfactie naar de verkeerde van de twee stil verdampt.
+
+Schrijft alleen als de aanbevolen waarde meer dan `hysteresis` graden afwijkt
+van de laatst geschreven waarde.
 
 Bronentiteit (instelbaar via config):
 - "stooklijn" → sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
@@ -18,8 +22,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 import homeassistant.util.dt as dt_util
 
-from .const import DEFAULT_CH_MAX_WATER_SOURCE
-from .discovery import ROLE_CH_MAX_WATER, async_resolve_entity
+from .const import CONF_CH_MAX_WATER_ENTITY, DEFAULT_CH_MAX_WATER_SOURCE
+from .discovery import (
+    ROLE_CH_MAX_WATER,
+    async_entity_has_value,
+    async_resolve_setting_entity,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,19 +57,29 @@ class ChMaxWaterController:
         interval_minutes: int,
     ) -> None:
         self._hass = hass
-        self._number_entity = number_entity
+        # Wat de gebruiker heeft ingesteld — leeg is normaal en betekent
+        # "detecteer zelf". Bewust niet één keer opgelost en vastgehouden: de
+        # regelaar kan wisselen (OpenQuatt-node die na HA opkomt, of juist
+        # losgekoppeld wordt), en dan hoort de schrijfactie mee te verhuizen.
+        self._configured_entity = (number_entity or "").strip()
         self._source = source if source in _SOURCE_ENTITY else DEFAULT_CH_MAX_WATER_SOURCE
         self._hysteresis = hysteresis
         self._interval = timedelta(minutes=interval_minutes)
 
         self._last_written: float | None = None
         self._last_written_at: datetime | None = None
+        self._target_entity: str | None = None
 
     # ------------------------------------------------------------------
 
     @property
     def source_entity(self) -> str:
         return _SOURCE_ENTITY[self._source]
+
+    @property
+    def target_entity(self) -> str | None:
+        """De number-entity waar het laatst naartoe geschreven is."""
+        return self._target_entity
 
     @property
     def last_written(self) -> float | None:
@@ -76,10 +94,10 @@ class ChMaxWaterController:
     def async_setup(self):
         """Registreer de periodieke timer. Geeft de remove-callback terug."""
         _LOGGER.info(
-            "ChMaxWaterController gestart: bron=%s, entity=%s, "
+            "ChMaxWaterController gestart: bron=%s, bestemming=%s, "
             "hysteresis=%.1f°C, interval=%d min",
             self._source,
-            self._number_entity,
+            self._configured_entity or "auto-detectie",
             self._hysteresis,
             self._interval.seconds // 60,
         )
@@ -97,8 +115,9 @@ class ChMaxWaterController:
         entity_id = self._resolve_number_entity()
         if entity_id is None:
             _LOGGER.warning(
-                "ChMaxWater: number entity '%s' niet beschikbaar, schrijfactie overgeslagen",
-                self._number_entity,
+                "ChMaxWater: geen bruikbare number entity gevonden "
+                "(ingesteld: %s), schrijfactie overgeslagen",
+                self._configured_entity or "auto-detectie",
             )
             return
 
@@ -130,35 +149,53 @@ class ChMaxWaterController:
             return None
 
     def _resolve_number_entity(self) -> str | None:
-        """Geef de entity-ID terug die daadwerkelijk bruikbaar is.
+        """Geef de number-entity van de regelaar die nu daadwerkelijk stuurt.
 
-        De Quatt-integratie gebruikt per installatie een andere naam voor deze
-        number-entity; auto-detectie bepaalt de juiste (zie discovery.py).
+        Elke tick opnieuw, niet één keer bij het opstarten: welke regelaar de
+        buitenunits aanstuurt kan veranderen zonder dat HA herstart. Zie
+        ``async_resolve_setting_entity`` voor de voorkeursvolgorde.
         """
-        state = self._hass.states.get(self._number_entity)
-        if state is not None and state.state not in ("unknown", "unavailable"):
-            return self._number_entity
-
-        detected = async_resolve_entity(
-            self._hass, {}, None, ROLE_CH_MAX_WATER
+        resolved = async_resolve_setting_entity(
+            self._hass,
+            {CONF_CH_MAX_WATER_ENTITY: self._configured_entity},
+            CONF_CH_MAX_WATER_ENTITY,
+            ROLE_CH_MAX_WATER,
         )
-        if detected and detected != self._number_entity:
-            state_detected = self._hass.states.get(detected)
-            if state_detected is not None and state_detected.state not in (
-                "unknown",
-                "unavailable",
-            ):
-                _LOGGER.warning(
-                    "ChMaxWater: '%s' niet gevonden, gebruik gedetecteerde '%s'. "
-                    "Pas de entity-instelling aan om deze melding te voorkomen.",
-                    self._number_entity,
-                    detected,
-                )
-                return detected
-        return None
+        # De laatste stap van de resolver mag een terugvalnaam teruggeven die
+        # helemaal niet bestaat — prima om in de UI te tonen, niet om naar te
+        # schrijven. Zonder deze check loopt _clamp stuk op een lege state.
+        if resolved is None or not async_entity_has_value(self._hass, resolved):
+            return None
+
+        if (
+            self._configured_entity
+            and resolved != self._configured_entity
+            and self._target_entity != resolved
+        ):
+            _LOGGER.warning(
+                "ChMaxWater: ingestelde entity '%s' geeft geen waarde, "
+                "geschreven naar '%s'. Pas de entity-instelling aan om deze "
+                "melding te laten verdwijnen.",
+                self._configured_entity,
+                resolved,
+            )
+
+        if self._target_entity is not None and self._target_entity != resolved:
+            # Andere bestemming, dus de hysteresis-geschiedenis slaat nergens
+            # meer op: die knop staat op zijn eigen waarde en heeft bovendien
+            # zijn eigen min/max. Eerstvolgende tick schrijft onvoorwaardelijk.
+            _LOGGER.info(
+                "ChMaxWater: bestemming gewisseld van '%s' naar '%s'",
+                self._target_entity,
+                resolved,
+            )
+            self._last_written = None
+
+        self._target_entity = resolved
+        return resolved
 
     def _clamp(self, value: float, entity_id: str) -> float | None:
-        """Begrens waarde op min/max van de Quatt number entity."""
+        """Begrens waarde op min/max/step van de gekozen number entity."""
         state = self._hass.states.get(entity_id)
 
         attrs = state.attributes
@@ -181,7 +218,7 @@ class ChMaxWaterController:
         return abs(new_value - self._last_written) >= self._hysteresis
 
     async def _write(self, value: float, entity_id: str) -> None:
-        """Schrijf de waarde naar de Quatt number entity via HA service."""
+        """Schrijf de waarde naar de gekozen number entity via HA service."""
         try:
             await self._hass.services.async_call(
                 "number",
@@ -192,7 +229,8 @@ class ChMaxWaterController:
             self._last_written = value
             self._last_written_at = dt_util.now()
             _LOGGER.info(
-                "ChMaxWater: chMaxWaterTemperature ingesteld op %.1f°C (bron: %s)",
+                "ChMaxWater: %s ingesteld op %.1f°C (bron: %s)",
+                entity_id,
                 value,
                 self._source,
             )

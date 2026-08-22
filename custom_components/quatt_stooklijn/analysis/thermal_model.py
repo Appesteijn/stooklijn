@@ -45,6 +45,20 @@ G_MIN, G_MAX = 0.0, 20.0       # W/(W/m²)
 # numerical issues when the temperature difference is too small)
 MIN_DT_INDOOR_OUTDOOR = 2.0  # °C
 
+# Below this heat input, a sample carries no information about U.
+#
+# Why: with Q_hp ≈ 0 the θ₃ (1/C) term drops out of the regression, and θ₁ (U/C)
+# and θ₂ (g/C) both end up explaining the same slow drift — they become
+# interchangeable. RLS then picks an arbitrary split along that axis. Over a
+# Dutch summer, with a ~500-sample forgetting window, that is every sample for
+# months on end, and the learned U drifts far away from reality without any
+# guard noticing: it stays inside U_MIN..U_MAX and `is_converged` stays true.
+#
+# The threshold sits well under real heating operation (this house needs
+# ~1900 W at +10 °C outside), so it separates "off or trickling" from
+# "genuinely heating" rather than cutting into useful winter data.
+ANCHOR_MAX_Q_HP_W = 500.0  # W
+
 
 @dataclass
 class RLSEstimator:
@@ -118,6 +132,13 @@ class OnlineRCModel:
         self._prev_q_hp: float | None = None
         self._prev_q_solar: float | None = None
         self._prev_timestamp: datetime | None = None
+        # Seasonal U from the batch heat-loss regression, used to hold U steady
+        # while there is no heat input to identify it from. None = no anchor.
+        self._u_prior: float | None = None
+        # Whether the most recent update had its U held at the prior. Exposed
+        # in `params` so an anchored model is distinguishable from a learned
+        # one — otherwise a summer-frozen U looks exactly like a converged one.
+        self._u_anchored: bool = False
         # Initialise with reasonable defaults
         self._rls.initialise_from_physics(DEFAULT_U, DEFAULT_C, DEFAULT_G_SOLAR)
 
@@ -127,6 +148,26 @@ class OnlineRCModel:
             self._rls.initialise_from_physics(U, DEFAULT_C, DEFAULT_G_SOLAR)
             _LOGGER.info(
                 "RC model initialised from batch heat loss: U=%.1f W/K", U
+            )
+
+    def set_u_prior(self, U: float | None) -> None:
+        """Set the seasonal U that low-heat samples fall back on.
+
+        Comes from the batch heat-loss regression over a full season, which is
+        the one estimate that *does* see cold weather with real heat input.
+        Refresh it whenever that regression is recomputed — it improves as the
+        window grows, and the anchor should track it rather than freeze on the
+        first value ever seen.
+        """
+        if U is None:
+            self._u_prior = None
+            return
+        if U_MIN <= U <= U_MAX:
+            self._u_prior = float(U)
+        else:
+            _LOGGER.warning(
+                "RC model: ignoring implausible U prior %.1f W/K "
+                "(outside %.0f-%.0f)", U, U_MIN, U_MAX,
             )
 
     def update(
@@ -194,6 +235,24 @@ class OnlineRCModel:
         ])
 
         self._rls.update(x, delta_t)
+
+        # Hold U at the seasonal value when this sample could not have said
+        # anything about it. C and g keep learning from the same update — the
+        # summer is in fact the best season for identifying g — but the U/g
+        # degeneracy no longer gets to move U.
+        #
+        # Deliberately a hard projection rather than a weighted prior: a soft
+        # pull needs a strength constant, and there is no principled value for
+        # it. "This sample carries no U information" is a yes/no property, so
+        # the correction is too. θ₁ = U/C and θ₃ = 1/C, so pinning U means
+        # θ₁ := U_prior · θ₃. P is left untouched, so as soon as real heat
+        # input returns RLS is free to move U again straight away.
+        q_hp_used = self._prev_q_hp or 0.0
+        self._u_anchored = (
+            self._u_prior is not None and q_hp_used < ANCHOR_MAX_Q_HP_W
+        )
+        if self._u_anchored:
+            self._rls.theta[0] = self._u_prior * self._rls.theta[2]
 
         self._prev_t_indoor = t_indoor
         self._prev_t_outdoor = t_outdoor
@@ -290,12 +349,15 @@ class OnlineRCModel:
             "tau_hours": round(tau, 1) if tau else None,
             "n_updates": self._rls.n_updates,
             "converged": self.is_converged,
+            "u_prior_wk": round(self._u_prior, 1) if self._u_prior else None,
+            "u_anchored": self._u_anchored,
         }
 
     def to_dict(self) -> dict:
         """Serialise full state for persistence."""
         return {
             "rls": self._rls.to_dict(),
+            "u_prior": self._u_prior,
             "prev_t_indoor": self._prev_t_indoor,
             "prev_t_outdoor": self._prev_t_outdoor,
             "prev_q_hp": self._prev_q_hp,
@@ -312,6 +374,7 @@ class OnlineRCModel:
         """Deserialise from stored state."""
         model = cls.__new__(cls)
         model._rls = RLSEstimator.from_dict(data["rls"])
+        model._u_prior = data.get("u_prior")
         model._prev_t_indoor = data.get("prev_t_indoor")
         model._prev_t_outdoor = data.get("prev_t_outdoor")
         model._prev_q_hp = data.get("prev_q_hp")

@@ -335,6 +335,7 @@ async def async_setup_entry(
     ))
     entities.append(QuattAdviceSensor(coordinator, entry))
     entities.append(QuattOpenQuattCurveSensor(coordinator, entry))
+    entities.append(QuattPowerHouseCalibrationSensor(coordinator, entry))
 
     if {**entry.data, **entry.options}.get(CONF_SOUND_LEVEL_ENABLED, False):
         entities.append(QuattSoundLevelSensor(entry))
@@ -610,6 +611,12 @@ class QuattSupplyTempSensor(
 
 
 ADVICE_BREAKPOINT_TEMPS = (-10, -5, 0, 5, 10, 15)
+# OpenQuatt hanteert een ander raster dan het generieke advies hierboven: zijn
+# zes `Curve Tsupply @ …`-number-entiteiten staan vast op -20/-10/0/5/10/15.
+# Die punten worden positioneel overgezet, dus een advies op het advies-raster
+# schuift de koude kant een punt op: de waarde voor -10 landt dan op de knop
+# voor -20. Wijzig deze reeks alleen als de firmware zijn knoppen wijzigt.
+OPENQUATT_BREAKPOINT_TEMPS = (-20, -10, 0, 5, 10, 15)
 ADVICE_NOMINAL_RETURN_TEMP = 28.0  # °C — typical return temp for breakpoint calc
 ADVICE_STOOKGRENS_THRESHOLD = 1.0  # °C — significant difference threshold
 ADVICE_VERMOGEN_THRESHOLD = 500  # W — significant difference threshold
@@ -876,6 +883,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 # heat_loss.slope is negative (W per °C increase),
                 # the heat loss coefficient U = -slope
                 model.initialise_from_batch(-heat_loss.slope)
+        self._refresh_u_prior()
 
         # Prime the model with current sensor values so the first hourly
         # update (1h from now) can already produce an RLS update instead
@@ -899,10 +907,25 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                     t_outdoor, self._outdoor_entity,
                 )
 
+    def _refresh_u_prior(self) -> None:
+        """Keep the RC model's U anchor in step with the batch regression.
+
+        Not a one-off seed: the seasonal fit keeps improving as its window
+        grows, and the anchor should follow it. Without this the anchor would
+        freeze on whatever the regression happened to say the first time the
+        model was loaded.
+        """
+        if not self._thermal_loaded or not self.coordinator.data:
+            return
+        slope = self.coordinator.data.heat_loss_hp.slope
+        if slope is not None:
+            self._thermal_store.model.set_u_prior(-slope)
+
     async def _async_hourly_update(self, _now=None) -> None:
         """Hourly: update thermal model with new measurement, then refresh forecast."""
         # Update thermal model
         if self._thermal_loaded:
+            self._refresh_u_prior()
             t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
             t_outdoor = get_float_state(self.hass, self._outdoor_entity)
             q_hp = get_float_state(self.hass, self._power_entity) or 0.0
@@ -1035,17 +1058,33 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         flow_lph = get_float_state(self.hass, self._flow_entity)
         effective_flow = get_effective_flow(flow_lph)
         solar_w = get_float_state(self.hass, self._solar_entity) or 0.0
-        solar_gain_w = self._get_current_solar_radiation_wm2() * SOLAR_RADIATION_DEFAULT_FACTOR
 
         # Thermal model parameters
         model = self._thermal_store.model
         model_params = model.params
         model_source = "online" if model.is_converged else "batch_fallback"
 
+        # Report the factor that the active model actually applies. The online
+        # model uses its learned g_solar; only the batch fallback uses the
+        # hardcoded default. Reporting the default in both cases made the shown
+        # solar gain 2.3x the value the forecast was computed with — a diagnostic
+        # that silently contradicts the thing it is supposed to diagnose.
+        solar_factor = SOLAR_RADIATION_DEFAULT_FACTOR
+        if model.is_converged:
+            raw = model.raw_params
+            if raw is not None and raw["g"] > 0:
+                solar_factor = raw["g"]
+
+        solar_gain_w = self._get_current_solar_radiation_wm2() * solar_factor
+
         # Build forecast arrays (shared with the coast-time sensor).
         fc_temps, fc_solar_wm2, fc_meta = self.build_forecast_arrays(t_outdoor)
-        # Estimated solar heat gain in W for batch fallback and display
-        fc_solar_gain_w = [wm2 * SOLAR_RADIATION_DEFAULT_FACTOR for wm2 in fc_solar_wm2]
+        # Solar gain in W: the batch fallback consumes this directly, so it must
+        # keep using the default factor; display follows the active model.
+        fc_solar_gain_batch_w = [
+            wm2 * SOLAR_RADIATION_DEFAULT_FACTOR for wm2 in fc_solar_wm2
+        ]
+        fc_solar_gain_w = [wm2 * solar_factor for wm2 in fc_solar_wm2]
 
         # Build 6-hour forecast
         forecast_out: list[dict] = []
@@ -1070,7 +1109,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         if not forecast_out:
             # Fallback: batch stooklijn-based forecast (needs solar gain in W)
             forecast_out = self._build_batch_forecast(
-                effective_flow, t_return, fc_temps, fc_solar_gain_w, fc_meta,
+                effective_flow, t_return, fc_temps, fc_solar_gain_batch_w, fc_meta,
             )
 
         # Current demand (from whichever model is active)
@@ -1101,6 +1140,9 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             "flow_lph": flow_lph,
             "solar_power_w": round(solar_w),
             "solar_gain_w": round(solar_gain_w),
+            # Welke factor die winst opleverde — anders is niet te zien of je
+            # naar het geleerde of het hardgecodeerde getal kijkt.
+            "solar_factor_w_per_wm2": round(solar_factor, 3),
             "heat_demand_w": round(raw_demand) if raw_demand is not None else None,
             "net_demand_w": round(net_demand) if net_demand is not None else None,
             "solar_radiation_wm2": round(current_rad_wm2),
@@ -1588,6 +1630,12 @@ class QuattOpenQuattCurveSensor(
 
     State = aantal breakpoints (6).  Attributen bevatten de individuele punten
     zodat HA-automations ze naar OpenQuatt number-entiteiten kunnen schrijven.
+
+    Gebruikt bewust ``OPENQUATT_BREAKPOINT_TEMPS`` en niet het advies-raster:
+    de punten worden op volgorde naar zes vaste number-entiteiten geschreven,
+    dus de buitentemperaturen moeten één-op-één matchen met wat de firmware
+    daar aanbiedt. Elk attribuut draagt zijn buitentemperatuur mee (``bp_N_buiten``),
+    zodat een automation op waarde kan controleren in plaats van op positie.
     """
 
     _attr_has_entity_name = True
@@ -1609,7 +1657,7 @@ class QuattOpenQuattCurveSensor(
         data = self.coordinator.data
         if data is None or data.heat_loss_hp.slope is None:
             return None
-        return len(ADVICE_BREAKPOINT_TEMPS)
+        return len(OPENQUATT_BREAKPOINT_TEMPS)
 
     @property
     def extra_state_attributes(self) -> dict | None:
@@ -1620,6 +1668,7 @@ class QuattOpenQuattCurveSensor(
         breakpoints = _calc_heating_curve_breakpoints(
             data.heat_loss_hp.slope,
             data.heat_loss_hp.intercept,
+            outdoor_temps=OPENQUATT_BREAKPOINT_TEMPS,
         )
 
         attrs: dict[str, Any] = {"breakpoints": breakpoints}
@@ -1787,6 +1836,152 @@ class QuattSourceOverviewSensor(SensorEntity):
         }
 
 
+class QuattPowerHouseCalibrationSensor(
+    CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity
+):
+    """Passieve output sensor: het gekalibreerde Power House-huismodel.
+
+    OpenQuatt's Power House-strategie draagt hetzelfde lineaire warmteverlies-
+    model in zich dat deze integratie meet. Deze sensor vertaalt de meting naar
+    de drie number-entiteiten die dat model in de firmware vastleggen, en zet er
+    de huidige waarden naast zodat te zien is of bijstellen zin heeft.
+
+    Bewust géén schrijfactie: dit is kalibratie, geen regeling. De waarden
+    veranderen hooguit één keer per analyse en horen bij een bewuste stap, niet
+    bij een tikkende timer. De ``*_entity``-attributen dragen de opgezochte
+    entity-ID mee, zodat een automation niet op naam hoeft te gokken — de
+    firmware heeft die namen al eens onder de voet gelopen.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "OpenQuatt Power House Kalibratie"
+    _attr_icon = "mdi:home-search-outline"
+
+    def __init__(
+        self,
+        coordinator: QuattStooklijnCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_power_house_calibration"
+        self._attr_device_info = get_device_info(entry.entry_id)
+
+    def _calibration(self, targets: dict[str, str | None] | None = None):
+        from .power_house import calc_power_house_calibration
+
+        data = self.coordinator.data
+        if data is None:
+            return None
+        if targets is None:
+            targets = self._targets()
+        sl = data.stooklijn
+        return calc_power_house_calibration(
+            data.heat_loss_hp.heat_loss_coefficient,
+            sl.balance_temp_optimal,
+            capability_slope=sl.slope_local,
+            capability_intercept=sl.intercept_local,
+            knee_power=sl.knee_power,
+            # Tc en Pr worden tegen de T0 van de regelaar uitgerekend, niet tegen
+            # het gemeten balanspunt — zie de toelichting in power_house.py.
+            controller_zero_power_temp=self._current(targets["zero_power_temp"]),
+        )
+
+    def _targets(self) -> dict[str, str | None]:
+        """Rol → entity-ID van de bijbehorende OpenQuatt number-entity."""
+        from .discovery import (
+            ROLE_PH_COLD_TEMP,
+            ROLE_PH_RATED_POWER,
+            ROLE_PH_ZERO_POWER_TEMP,
+            async_discover_openquatt_entities,
+        )
+
+        found = async_discover_openquatt_entities(self.hass)
+        return {
+            "zero_power_temp": found.get(ROLE_PH_ZERO_POWER_TEMP),
+            "cold_temp": found.get(ROLE_PH_COLD_TEMP),
+            "rated_power": found.get(ROLE_PH_RATED_POWER),
+        }
+
+    def _current(self, entity_id: str | None) -> float | None:
+        if not entity_id:
+            return None
+        return get_float_state(self.hass, entity_id)
+
+    @property
+    def native_value(self) -> str | None:
+        from .power_house import (
+            COLD_TEMP_THRESHOLD,
+            RATED_POWER_THRESHOLD,
+            ZERO_POWER_TEMP_THRESHOLD,
+        )
+
+        targets = self._targets()
+        cal = self._calibration(targets)
+        if cal is None:
+            return "onvoldoende data"
+
+        if not any(targets.values()):
+            return "OpenQuatt niet gevonden"
+
+        # T0 telt bewust niet mee: die wordt overgenomen van de regelaar, niet
+        # geadviseerd. De meting kan het nulpunt niet zien — boven de stookgrens
+        # wordt er niet gestookt, dus daar is geen data.
+        pairs = (
+            (cal.cold_temp, targets["cold_temp"], COLD_TEMP_THRESHOLD),
+            (cal.rated_power, targets["rated_power"], RATED_POWER_THRESHOLD),
+        )
+        changes = 0
+        for advised, entity_id, threshold in pairs:
+            current = self._current(entity_id)
+            # Een onbekende huidige waarde telt niet als afwijking: dan is er
+            # niets om mee te vergelijken, en "aanpassing nodig" roepen op basis
+            # van een lege state is misleidend.
+            if current is not None and abs(advised - current) >= threshold:
+                changes += 1
+
+        if changes == 0:
+            return "model is gekalibreerd"
+        return f"{changes} aanpassing{'en' if changes > 1 else ''} aanbevolen"
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        targets = self._targets()
+        cal = self._calibration(targets)
+        if cal is None:
+            return None
+
+        attrs: dict[str, Any] = {
+            "zero_power_temp": cal.zero_power_temp,
+            "cold_temp": cal.cold_temp,
+            "rated_power": cal.rated_power,
+            "zero_power_temp_entity": targets["zero_power_temp"],
+            "cold_temp_entity": targets["cold_temp"],
+            "rated_power_entity": targets["rated_power"],
+            "zero_power_temp_huidig": self._current(targets["zero_power_temp"]),
+            "cold_temp_huidig": self._current(targets["cold_temp"]),
+            "rated_power_huidig": self._current(targets["rated_power"]),
+            "capaciteitsbron": cal.capacity_source,
+            "vollast_vermogen_w": cal.full_output_power,
+            # T0 wordt overgenomen, niet geadviseerd. Het gemeten balanspunt
+            # staat er los naast: informatief, maar te zwak onderbouwd om naar
+            # te schrijven — de regressie ziet geen enkele dag boven 16 °C.
+            "zero_power_temp_bron": cal.zero_power_temp_source,
+            "balanspunt_gemeten": cal.balance_point_measured,
+            "zero_power_temp_geadviseerd": False,
+        }
+        attrs["toelichting"] = (
+            f"Bij {cal.cold_temp:.1f}°C buiten heeft het huis "
+            f"{cal.rated_power:.0f} W nodig en draaien de warmtepompen vollast. "
+            f"Tc en Pr zijn uitgerekend tegen de ingestelde stookgrens van "
+            f"{cal.zero_power_temp:.1f}°C; die wordt niet geadviseerd omdat de "
+            f"meting boven de stookgrens geen data heeft "
+            f"(regressie zegt {cal.balance_point_measured:.1f}°C, maar dat is "
+            f"extrapolatie)."
+        )
+        return attrs
+
+
 class QuattChMaxWaterSensor(SensorEntity):
     """Diagnostische sensor: laatste waarde + tijdstip van chMaxWaterTemperatuur schrijfactie."""
 
@@ -1822,6 +2017,9 @@ class QuattChMaxWaterSensor(SensorEntity):
             "last_written_at": ctrl.last_written_at.isoformat() if ctrl.last_written_at else None,
             "source": ctrl._source,
             "source_entity": ctrl.source_entity,
+            # Naar wélke knop geschreven is. Zonder dit is van buitenaf niet te
+            # zien of de schrijfactie bij de regelaar landt die ook stuurt.
+            "target_entity": ctrl.target_entity,
             "interval_minutes": int(ctrl._interval.total_seconds() // 60),
         }
 

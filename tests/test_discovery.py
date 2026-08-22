@@ -26,6 +26,7 @@ from custom_components.quatt_stooklijn.discovery import (
     async_resolve_candidates,
     async_resolve_entity,
     async_resolve_from_list,
+    async_resolve_setting_entity,
 )
 
 HUB = "CIC-abc123"
@@ -51,11 +52,18 @@ def _oq(entity_id, name, domain="sensor", mac=OQ_MAC, disabled=False):
     )
 
 
+class _State:
+    """Minimaal state-object: HA levert hier geen kale string maar een State."""
+
+    def __init__(self, value):
+        self.state = value
+
+
 def _hass(entries=(), states=None):
     """MagicMock-hass met een werkend entity-register en state machine."""
     hass = MagicMock()
     hass._test_entity_registry = er.FakeRegistry(entries)
-    known = dict(states or {})
+    known = {k: _State(v) for k, v in (states or {}).items()}
     hass.states.get = lambda entity_id: known.get(entity_id)
     return hass
 
@@ -366,3 +374,80 @@ class TestGeenRegressieVoorBestaandeInstallaties:
     )
     def test_legacy_installatie_ongewijzigd(self, role, expected):
         assert async_resolve_entity(_hass(LEGACY), {}, None, role) == expected
+
+
+class TestResolveSettingEntity:
+    """De schrijfroute, met omgekeerde voorkeur ten opzichte van metingen.
+
+    Waarom omgekeerd: OpenQuatt's CiC-compatibiliteitslaag bevestigt schrijf-
+    acties van de CiC maar mapt ze nergens naartoe. Draait OpenQuatt, dan is een
+    schrijfactie naar de CiC een stille no-op — het ergste soort fout, want er
+    komt geen enkele foutmelding uit.
+    """
+
+    # Beide regelaars aanwezig en levend, zoals in een Q-edition-opstelling.
+    STATES = {
+        "number.cic_max_water_temperature": "40",
+        "number.openquatt_maximum_water_temperature": "40.0",
+    }
+
+    def test_openquatt_wint_van_de_cic(self):
+        hass = _hass([*MODERN, *OPENQUATT], states=self.STATES)
+        got = async_resolve_setting_entity(
+            hass, {}, "ch_max_water_entity", ROLE_CH_MAX_WATER
+        )
+        assert got == "number.openquatt_maximum_water_temperature"
+
+    def test_zonder_openquatt_gewoon_de_cic(self):
+        hass = _hass(MODERN, states=self.STATES)
+        got = async_resolve_setting_entity(
+            hass, {}, "ch_max_water_entity", ROLE_CH_MAX_WATER
+        )
+        assert got == "number.cic_max_water_temperature"
+
+    def test_offline_openquatt_valt_terug_op_de_cic(self):
+        """HCQ losgekoppeld: de node staat nog in het register, maar levert niets."""
+        hass = _hass(
+            [*MODERN, *OPENQUATT],
+            states={"number.cic_max_water_temperature": "40"},
+        )
+        got = async_resolve_setting_entity(
+            hass, {}, "ch_max_water_entity", ROLE_CH_MAX_WATER
+        )
+        assert got == "number.cic_max_water_temperature"
+
+    def test_unavailable_openquatt_valt_terug_op_de_cic(self):
+        hass = _hass(
+            [*MODERN, *OPENQUATT],
+            states={
+                "number.cic_max_water_temperature": "40",
+                "number.openquatt_maximum_water_temperature": "unavailable",
+            },
+        )
+        got = async_resolve_setting_entity(
+            hass, {}, "ch_max_water_entity", ROLE_CH_MAX_WATER
+        )
+        assert got == "number.cic_max_water_temperature"
+
+    def test_expliciete_instelling_wint_van_allebei(self):
+        hass = _hass(
+            [*MODERN, *OPENQUATT],
+            states={**self.STATES, "number.mijn_eigen": "45"},
+        )
+        got = async_resolve_setting_entity(
+            hass,
+            {"ch_max_water_entity": "number.mijn_eigen"},
+            "ch_max_water_entity",
+            ROLE_CH_MAX_WATER,
+        )
+        assert got == "number.mijn_eigen"
+
+    def test_kapotte_instelling_valt_terug_op_openquatt(self):
+        hass = _hass([*MODERN, *OPENQUATT], states=self.STATES)
+        got = async_resolve_setting_entity(
+            hass,
+            {"ch_max_water_entity": "number.bestaat_niet"},
+            "ch_max_water_entity",
+            ROLE_CH_MAX_WATER,
+        )
+        assert got == "number.openquatt_maximum_water_temperature"

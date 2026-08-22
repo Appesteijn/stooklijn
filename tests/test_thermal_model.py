@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from custom_components.quatt_stooklijn.analysis.thermal_model import (
+    ANCHOR_MAX_Q_HP_W,
     DEFAULT_C,
     DEFAULT_G_SOLAR,
     DEFAULT_U,
@@ -487,3 +488,108 @@ class TestSimulateCoastTime:
         )
         assert result["reaches_floor"] is True
         assert 70 <= result["coast_minutes"] <= 85
+
+
+class TestUAnchor:
+    """De zomerdegeneratie: zonder warmte-input is U niet identificeerbaar.
+
+    Met Q_hp ~ 0 valt de theta3-term weg en verklaren theta1 (U/C) en theta2 (g/C)
+    allebei dezelfde trage drift. RLS kiest dan een willekeurige verdeling langs
+    die as, en over een Nederlandse zomer is dat maandenlang elk sample. Niets
+    in het model merkt dat op: U blijft binnen de sanity-bounds en `converged`
+    blijft true. Dit is precies wat er in productie gebeurde — de online U zakte
+    naar 187 W/K terwijl de seizoensregressie 285 W/K meet.
+    """
+
+    @staticmethod
+    def _summer(model: OnlineRCModel, n_hours: int = 400, q_hp: float = 0.0):
+        """Zomerweer: geen warmtevraag, veel zon, kleine delta-T."""
+        rng = np.random.default_rng(7)
+        t_indoor = 23.0
+        t0 = datetime(2026, 7, 1, tzinfo=timezone.utc)
+        U, C, g = 285.0, 20000.0, 3.5
+        for h in range(n_hours):
+            t_outdoor = 18.0 + 4.0 * np.sin(2 * np.pi * (h - 9) / 24)
+            q_solar = max(0.0, 700 * np.sin(2 * np.pi * (h - 6) / 24))
+            dt_true = (q_hp + g * q_solar - U * (t_indoor - t_outdoor)) / C
+            model.update(t_indoor, t_outdoor, q_hp, q_solar,
+                         t0 + timedelta(hours=h))
+            t_indoor = t_indoor + dt_true + rng.normal(0, 0.005)
+        return model
+
+    def test_zonder_anker_dwaalt_u_af_in_de_zomer(self):
+        """Vastleggen van het probleem — faalt deze test, dan is de oorzaak weg."""
+        model = OnlineRCModel()
+        model.initialise_from_batch(285.0)
+        self._summer(model)
+        assert abs(model.raw_params["U"] - 285.0) > 20.0
+
+    def test_anker_houdt_u_vast_in_de_zomer(self):
+        model = OnlineRCModel()
+        model.initialise_from_batch(285.0)
+        model.set_u_prior(285.0)
+        self._summer(model)
+        assert model.raw_params["U"] == pytest.approx(285.0, abs=0.5)
+
+    def test_anker_laat_g_wel_leren(self):
+        """Het anker mag alleen U bevriezen — de zomer is juist de beste
+        periode om g te schatten, dus die moet blijven meelopen."""
+        model = OnlineRCModel()
+        model.initialise_from_batch(285.0)
+        model.set_u_prior(285.0)
+        before = model.raw_params
+        self._summer(model)
+        after = model.raw_params
+        assert after["g"] != pytest.approx(before["g"], abs=1e-6)
+
+    def test_c_beweegt_niet_zonder_warmte_input(self):
+        """Niet het anker, maar de wiskunde: met Q_hp = 0 is x[2] = 0, dus de
+        RLS-gain in de theta3-richting is nul en C staat stil. Zonder warmte-input
+        is C net zo onidentificeerbaar als U — het verschil is dat RLS dat hier
+        zelf al afdwingt en bij U niet."""
+        model = OnlineRCModel()
+        model.initialise_from_batch(285.0)
+        before = model.raw_params["C"]
+        self._summer(model)
+        assert model.raw_params["C"] == pytest.approx(before, abs=1e-6)
+
+    def test_anker_laat_u_los_zodra_er_gestookt_wordt(self):
+        """Boven de drempel moet RLS U weer vrij kunnen bewegen."""
+        model = OnlineRCModel()
+        model.initialise_from_batch(285.0)
+        model.set_u_prior(285.0)
+        self._summer(model, n_hours=200, q_hp=3500.0)
+        assert abs(model.raw_params["U"] - 285.0) > 1.0
+
+    def test_drempel_ligt_onder_echte_stookvermogens(self):
+        """Anders knipt het anker in bruikbare winterdata."""
+        assert ANCHOR_MAX_Q_HP_W < 1000.0
+
+    def test_zonder_prior_geen_anker(self):
+        """Terugwaarts compatibel: bestaande modellen zonder prior blijven zoals ze waren."""
+        model = OnlineRCModel()
+        model.initialise_from_batch(285.0)
+        self._summer(model, n_hours=100)
+        assert model._u_prior is None
+        assert model.params["u_anchored"] is False
+
+    def test_onzinnige_prior_wordt_genegeerd(self):
+        model = OnlineRCModel()
+        model.set_u_prior(50000.0)
+        assert model._u_prior is None
+
+    def test_prior_overleeft_serialisatie(self):
+        """Anders valt het anker weg bij elke HA-herstart."""
+        model = OnlineRCModel()
+        model.set_u_prior(285.0)
+        restored = OnlineRCModel.from_dict(model.to_dict())
+        assert restored._u_prior == 285.0
+
+    def test_params_maakt_ankering_zichtbaar(self):
+        """Een bevroren U mag niet ononderscheidbaar zijn van een geleerde."""
+        model = OnlineRCModel()
+        model.initialise_from_batch(285.0)
+        model.set_u_prior(285.0)
+        self._summer(model, n_hours=100)
+        assert model.params["u_anchored"] is True
+        assert model.params["u_prior_wk"] == 285.0

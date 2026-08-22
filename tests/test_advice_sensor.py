@@ -11,6 +11,7 @@ from custom_components.quatt_stooklijn.sensor import (
     _calc_heating_curve_breakpoints,
     ADVICE_BREAKPOINT_TEMPS,
     ADVICE_NOMINAL_RETURN_TEMP,
+    OPENQUATT_BREAKPOINT_TEMPS,
     QuattAdviceSensor,
 )
 from custom_components.quatt_stooklijn.const import (
@@ -146,3 +147,28 @@ class TestQuattAdviceSensorLogic:
         cur, opt = sensor._calc_vermogen(data)
         assert cur is None
         assert opt == 6000
+
+
+class TestOpenQuattBreakpointGrid:
+    """Het OpenQuatt-raster moet matchen met de firmware, niet met het advies.
+
+    De zes punten worden positioneel naar zes vaste number-entiteiten
+    geschreven. Staan ze op het advies-raster (-10/-5/…), dan landt de waarde
+    voor -10 op de knop voor -20 en schuift de hele koude kant een punt op.
+    """
+
+    def test_raster_matcht_de_firmware(self):
+        assert OPENQUATT_BREAKPOINT_TEMPS == (-20, -10, 0, 5, 10, 15)
+
+    def test_wijkt_af_van_het_advies_raster(self):
+        """Vangt het per ongeluk weer gelijktrekken van de twee rasters."""
+        assert OPENQUATT_BREAKPOINT_TEMPS != ADVICE_BREAKPOINT_TEMPS
+
+    def test_zes_punten_net_als_de_firmware(self):
+        assert len(OPENQUATT_BREAKPOINT_TEMPS) == 6
+
+    def test_breakpoints_dragen_hun_buitentemperatuur(self):
+        bps = _calc_heating_curve_breakpoints(
+            -200, 4000, outdoor_temps=OPENQUATT_BREAKPOINT_TEMPS
+        )
+        assert [bp["buiten_temp"] for bp in bps] == list(OPENQUATT_BREAKPOINT_TEMPS)

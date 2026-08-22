@@ -53,6 +53,13 @@ ROLE_CH_MAX_WATER = "ch_max_water"
 ROLE_CONTROL_SETPOINT = "control_setpoint"
 ROLE_ROOM_SETPOINT = "room_setpoint"
 ROLE_COP = "cop"
+# Power House-modelparameters. Alleen OpenQuatt kent deze; de Quatt-integratie
+# heeft geen equivalent, dus ze staan bewust niet in QUATT_KEYS of
+# FALLBACK_ENTITIES. Ze zijn ook geen meting maar een instelknop — de spiegels
+# in sources.py laten ze daarom links liggen.
+ROLE_PH_ZERO_POWER_TEMP = "ph_zero_power_temp"
+ROLE_PH_COLD_TEMP = "ph_cold_temp"
+ROLE_PH_RATED_POWER = "ph_rated_power"
 
 # Rol → Quatt sensor-keys, in volgorde van voorkeur. Deze keys komen uit
 # sensor_descriptions_cic.py / sensor_descriptions_heat.py / number.py van de
@@ -158,6 +165,12 @@ OPENQUATT_NAMES: dict[str, tuple[str, ...]] = {
     ROLE_CONTROL_SETPOINT: ("OT - Control Setpoint",),
     ROLE_ROOM_SETPOINT: ("Room Setpoint (Selected)", "OT - Room Setpoint"),
     ROLE_COP: ("Total COP",),
+    # "Maximum heating outdoor temperature" heet in de firmware nog
+    # house_zero_power_temp_c; ESPHome bouwt de entity-ID uit de *naam*, dus dit
+    # is de stabiele sleutel — niet de id en niet number.openquatt_house_zero_*.
+    ROLE_PH_ZERO_POWER_TEMP: ("Maximum heating outdoor temperature",),
+    ROLE_PH_COLD_TEMP: ("House cold temp",),
+    ROLE_PH_RATED_POWER: ("Rated maximum house power",),
 }
 
 
@@ -332,6 +345,66 @@ def async_resolve_entity(
             return candidate
 
     return configured or (fallbacks[0] if fallbacks else None)
+
+
+@callback
+def async_entity_has_value(hass: HomeAssistant, entity_id: str) -> bool:
+    """Geeft deze entity op dit moment een bruikbare waarde?
+
+    Strenger dan ``async_entity_exists``: een entity die in het register staat
+    maar ``unknown``/``unavailable`` teruggeeft telt hier niet mee. Nodig voor
+    het schrijfpad, dat moet weten of de knop er ook echt is.
+    """
+    state = hass.states.get(entity_id)
+    return state is not None and state.state not in ("unknown", "unavailable", "")
+
+
+@callback
+def async_resolve_setting_entity(
+    hass: HomeAssistant,
+    config: dict,
+    conf_key: str | None,
+    role: str,
+    *,
+    discovered: dict[str, str] | None = None,
+    openquatt: dict[str, str] | None = None,
+) -> str | None:
+    """Bepaal naar wélke instelknop geschreven moet worden.
+
+    De tegenhanger van ``async_resolve_entity``, en met een bewust omgekeerde
+    voorkeur. Voor een *meting* gaat Quatt voor, zodat bestaande installaties
+    hun vertrouwde bron houden (zie ``sources.async_resolve_candidates``). Voor
+    een *instelknop* telt iets anders: wie gehoorzaamt de schrijfactie.
+
+    In een Q-edition-opstelling regelt OpenQuatt de buitenunits en kijkt de CiC
+    alleen mee via de compatibiliteitslaag. Die laag bevestigt CiC-schrijfacties
+    wel, maar mapt ze nergens naartoe — ``oq_cic_compatibility.yaml``: "Known CiC
+    writes are acknowledged but ignored". Naar de CiC schrijven is dan een stille
+    no-op. OpenQuatt's eigen knop is het echte aangrijpingspunt: die begrenst de
+    stooklijn, de OT-slave en de ketel-dispatch (``oq_thermal_limits.yaml``).
+
+    Volgorde:
+      1. Wat de gebruiker heeft ingesteld, mits die entity een waarde geeft.
+      2. OpenQuatt, mits de node bereikbaar is en een waarde geeft.
+      3. Auto-detectie via het Quatt entity-register.
+      4. Een bekende terugvalnaam die bestaat.
+
+    Staat OpenQuatt offline, dan valt stap 2 weg en wordt de CiC gewoon weer de
+    bestemming — precies wat je wilt als de HCQ losgekoppeld is.
+    """
+    configured = (config.get(conf_key) or "").strip() if conf_key else ""
+    if configured and async_entity_has_value(hass, configured):
+        return configured
+
+    if openquatt is None:
+        openquatt = async_discover_openquatt_entities(hass)
+    oq_entity = openquatt.get(role)
+    if oq_entity and async_entity_has_value(hass, oq_entity):
+        return oq_entity
+
+    return async_resolve_entity(
+        hass, config, conf_key, role, discovered=discovered
+    )
 
 
 @callback
