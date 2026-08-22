@@ -140,9 +140,13 @@ async def _async_setup_dashboard(hass: HomeAssistant) -> None:
 
 
 # Unique-ID suffixen van entiteiten die alleen bestaan als sound_level_enabled=True.
+#
+# _gas_boiler_active staat hier bewust NIET meer bij: die binary_sensor wordt
+# sinds v0.8.14 altijd aangemaakt. Stond hij er nog wel bij, dan verwijderde
+# deze opruiming hem meteen na het laden van de platforms weer uit het
+# register — stilletjes, want dat logt op INFO.
 _SOUND_LEVEL_ENTITY_SUFFIXES = (
     "_sound_level_compensation",  # switch
-    "_gas_boiler_active",         # binary_sensor
     "_sound_level_sensor",        # sensor
 )
 

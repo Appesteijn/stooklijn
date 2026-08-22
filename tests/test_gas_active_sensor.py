@@ -66,3 +66,22 @@ class TestEntityId:
     def test_entity_id_krijgt_het_vaste_voorvoegsel(self):
         sensor = QuattGasActiveSensor(MagicMock(), _entry())
         assert sensor.entity_id == "binary_sensor.quatt_warmteanalyse_gasketel_actief"
+
+
+class TestNietOpgeruimdUitHetRegister:
+    """De opruiming van soundslider-entities mag deze sensor niet raken.
+
+    Losser maken van de platform-gate alleen was niet genoeg: bij een
+    uitgeschakelde geluidscompensatie liep er ná het laden van de platforms
+    nog een opruimronde die entiteiten op unique-ID-suffix uit het register
+    verwijderde. De sensor werd dus aangemaakt en meteen weer weggegooid,
+    met alleen een INFO-regel als spoor.
+    """
+
+    def test_suffix_staat_niet_in_de_opruimlijst(self):
+        from custom_components.quatt_stooklijn import _SOUND_LEVEL_ENTITY_SUFFIXES
+
+        unique_id = QuattGasActiveSensor(MagicMock(), _entry())._attr_unique_id
+        assert not any(
+            unique_id.endswith(suffix) for suffix in _SOUND_LEVEL_ENTITY_SUFFIXES
+        ), f"{unique_id} wordt door de opruiming uit het register verwijderd"
