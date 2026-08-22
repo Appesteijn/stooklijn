@@ -335,7 +335,7 @@ async def async_setup_entry(
     ))
     entities.append(QuattAdviceSensor(coordinator, entry))
     entities.append(QuattOpenQuattCurveSensor(coordinator, entry))
-    entities.append(QuattPowerHouseCalibrationSensor(coordinator, entry))
+    entities.append(QuattPowerHouseCalibrationSensor(hass, coordinator, entry))
 
     if {**entry.data, **entry.options}.get(CONF_SOUND_LEVEL_ENABLED, False):
         entities.append(QuattSoundLevelSensor(entry))
@@ -1859,12 +1859,22 @@ class QuattPowerHouseCalibrationSensor(
 
     def __init__(
         self,
+        hass: HomeAssistant,
         coordinator: QuattStooklijnCoordinator,
         entry: ConfigEntry,
     ) -> None:
         super().__init__(coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_power_house_calibration"
+        # Entity-ID vastpinnen, net als de spiegelsensoren. HA bouwt de ID voor
+        # een nieuwe entity op uit het *gebied* van het device, dus zonder dit
+        # wordt het sensor.bijkeuken_quatt_warmteanalyse_… en breekt elke
+        # dashboardverwijzing. Zie de toelichting bij MirrorSpec.slug.
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            f"{ENTITY_PREFIX}_openquatt_power_house_kalibratie",
+            hass=hass,
+        )
         self._attr_device_info = get_device_info(entry.entry_id)
 
     def _calibration(self, targets: dict[str, str | None] | None = None):

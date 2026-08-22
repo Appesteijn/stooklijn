@@ -167,6 +167,7 @@ class TestKalibratieSensor:
         sensor = QuattPowerHouseCalibrationSensor.__new__(
             QuattPowerHouseCalibrationSensor
         )
+        # __init__ overgeslagen: die vraagt een echte hass voor de entity-ID.
         sensor.coordinator = type("C", (), {"data": payload})()
         if targets is None:
             targets = {
@@ -269,3 +270,23 @@ class TestKalibratieSensor:
             laag.extra_state_attributes["cold_temp"]
             < hoog.extra_state_attributes["cold_temp"]
         )
+
+
+class TestEntityId:
+    """De entity-ID moet vastgepind zijn, niet door HA afgeleid.
+
+    HA bouwt de ID voor een nieuwe entity op uit het *gebied* van het device.
+    Staat het device in de bijkeuken, dan wordt het
+    sensor.bijkeuken_quatt_warmteanalyse_... en breekt elke dashboardverwijzing.
+    Dit is precies wat er bij de eerste release van deze sensor gebeurde.
+    """
+
+    def test_init_pint_de_entity_id(self):
+        import inspect
+        from custom_components.quatt_stooklijn.sensor import (
+            QuattPowerHouseCalibrationSensor,
+        )
+
+        src = inspect.getsource(QuattPowerHouseCalibrationSensor.__init__)
+        assert "async_generate_entity_id" in src
+        assert "openquatt_power_house_kalibratie" in src
