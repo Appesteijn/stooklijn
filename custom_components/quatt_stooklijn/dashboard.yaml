@@ -1276,10 +1276,17 @@ views:
               columns: full
               rows: auto
 
-  # ─── VIEW 5: GELUID ─────────────────────────────────────────────────
-  # Beantwoordt: "Is het stookgedrag rustiger met geluidsniveaucompensatie?"
-  - title: Geluid
-    icon: mdi:volume-vibrate
+  # ─── VIEW 5: SYSTEEM ────────────────────────────────────────────────
+  # Beantwoordt: "Waar komen mijn metingen vandaan en hoe stookt het systeem?"
+  #
+  # Geluidsniveaucompensatie (sound_level_enabled) en aanvoerbegrenzing
+  # (ch_max_water_enabled) zijn opt-in: staan ze uit, dan bestaan hun
+  # entiteiten niet en tonen hun kaarten alleen foutmeldingen. De secties
+  # hangen daarom aan een visibility-conditie. HA behandelt een niet-
+  # bestaande entity als 'unavailable', dus de sectie verdwijnt vanzelf —
+  # dezelfde truc als bij de Quatt-setpoint tile in de Overzicht-view.
+  - title: Systeem
+    icon: mdi:tune-variant
     type: sections
     max_columns: 2
     cards: []
@@ -1287,6 +1294,12 @@ views:
       # ── Aanvoertemperatuur begrenzing — effect (48 uur) ──
       - type: grid
         column_span: 2
+        visibility:
+          - condition: state
+            entity: sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling
+            state_not:
+              - unavailable
+              - unknown
         cards:
           - type: custom:apexcharts-card
             header:
@@ -1372,12 +1385,18 @@ views:
               > niets, ook niet aan de analyse.
 
               {% endif %}
-        grid_options:
-          columns: full
-          rows: auto
+            grid_options:
+              columns: full
+              rows: auto
 
       # ── Aanvoertemperatuur begrenzing — huidige status ──
       - type: grid
+        visibility:
+          - condition: state
+            entity: sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling
+            state_not:
+              - unavailable
+              - unknown
         cards:
           - type: markdown
             title: Aanvoertemperatuur begrenzing
@@ -1422,17 +1441,17 @@ views:
               | **Verlaging** | {% if setpoint and limiet %}{% set v = setpoint - limiet %}{% if v > 0 %}**−{{ v | round(1) }}°C**{% else %}niet actief{% endif %}{% else %}*n/b*{% endif %} |
 
               | Laatste update | {% if last_at %}{{ last_at[:16] | replace('T',' ') }}{% else %}*nog niet geschreven*{% endif %} |
-        grid_options:
-          columns: full
-          rows: auto
+            grid_options:
+              columns: full
+              rows: auto
 
-      # ── Vermogen + geluidsniveau (48 uur) ──
+      # ── Vermogen warmtepomp + gasketel (48 uur) ──
       - type: grid
         column_span: 2
         cards:
           - type: custom:apexcharts-card
             header:
-              title: Warmtepomp vermogen & geluidsniveau (48 uur)
+              title: Warmtepomp & gasketel vermogen (48 uur)
               show: true
             graph_span: 48h
             yaxis:
@@ -1442,20 +1461,6 @@ views:
                 apex_config:
                   title:
                     text: "W"
-              - id: level
-                opposite: true
-                min: 0
-                max: 4
-                decimals: 0
-                apex_config:
-                  title:
-                    text: Niveau
-                  labels:
-                    formatter: |
-                      EVAL:function(val) {
-                        var m = {"0":"uit","1":"building87","2":"silent","3":"library","4":"normal"};
-                        return m[Math.round(val)] || val;
-                      }
             apex_config:
               chart:
                 height: 280
@@ -1478,13 +1483,6 @@ views:
                 stroke_width: 2
                 type: area
                 opacity: 0.15
-              - entity: sensor.quatt_warmteanalyse_geluidsniveau
-                name: Geluidsniveau
-                yaxis_id: level
-                color: "#9C27B0"
-                stroke_width: 3
-                transform: |
-                  return {"building87":1,"silent":2,"library":3,"normal":4}[x] || 0;
             grid_options:
               columns: full
               rows: auto
@@ -1586,9 +1584,15 @@ views:
               columns: full
               rows: auto
 
-      # ── Geluidsniveau & gasketel status (bestaande kaart, nu in deze view) ──
+      # ── Geluidsniveau & gasketel status (alleen met compensatie aan) ──
       - type: grid
         column_span: 2
+        visibility:
+          - condition: state
+            entity: switch.quatt_warmteanalyse_geluidsniveau_compensatie
+            state_not:
+              - unavailable
+              - unknown
         cards:
           - type: history-graph
             title: Geluidsniveau & gasketel (48 uur)
@@ -1606,6 +1610,12 @@ views:
 
       # ── Geluidsniveau compensatie (alleen zichtbaar als geconfigureerd) ──
       - type: grid
+        visibility:
+          - condition: state
+            entity: switch.quatt_warmteanalyse_geluidsniveau_compensatie
+            state_not:
+              - unavailable
+              - unknown
         cards:
           - type: conditional
             conditions:

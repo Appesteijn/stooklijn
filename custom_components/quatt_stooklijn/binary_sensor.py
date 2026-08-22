@@ -4,16 +4,21 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
+from homeassistant.components.binary_sensor import (
+    ENTITY_ID_FORMAT,
+    BinarySensorDeviceClass,
+    BinarySensorEntity,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import CONF_BOILER_HEAT_ENTITY, CONF_SOUND_LEVEL_ENABLED, DOMAIN
+from .const import CONF_BOILER_HEAT_ENTITY, DOMAIN
 from .discovery import ROLE_BOILER_HEAT
 from .helpers import get_device_info, get_float_state
-from .sources import async_source_entity
+from .sources import ENTITY_PREFIX, async_source_entity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,10 +30,14 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up binary sensor entities from config entry."""
-    if not {**entry.data, **entry.options}.get(CONF_SOUND_LEVEL_ENABLED, False):
-        return
+    """Set up binary sensor entities from config entry.
 
+    Bewust niet achter ``sound_level_enabled``: of de gasketel bijspringt is
+    een eigenschap van de installatie, niet van de geluidscompensatie. De
+    sensor hing daar historisch aan omdat de compensatie zijn eerste
+    afnemer was — dashboards en automatiseringen die niets met geluid doen
+    hadden hem daardoor niet.
+    """
     async_add_entities([QuattGasActiveSensor(hass, entry)])
 
 
@@ -43,6 +52,14 @@ class QuattGasActiveSensor(BinarySensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_gas_boiler_active"
+        # Entity-ID vastpinnen, net als de spiegelsensoren. HA leidt de ID van
+        # een *nieuwe* entity af uit het gebied van het device, dus zonder dit
+        # wordt het binary_sensor.bijkeuken_quatt_warmteanalyse_… Juist hier
+        # telt dat: bij iedereen met de geluidscompensatie uit is dit een
+        # nieuwe entity, en het dashboard verwijst naar de vaste ID.
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT, f"{ENTITY_PREFIX}_gasketel_actief", hass=hass
+        )
         self._attr_device_info = get_device_info(entry.entry_id)
         self._boiler_heat: float | None = None
 

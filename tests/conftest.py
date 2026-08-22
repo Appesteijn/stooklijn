@@ -108,6 +108,7 @@ def _stub_ha():
     binary_sensor_mod = sys.modules["homeassistant.components.binary_sensor"]
     binary_sensor_mod.BinarySensorEntity = type("BinarySensorEntity", (), {})
     binary_sensor_mod.BinarySensorDeviceClass = MagicMock()
+    binary_sensor_mod.ENTITY_ID_FORMAT = "binary_sensor.{}"
 
     # Restore state stub
     restore_mod = sys.modules["homeassistant.helpers.restore_state"]
