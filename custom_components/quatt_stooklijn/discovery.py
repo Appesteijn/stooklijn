@@ -297,6 +297,31 @@ def async_entity_exists(hass: HomeAssistant, entity_id: str) -> bool:
 
 
 @callback
+def _first_configured(hass: HomeAssistant, configured) -> str:
+    """Normaliseer een ingestelde waarde naar één entity-ID.
+
+    De buitentemperatuur wordt als *lijst* van kandidaten ingesteld, de rest als
+    losse string. ``async_resolve_entity`` kreeg daardoor soms een lijst binnen
+    en liep stuk op ``.strip()``. Dat bleef lang onzichtbaar omdat de
+    bronregistratie normaal al een waarde heeft en dit pad alleen wordt geraakt
+    als terugval — precies tijdens een herstart of reload, wanneer de registratie
+    nog leeg is en er dus het minst aan de hand mag zijn.
+
+    Uit een lijst wint de eerste die bestaat; bestaat er geen, dan de eerste
+    niet-lege, zodat de UI nog iets kan tonen.
+    """
+    if configured is None:
+        return ""
+    if isinstance(configured, str):
+        return configured.strip()
+    candidates = [str(c).strip() for c in configured if c and str(c).strip()]
+    for candidate in candidates:
+        if async_entity_exists(hass, candidate):
+            return candidate
+    return candidates[0] if candidates else ""
+
+
+@callback
 def async_resolve_entity(
     hass: HomeAssistant,
     config: dict,
@@ -320,7 +345,7 @@ def async_resolve_entity(
     if discovered is None:
         discovered = async_discover_quatt_entities(hass)
 
-    configured = (config.get(conf_key) or "").strip() if conf_key else ""
+    configured = _first_configured(hass, config.get(conf_key) if conf_key else None)
     if configured:
         if async_entity_exists(hass, configured):
             return configured

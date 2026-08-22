@@ -585,6 +585,23 @@ class TestUAnchor:
         restored = OnlineRCModel.from_dict(model.to_dict())
         assert restored._u_prior == 285.0
 
+    def test_teruggelezen_model_is_direct_bruikbaar(self):
+        """from_dict gebruikt cls.__new__ en slaat __init__ over, dus elk veld
+        moet daar expliciet gezet worden. Ontbreekt er een, dan knalt het pas
+        bij het eerste gebruik — en dan is het opgeslagen model al verloren."""
+        model = OnlineRCModel()
+        model.initialise_from_batch(285.0)
+        model.set_u_prior(285.0)
+        self._summer(model, n_hours=60)
+        restored = OnlineRCModel.from_dict(model.to_dict())
+        assert restored.params["u_anchored"] is False
+        assert restored.raw_params is not None
+        assert restored.predict_t_indoor(21.0, 5.0, 0.0, 0.0) == pytest.approx(
+            model.predict_t_indoor(21.0, 5.0, 0.0, 0.0)
+        )
+        restored.update(21.0, 5.0, 0.0, 0.0,
+                        datetime(2026, 7, 5, tzinfo=timezone.utc))
+
     def test_params_maakt_ankering_zichtbaar(self):
         """Een bevroren U mag niet ononderscheidbaar zijn van een geleerde."""
         model = OnlineRCModel()

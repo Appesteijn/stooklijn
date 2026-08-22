@@ -451,3 +451,52 @@ class TestResolveSettingEntity:
             ROLE_CH_MAX_WATER,
         )
         assert got == "number.openquatt_maximum_water_temperature"
+
+
+class TestResolveEntityMetLijst:
+    """De buitentemperatuur wordt als lijst ingesteld, de rest als string.
+
+    `async_resolve_entity` liep daarop stuk met "'list' object has no attribute
+    'strip'". Alleen zichtbaar als terugvalpad: normaal levert de bronregistratie
+    al een entity, en dit pad wordt pas geraakt vlak na een herstart of reload —
+    precies wanneer er het minst mis mag gaan.
+    """
+
+    CONF = "temp_entities"
+
+    def test_lijst_kiest_de_eerste_die_bestaat(self):
+        hass = _hass(MODERN, states={"sensor.tweede": "9.0"})
+        got = async_resolve_entity(
+            hass,
+            {self.CONF: ["sensor.bestaat_niet", "sensor.tweede"]},
+            self.CONF,
+            ROLE_OUTDOOR_TEMP,
+        )
+        assert got == "sensor.tweede"
+
+    def test_lijst_zonder_bestaande_valt_terug_op_detectie(self):
+        hass = _hass(MODERN)
+        got = async_resolve_entity(
+            hass, {self.CONF: ["sensor.weg", "sensor.ook_weg"]},
+            self.CONF, ROLE_OUTDOOR_TEMP,
+        )
+        assert got == "sensor.heatpump_1_temperature_outside"
+
+    def test_lege_lijst_telt_als_niet_ingesteld(self):
+        got = async_resolve_entity(
+            _hass(MODERN), {self.CONF: []}, self.CONF, ROLE_OUTDOOR_TEMP
+        )
+        assert got == "sensor.heatpump_1_temperature_outside"
+
+    def test_string_blijft_gewoon_werken(self):
+        hass = _hass(MODERN, states={"sensor.mijn_eigen": "9.0"})
+        got = async_resolve_entity(
+            hass, {self.CONF: "sensor.mijn_eigen"}, self.CONF, ROLE_OUTDOOR_TEMP
+        )
+        assert got == "sensor.mijn_eigen"
+
+    def test_lijst_met_lege_waarden(self):
+        got = async_resolve_entity(
+            _hass(MODERN), {self.CONF: [None, "  ", ""]}, self.CONF, ROLE_OUTDOOR_TEMP
+        )
+        assert got == "sensor.heatpump_1_temperature_outside"

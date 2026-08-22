@@ -375,6 +375,11 @@ class OnlineRCModel:
         model = cls.__new__(cls)
         model._rls = RLSEstimator.from_dict(data["rls"])
         model._u_prior = data.get("u_prior")
+        # Niet gepersisteerd: dit beschrijft de laatste update, niet de staat.
+        # Wel expliciet zetten — from_dict gebruikt cls.__new__ en slaat
+        # __init__ dus over, waardoor elk veld dat hier ontbreekt later een
+        # AttributeError geeft in plaats van een default.
+        model._u_anchored = False
         model._prev_t_indoor = data.get("prev_t_indoor")
         model._prev_t_outdoor = data.get("prev_t_outdoor")
         model._prev_q_hp = data.get("prev_q_hp")
