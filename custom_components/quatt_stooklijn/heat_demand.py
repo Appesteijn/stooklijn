@@ -47,6 +47,25 @@ FIRMWARE_SOURCE_HA_INPUT = "HA input"
 # voor de vraag of hij naar ons wijst.
 SELECTOR_SEPARATOR = "|"
 
+# Wat ``Power House – demand source`` meldt zodra de externe vraag daadwerkelijk
+# de feedforward voedt. Alles anders betekent dat de firmware op haar eigen
+# huismodel draait.
+FEEDFORWARD_EXTERNAL = "external"
+
+# Hoe oud de gebruikte buitentemperatuur mag zijn voordat de vraag niet meer
+# gepubliceerd wordt. Gemeten over 24 uur op deze installatie: mediaan 60 s,
+# p90 300 s, grootste gat 950 s. Een strakke drempel zou de vraag daarom
+# regelmatig ten onrechte intrekken, en elke intrekking duwt de firmware naar
+# haar terugvalmodel. Ruim kiezen kost hoogstens dat er even met een verouderde
+# temperatuur gerekend wordt — bij ~1 K/uur is dat een paar honderd watt, en de
+# comfortterm regelt dat alsnog weg. Vandaar bijna twee keer het grootste
+# waargenomen gat.
+#
+# Dit gat wordt nergens anders opgemerkt: een bevroren bronsensor levert nog
+# steeds een geldige waarde, dus de proxy blijft ``valid`` en de firmware ziet
+# geen reden om terug te vallen.
+OUTDOOR_MAX_AGE_SECONDS = 1800
+
 
 def selector_entity(raw: str | None) -> str | None:
     """Haal de entity-ID uit de waarde van de bronhelper.
@@ -78,6 +97,7 @@ class HeatDemandLink:
     demand_entity: str
     select_entity: str | None = None
     firmware_source: str | None = None
+    firmware_feedforward: str | None = None
     proxy_entity: str | None = None
     selector: str | None = None
 
@@ -86,13 +106,50 @@ class HeatDemandLink:
         return self.selector == self.demand_entity
 
     @property
-    def active(self) -> bool:
-        """Voedt deze sensor nu de feedforward van Power House?"""
+    def wired(self) -> bool:
+        """Is de keten aan de HA-kant compleet?
+
+        Dit is een *voorspelling*: alle drie de schakels staan goed, dus de
+        vraag hoort aan te komen. Of dat ook zo is zegt alleen de firmware —
+        zie ``confirmed``.
+        """
         return (
             self.firmware_source == FIRMWARE_SOURCE_HA_INPUT
             and self.proxy_entity is not None
             and self.selector_points_here
         )
+
+    @property
+    def confirmed(self) -> bool | None:
+        """Wat de firmware zelf zegt te gebruiken. ``None`` = geen uitsluitsel.
+
+        Ouder OpenQuatt kent deze diagnostische sensor niet, en dan valt er
+        niets te bevestigen. Dat is iets anders dan een ontkenning, dus geen
+        ``False``.
+        """
+        if self.firmware_feedforward is None:
+            return None
+        return self.firmware_feedforward == FEEDFORWARD_EXTERNAL
+
+    @property
+    def active(self) -> bool:
+        """Voedt deze sensor nu de feedforward van Power House?
+
+        De firmware heeft het laatste woord. Zegt die niets, dan is de
+        voorspelling het beste dat er is.
+        """
+        if self.confirmed is not None:
+            return self.confirmed
+        return self.wired
+
+    @property
+    def mismatch(self) -> bool:
+        """Keten compleet, maar de firmware draait alsnog op haar eigen model.
+
+        Dit is de stille faalmodus waar de hele statuslogica om draait: aan de
+        HA-kant lijkt alles goed, en toch komt de vraag niet aan.
+        """
+        return self.wired and self.confirmed is False
 
     @property
     def status(self) -> str:
@@ -115,4 +172,11 @@ class HeatDemandLink:
                 f"firmware staat op '{self.firmware_source}' — "
                 f"zet hem op '{FIRMWARE_SOURCE_HA_INPUT}'"
             )
+        if self.mismatch:
+            return (
+                "ingesteld, maar de firmware draait op haar eigen huismodel — "
+                "ze verwerpt de gepubliceerde waarde"
+            )
+        if self.confirmed:
+            return "actief (bevestigd door de firmware)"
         return "actief"

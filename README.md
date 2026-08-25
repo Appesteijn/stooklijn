@@ -145,10 +145,21 @@ slew limiter and the water-temperature limiter stay firmware-owned. That is exac
 split this integration can fill: the house model comes from a year of measurements, the
 control loop stays where the safety is.
 
-`sensor.quatt_warmteanalyse_warmtevraag` publishes `UA × max(0, T_balance − T_outdoor)`
-in watts, straight from the seasonal regression. **The integration writes nothing** — you
+`sensor.quatt_warmteanalyse_warmtevraag` publishes `UA × max(0, T_zero − T_outdoor)` in
+watts, with `UA` from the seasonal regression. **The integration writes nothing** — you
 point OpenQuatt's existing source helper at the sensor, which keeps the chain visible and
 reversible.
+
+`T_zero` is taken from the controller's own heating limit, not from the measured balance
+point, and falls back to the measurement only when no controller is present. The
+regression cannot see the balance point — above the heating limit nothing is heated, so
+those days drop out of the fit — and using its extrapolated value would publish demand in
+a band where the firmware's own model says zero, heating the house above its own heating
+limit. The `nulpunt` and `nulpunt_bron` attributes show which one is in use.
+
+The sensor stops publishing when the outdoor reading it uses goes stale (30 minutes). A
+frozen source sensor still yields a valid number, so the proxy stays valid and the
+firmware never falls back — this check is the only place that gap is closed.
 
 1. Install OpenQuatt's `dynamic-sources.yaml` package (it provides
    `sensor.openquatt_ext_heat_demand` and the `input_text` below).
@@ -160,6 +171,12 @@ The sensor's `koppeling` attribute reports which of those three steps is still m
 the Advies dashboard view shows the same status. This matters because a broken link is
 invisible from the outside: OpenQuatt falls back to its own house model silently and the
 house keeps heating — just not on your measurements.
+
+The status is verified, not merely predicted: the sensor reads OpenQuatt's
+*Power House – demand source*, which reports `external` or `model`, and flags the case
+where all three HA-side steps look right while the firmware still runs on its own model.
+Note that `Power House – P_house` is **not** a usable indicator — it always shows the
+modelled value, even while an external demand is driving.
 
 Two things are deliberately **not** subtracted from the published value:
 

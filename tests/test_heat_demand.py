@@ -7,6 +7,7 @@ meting. Alleen de status verraadt het verschil.
 """
 
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -15,6 +16,7 @@ from homeassistant.helpers import entity_registry as er
 from custom_components.quatt_stooklijn.discovery import async_heat_demand_link
 from custom_components.quatt_stooklijn.heat_demand import (
     FIRMWARE_SOURCE_HA_INPUT,
+    OUTDOOR_MAX_AGE_SECONDS,
     PROXY_FALLBACK_ENTITY,
     PROXY_UNIQUE_ID,
     SOURCE_SELECTOR_ENTITY,
@@ -28,8 +30,13 @@ SELECT = "select.bijkeuken_openquatt_external_heat_demand_source"
 
 
 class _State:
-    def __init__(self, value):
+    def __init__(self, value, age_seconds: float = 0.0):
         self.state = value
+        # De sensor beoordeelt de versheid van zijn bron; een testtoestand
+        # zonder tijdstempel zou die controle stilzwijgend overslaan.
+        stamp = datetime.now(timezone.utc) - timedelta(seconds=age_seconds)
+        self.last_reported = stamp
+        self.last_updated = stamp
 
 
 def _oq(entity_id, name, domain="sensor"):
@@ -48,10 +55,14 @@ def _proxy(entity_id=PROXY_FALLBACK_ENTITY):
     )
 
 
+FEEDFORWARD = "sensor.bijkeuken_openquatt_power_house_demand_source"
+
+
 def _node_entries():
     return [
         _oq("sensor.openquatt_openquatt_version", "OpenQuatt Version", "text_sensor"),
         _oq(SELECT, "External Heat Demand Source", "select"),
+        _oq(FEEDFORWARD, "Power House – demand source"),
     ]
 
 
@@ -63,11 +74,15 @@ def _hass(entries, states):
     return hass
 
 
-def _link(*, firmware="HA input", selector=DEMAND, proxy=True, entries=None):
+def _link(
+    *, firmware="HA input", selector=DEMAND, proxy=True, entries=None, feedforward=None
+):
     all_entries = list(entries if entries is not None else _node_entries())
     if proxy:
         all_entries.append(_proxy())
     states = {SELECT: firmware} if firmware is not None else {}
+    if feedforward is not None:
+        states[FEEDFORWARD] = feedforward
     if selector is not None:
         states[SOURCE_SELECTOR_ENTITY] = selector
     if proxy:
@@ -180,7 +195,7 @@ OUTDOOR = "sensor.buiten"
 class TestWarmtevraagSensor:
     """Wat de sensor publiceert: het kale huismodel, niets afgetrokken."""
 
-    def _sensor(self, *, t_outdoor, data=True, rated=None):
+    def _sensor(self, *, t_outdoor, data=True, rated=None, t0=None, age=0.0):
         from custom_components.quatt_stooklijn.analysis.heat_loss import HeatLossResult
         from custom_components.quatt_stooklijn.coordinator import QuattStooklijnData
         from custom_components.quatt_stooklijn.sensor import QuattHeatDemandSensor
@@ -208,9 +223,11 @@ class TestWarmtevraagSensor:
         sensor.hass = MagicMock()
         states = {}
         if t_outdoor is not None:
-            states[OUTDOOR] = _State(str(t_outdoor))
+            states[OUTDOOR] = _State(str(t_outdoor), age_seconds=age)
         if rated is not None:
             states["number.oq_pr"] = _State(str(rated))
+        if t0 is not None:
+            states["number.oq_t0"] = _State(str(t0))
         sensor.hass.states.get = lambda entity_id: states.get(entity_id)
         return sensor
 
@@ -241,7 +258,9 @@ class TestWarmtevraagSensor:
         sensor = self._sensor(t_outdoor=0.0)
         attrs = sensor.extra_state_attributes
         assert attrs["warmteverliescoefficient"] == round(HLC, 1)
-        assert attrs["balanspunt"] == round(BALANCE, 2)
+        assert attrs["balanspunt_gemeten"] == round(BALANCE, 2)
+        assert attrs["nulpunt"] == round(BALANCE, 2)
+        assert attrs["nulpunt_bron"] == "meting"
         assert attrs["koppeling_actief"] is False
         assert attrs["bronhelper"] == SOURCE_SELECTOR_ENTITY
 
@@ -319,3 +338,139 @@ def _patch_select(entity_id):
         "async_discover_openquatt_entities",
         return_value={ROLE_EXT_HEAT_DEMAND_SOURCE: entity_id},
     )
+
+
+class TestNulpunt:
+    """Waar de warmtevraag nul wordt — en waarom de regelaar daarin leidend is.
+
+    De regressie ziet geen enkele dag boven de stookgrens, dus haar nulpunt is
+    extrapolatie. ``power_house.py`` rekent Tc en Pr daarom al tegen de
+    stookgrens van de regelaar uit; deze sensor hoort hetzelfde nulpunt te
+    gebruiken, anders publiceert dezelfde integratie twee verschillende
+    huismodellen.
+    """
+
+    def _sensor(self, **kw):
+        return TestWarmtevraagSensor()._sensor(**kw)
+
+    def test_regelaar_gaat_voor_de_meting(self):
+        sensor = self._sensor(t_outdoor=0.0, t0=16.0)
+        with _patch_t0("number.oq_t0"):
+            attrs = sensor.extra_state_attributes
+        assert attrs["nulpunt"] == 16.0
+        assert attrs["nulpunt_bron"] == "regelaar"
+        # 284,8 × 16,0 — niet × 16,66
+        assert attrs["balanspunt_gemeten"] == round(BALANCE, 2)
+
+    def test_vraag_volgt_het_nulpunt_van_de_regelaar(self):
+        sensor = self._sensor(t_outdoor=0.0, t0=16.0)
+        with _patch_t0("number.oq_t0"):
+            assert sensor._demand() == round(HLC * 16.0)
+
+    def test_geen_vraag_boven_de_stookgrens_van_de_regelaar(self):
+        """Het bandje waarin de firmware zelf nul zegt.
+
+        Tussen de stookgrens (16,0) en het gemeten balanspunt (16,66) zou de
+        oude berekening tot ~188 W vragen, terwijl het firmware-model daar 0
+        staat — de installatie zou boven haar eigen stookgrens gaan stoken.
+        """
+        for t in (16.0, 16.2, 16.5):
+            sensor = self._sensor(t_outdoor=t, t0=16.0)
+            with _patch_t0("number.oq_t0"):
+                assert sensor._demand() == 0, t
+
+    def test_zonder_regelaar_valt_hij_terug_op_de_meting(self):
+        sensor = self._sensor(t_outdoor=0.0)
+        assert sensor._demand() == round(HLC * BALANCE)
+
+
+class TestVersheidVanDeBuitentemperatuur:
+    """Een bevroren bronsensor levert nog steeds een geldig getal.
+
+    Niets verderop in de keten merkt dat op: de proxy blijft ``valid`` en de
+    firmware ziet geen reden om terug te vallen op haar eigen model. Deze
+    controle is de enige plek waar dat gat gedicht wordt.
+    """
+
+    def _sensor(self, **kw):
+        return TestWarmtevraagSensor()._sensor(**kw)
+
+    def test_verse_meting_wordt_gebruikt(self):
+        assert self._sensor(t_outdoor=0.0, age=60).native_value is not None
+
+    def test_gat_van_950_s_is_nog_normaal(self):
+        # Het grootste gat dat over 24 uur op deze installatie gemeten is.
+        # Een strakkere drempel zou de vraag routinematig intrekken.
+        assert self._sensor(t_outdoor=0.0, age=950).native_value is not None
+
+    def test_net_onder_de_grens(self):
+        assert (
+            self._sensor(t_outdoor=0.0, age=OUTDOOR_MAX_AGE_SECONDS - 1).native_value
+            is not None
+        )
+
+    def test_bevroren_meting_publiceert_niets(self):
+        assert (
+            self._sensor(t_outdoor=0.0, age=OUTDOOR_MAX_AGE_SECONDS + 1).native_value
+            is None
+        )
+
+
+def _patch_t0(entity_id):
+    """Doe alsof de stookgrens-knop van OpenQuatt op ``entity_id`` staat."""
+    from unittest.mock import patch
+
+    from custom_components.quatt_stooklijn.discovery import ROLE_PH_ZERO_POWER_TEMP
+
+    return patch(
+        "custom_components.quatt_stooklijn.discovery."
+        "async_discover_openquatt_entities",
+        return_value={ROLE_PH_ZERO_POWER_TEMP: entity_id},
+    )
+
+
+class TestFirmwareBevestiging:
+    """De firmware heeft het laatste woord over wat ze gebruikt.
+
+    ``Power House – demand source`` is de enige betrouwbare indicator:
+    ``P_house`` toont bewust altijd de gemodelleerde waarde, ook terwijl een
+    externe vraag stuurt.
+    """
+
+    def test_bevestigd_is_actief(self):
+        link = _link(feedforward="external")
+        assert link.confirmed is True
+        assert link.active
+        assert "bevestigd" in link.status
+
+    def test_keten_compleet_maar_firmware_op_eigen_model(self):
+        """De stille faalmodus: aan de HA-kant lijkt alles goed."""
+        link = _link(feedforward="model")
+        assert link.wired
+        assert link.confirmed is False
+        assert link.mismatch
+        assert not link.active
+        assert "eigen huismodel" in link.status
+
+    def test_zonder_de_diagnostische_sensor_geen_uitsluitsel(self):
+        """Ouder OpenQuatt kent hem niet — dat is geen ontkenning."""
+        link = _link(entries=[
+            _oq("sensor.openquatt_openquatt_version", "OpenQuatt Version", "text_sensor"),
+            _oq(SELECT, "External Heat Demand Source", "select"),
+        ])
+        assert link.confirmed is None
+        assert not link.mismatch
+        # De voorspelling is dan het beste dat er is.
+        assert link.active
+        assert link.status == "actief"
+
+    def test_firmware_die_extern_meldt_terwijl_de_keten_niet_af_is(self):
+        """Een andere bron voedt de firmware; dat is niet ónze koppeling."""
+        link = _link(selector="input_number.iets_anders", feedforward="external")
+        assert not link.wired
+        assert not link.mismatch
+        assert "input_number.iets_anders" in link.status
+
+    def test_geen_mismatch_als_de_keten_niet_af_is(self):
+        link = _link(firmware="Disabled", feedforward="model")
+        assert not link.mismatch

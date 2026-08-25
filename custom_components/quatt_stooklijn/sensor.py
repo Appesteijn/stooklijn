@@ -63,7 +63,7 @@ from .discovery import (
 )
 from .coordinator import QuattStooklijnCoordinator, QuattStooklijnData
 from .helpers import get_device_info, get_effective_flow, get_float_state
-from .heat_demand import SOURCE_SELECTOR_ENTITY
+from .heat_demand import OUTDOOR_MAX_AGE_SECONDS, SOURCE_SELECTOR_ENTITY
 from .sources import (
     ENTITY_PREFIX,
     MIRROR_SPECS,
@@ -2073,27 +2073,97 @@ class QuattHeatDemandSensor(
     async def _handle_state_change(self, event) -> None:
         self.async_write_ha_state()
 
-    def _model(self) -> tuple[float, float] | None:
-        """De helling en het snijpunt van het gemeten warmteverliesmodel."""
+    def _zero_point(self, openquatt: dict[str, str] | None = None) -> tuple[float, str] | None:
+        """De buitentemperatuur waarbij de warmtevraag nul wordt, plus zijn bron.
+
+        **De stookgrens van de regelaar gaat vóór het gemeten balanspunt**, om
+        dezelfde reden die in ``power_house.py`` uitgebreid staat: boven de
+        stookgrens wordt er niet gestookt, dus daar heeft de regressie geen
+        data en is haar nulpunt extrapolatie. Bij deze woning ligt de warmste
+        waarneming op 15,2 °C terwijl de fit het nulpunt op 16,7 legt.
+
+        Zonder deze voorrang lopen twee dingen uiteen die deze integratie over
+        hetzelfde huis publiceert: de kalibratiesensor rekent Tc en Pr al tegen
+        de stookgrens van de regelaar uit. En het verschil is niet alleen
+        cosmetisch — tussen die twee nulpunten zouden we een vraag publiceren
+        waar de firmware zelf nul zegt, en de installatie dus boven haar eigen
+        stookgrens laten stoken.
+
+        Zonder regelaar valt hij terug op de meting; dan is dat het enige
+        nulpunt dat er is.
+        """
+        from .discovery import (
+            ROLE_PH_ZERO_POWER_TEMP,
+            async_discover_openquatt_entities,
+        )
+        from .power_house import T0_FROM_CONTROLLER, T0_FROM_MEASUREMENT
+
+        if openquatt is None:
+            openquatt = async_discover_openquatt_entities(self.hass)
+        controller_t0 = get_float_state(
+            self.hass, openquatt.get(ROLE_PH_ZERO_POWER_TEMP) or ""
+        )
+        if controller_t0 is not None:
+            return controller_t0, T0_FROM_CONTROLLER
+
+        data = self.coordinator.data
+        if data is None or data.heat_loss_hp.balance_point is None:
+            return None
+        return float(data.heat_loss_hp.balance_point), T0_FROM_MEASUREMENT
+
+    def _outdoor_temp(self) -> float | None:
+        """De buitentemperatuur, mits vers genoeg om op te regelen.
+
+        Een bronsensor die blijft hangen op een oude waarde wordt nergens
+        anders opgemerkt: hij levert nog steeds een geldig getal, dus de proxy
+        blijft ``valid`` en de firmware ziet geen reden om terug te vallen op
+        haar eigen model. Zonder deze controle zouden we met overtuiging een
+        vraag blijven publiceren die bij een bevroren meting hoort.
+        """
+        state = self.hass.states.get(self._outdoor_entity)
+        if state is None or state.state in ("unknown", "unavailable", ""):
+            return None
+
+        # ``last_reported`` telt élke melding mee, ook als de waarde gelijk
+        # bleef; ``last_changed`` doet dat niet en zou een stabiele
+        # buitentemperatuur ten onrechte als bevroren aanmerken.
+        reported = getattr(state, "last_reported", None) or state.last_updated
+        if reported is not None:
+            age = (dt_util.utcnow() - reported).total_seconds()
+            if age > OUTDOOR_MAX_AGE_SECONDS:
+                _LOGGER.warning(
+                    "Warmtevraag: buitentemperatuur van '%s' is %.0f min oud "
+                    "(grens %.0f min) — geen vraag gepubliceerd",
+                    self._outdoor_entity,
+                    age / 60,
+                    OUTDOOR_MAX_AGE_SECONDS / 60,
+                )
+                return None
+
+        try:
+            return float(state.state)
+        except (TypeError, ValueError):
+            return None
+
+    def _demand(self, openquatt: dict[str, str] | None = None) -> float | None:
         data = self.coordinator.data
         if data is None:
             return None
-        heat_loss = data.heat_loss_hp
-        if heat_loss.slope is None or heat_loss.intercept is None:
+        hlc = data.heat_loss_hp.heat_loss_coefficient
+        if not hlc or hlc <= 0:
             return None
-        return heat_loss.slope, heat_loss.intercept
+
+        zero_point = self._zero_point(openquatt)
+        t_outdoor = self._outdoor_temp()
+        if zero_point is None or t_outdoor is None:
+            return None
+
+        t_zero, _source = zero_point
+        return round(hlc * max(0.0, t_zero - t_outdoor))
 
     @property
     def native_value(self) -> float | None:
-        model = self._model()
-        t_outdoor = get_float_state(self.hass, self._outdoor_entity)
-        if model is None or t_outdoor is None:
-            return None
-
-        from .analysis.utils import calc_heat_demand
-
-        slope, intercept = model
-        return round(calc_heat_demand(slope, intercept, t_outdoor))
+        return self._demand()
 
     @property
     def extra_state_attributes(self) -> dict | None:
@@ -2110,21 +2180,27 @@ class QuattHeatDemandSensor(
         data = self.coordinator.data
         heat_loss = data.heat_loss_hp if data is not None else None
 
+        zero_point = self._zero_point(openquatt)
         attrs: dict[str, Any] = {
-            "buiten_temp": get_float_state(self.hass, self._outdoor_entity),
+            "buiten_temp": self._outdoor_temp(),
             "warmteverliescoefficient": (
                 round(heat_loss.heat_loss_coefficient, 1)
                 if heat_loss and heat_loss.heat_loss_coefficient is not None
                 else None
             ),
-            "balanspunt": (
+            "balanspunt_gemeten": (
                 round(heat_loss.balance_point, 2)
                 if heat_loss and heat_loss.balance_point is not None
                 else None
             ),
-            "formule": "UA × max(0, T_balans − T_buiten)",
+            "nulpunt": round(zero_point[0], 2) if zero_point else None,
+            "nulpunt_bron": zero_point[1] if zero_point else None,
+            "formule": "UA × max(0, T_nulpunt − T_buiten)",
             "koppeling": link.status,
             "koppeling_actief": link.active,
+            "koppeling_ingesteld": link.wired,
+            "firmware_bevestigt": link.confirmed,
+            "firmware_feedforward": link.firmware_feedforward,
             "bronhelper": SOURCE_SELECTOR_ENTITY,
             "bronhelper_wijst_naar": link.selector,
             "proxy_entity": link.proxy_entity,
@@ -2142,7 +2218,7 @@ class QuattHeatDemandSensor(
         rated_entity = openquatt.get(ROLE_PH_RATED_POWER)
         rated = get_float_state(self.hass, rated_entity) if rated_entity else None
         attrs["firmware_plafond_w"] = rated
-        value = self.native_value
+        value = self._demand(openquatt)
         attrs["boven_firmware_plafond"] = (
             bool(rated is not None and value is not None and value > rated)
         )

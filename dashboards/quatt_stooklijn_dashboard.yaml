@@ -975,13 +975,17 @@ views:
               {% if vraag not in ['unknown', 'unavailable', 'None'] %}
 
               **Warmtevraag** — {{ vraag }} W bij {{ state_attr(wv,
-              'buiten_temp') }}°C buiten
+              'buiten_temp') }}°C buiten, gerekend vanaf een nulpunt van {{
+              state_attr(wv, 'nulpunt') }}°C ({{ state_attr(wv, 'nulpunt_bron')
+              }}).
 
               {% if state_attr(wv, 'koppeling_actief') %}
 
               Deze waarde stuurt Power House rechtstreeks aan: ze vervangt de
               feedforward, terwijl de comfortterm, de clamp op Pr en de
-              waterbegrenzer van de firmware blijven.
+              waterbegrenzer van de firmware blijven.{% if state_attr(wv,
+              'firmware_bevestigt') %} De firmware bevestigt dat zelf met
+              *demand source = external*.{% endif %}
 
               {% if state_attr(wv, 'boven_firmware_plafond') %}
 
@@ -990,6 +994,14 @@ views:
               daar stilletjes af. Stel Pr bij via het huismodel hierboven.
 
               {% endif %}
+
+              {% elif state_attr(wv, 'koppeling_ingesteld') %}
+
+              ⚠️ **De koppeling staat goed ingesteld, maar de firmware gebruikt
+              hem niet.** *Power House – demand source* meldt `{{
+              state_attr(wv, 'firmware_feedforward') }}`, dus de installatie
+              draait op haar eigen huismodel en verwerpt de gepubliceerde
+              waarde. Controleer of de proxy een geldig getal doorgeeft.
 
               {% elif state_attr(wv, 'keuzeknop_entity') %}
 

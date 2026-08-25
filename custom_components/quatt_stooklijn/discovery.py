@@ -74,6 +74,11 @@ ROLE_PH_RATED_POWER = "ph_rated_power"
 # ``async_resolve_setting_entity`` — deze integratie zet de regelaar niet zelf
 # in een andere modus.
 ROLE_EXT_HEAT_DEMAND_SOURCE = "ext_heat_demand_source"
+# Wat Power House op dít moment als feedforward gebruikt: "external" of "model".
+# Dit is de enige betrouwbare bevestiging dat een gepubliceerde vraag ook echt
+# aankomt — ``Power House – P_house`` toont bewust altijd de gemodelleerde
+# waarde, ook terwijl een externe vraag stuurt, en is dus géén indicator.
+ROLE_PH_DEMAND_SOURCE = "ph_demand_source"
 
 # Rol → Quatt sensor-keys, in volgorde van voorkeur. Deze keys komen uit
 # sensor_descriptions_cic.py / sensor_descriptions_heat.py / number.py van de
@@ -186,6 +191,9 @@ OPENQUATT_NAMES: dict[str, tuple[str, ...]] = {
     ROLE_PH_COLD_TEMP: ("House cold temp",),
     ROLE_PH_RATED_POWER: ("Rated maximum house power",),
     ROLE_EXT_HEAT_DEMAND_SOURCE: ("External Heat Demand Source",),
+    # Let op het en-streepje (–), niet een gewoon koppelteken: zo staat het in
+    # de firmware-YAML, en de naam is hier de sleutel.
+    ROLE_PH_DEMAND_SOURCE: ("Power House – demand source",),
 }
 
 
@@ -553,11 +561,17 @@ def async_heat_demand_link(
     if openquatt is None:
         openquatt = async_discover_openquatt_entities(hass)
     select_entity = openquatt.get(ROLE_EXT_HEAT_DEMAND_SOURCE)
-    firmware_source: str | None = None
-    if select_entity:
-        state = hass.states.get(select_entity)
-        if state is not None and state.state not in ("unknown", "unavailable", ""):
-            firmware_source = state.state
+
+    def _state_of(entity_id: str | None) -> str | None:
+        if not entity_id:
+            return None
+        state = hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable", ""):
+            return None
+        return state.state
+
+    firmware_source = _state_of(select_entity)
+    firmware_feedforward = _state_of(openquatt.get(ROLE_PH_DEMAND_SOURCE))
 
     selector_state = hass.states.get(SOURCE_SELECTOR_ENTITY)
 
@@ -565,6 +579,7 @@ def async_heat_demand_link(
         demand_entity=demand_entity,
         select_entity=select_entity,
         firmware_source=firmware_source,
+        firmware_feedforward=firmware_feedforward,
         proxy_entity=proxy,
         selector=selector_entity(selector_state.state if selector_state else None),
     )
