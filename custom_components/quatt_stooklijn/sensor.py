@@ -2113,7 +2113,9 @@ class QuattHeatDemandSensor(
         attrs: dict[str, Any] = {
             "buiten_temp": get_float_state(self.hass, self._outdoor_entity),
             "warmteverliescoefficient": (
-                heat_loss.heat_loss_coefficient if heat_loss else None
+                round(heat_loss.heat_loss_coefficient, 1)
+                if heat_loss and heat_loss.heat_loss_coefficient is not None
+                else None
             ),
             "balanspunt": (
                 round(heat_loss.balance_point, 2)
@@ -2127,6 +2129,10 @@ class QuattHeatDemandSensor(
             "bronhelper_wijst_naar": link.selector,
             "proxy_entity": link.proxy_entity,
             "firmware_bron": link.firmware_source,
+            # Leeg zolang er geen OpenQuatt-node gevonden is. Het dashboard
+            # hangt hieraan of het de koppelinstructie toont: die is zinloos —
+            # en verwarrend — voor een installatie die alleen een CiC heeft.
+            "keuzeknop_entity": link.select_entity,
         }
 
         # Het plafond van de firmware erbij: die klemt een externe vraag op

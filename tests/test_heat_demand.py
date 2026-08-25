@@ -240,10 +240,26 @@ class TestWarmtevraagSensor:
     def test_attributen_dragen_het_model_en_de_koppelstatus(self):
         sensor = self._sensor(t_outdoor=0.0)
         attrs = sensor.extra_state_attributes
-        assert attrs["warmteverliescoefficient"] == HLC
+        assert attrs["warmteverliescoefficient"] == round(HLC, 1)
         assert attrs["balanspunt"] == round(BALANCE, 2)
         assert attrs["koppeling_actief"] is False
         assert attrs["bronhelper"] == SOURCE_SELECTOR_ENTITY
+
+    def test_zonder_openquatt_geen_keuzeknop(self):
+        """Het dashboard hangt hieraan of het de koppelinstructie toont.
+
+        Een installatie met alleen een CiC krijgt de warmtevraag gewoon te
+        zien, maar niet de aansporing om een knop om te zetten die er niet is.
+        """
+        attrs = self._sensor(t_outdoor=0.0).extra_state_attributes
+        assert attrs["keuzeknop_entity"] is None
+        assert attrs["koppeling"] == "OpenQuatt niet gevonden"
+
+    def test_met_openquatt_wel_een_keuzeknop(self):
+        sensor = self._sensor(t_outdoor=0.0)
+        with _patch_select(SELECT):
+            attrs = sensor.extra_state_attributes
+        assert attrs["keuzeknop_entity"] == SELECT
 
     def test_meldt_wanneer_de_firmware_de_vraag_afkapt(self):
         """Pr klemt de externe vraag, en de firmware zegt daar niets over."""
@@ -287,4 +303,19 @@ def _patch_rated(entity_id):
         "custom_components.quatt_stooklijn.discovery."
         "async_discover_openquatt_entities",
         return_value={ROLE_PH_RATED_POWER: entity_id},
+    )
+
+
+def _patch_select(entity_id):
+    """Doe alsof de keuzeknop van OpenQuatt op ``entity_id`` gevonden wordt."""
+    from unittest.mock import patch
+
+    from custom_components.quatt_stooklijn.discovery import (
+        ROLE_EXT_HEAT_DEMAND_SOURCE,
+    )
+
+    return patch(
+        "custom_components.quatt_stooklijn.discovery."
+        "async_discover_openquatt_entities",
+        return_value={ROLE_EXT_HEAT_DEMAND_SOURCE: entity_id},
     )

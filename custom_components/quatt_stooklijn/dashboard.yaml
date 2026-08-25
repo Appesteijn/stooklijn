@@ -991,7 +991,7 @@ views:
 
               {% endif %}
 
-              {% else %}
+              {% elif state_attr(wv, 'keuzeknop_entity') %}
 
               Niet gekoppeld — {{ state_attr(wv, 'koppeling') }}. Zet
               `{{ state_attr(wv, 'bronhelper') }}` op `{{ wv }}` en de
