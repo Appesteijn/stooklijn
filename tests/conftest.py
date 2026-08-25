@@ -137,10 +137,18 @@ def _stub_ha():
             "__class_getitem__": classmethod(lambda cls, item: cls),
         },
     )
+    async def _added_to_hass(self):
+        """No-op basisimplementatie, zodat een entity zijn eigen
+        ``async_added_to_hass`` kan draaien in een test — daar worden de
+        listeners en timers geregistreerd die anders ongetest blijven."""
+
     coord_mod.CoordinatorEntity = type(
         "CoordinatorEntity",
         (),
-        {"__class_getitem__": classmethod(lambda cls, item: cls)},
+        {
+            "__class_getitem__": classmethod(lambda cls, item: cls),
+            "async_added_to_hass": _added_to_hass,
+        },
     )
 
     # Entity platform

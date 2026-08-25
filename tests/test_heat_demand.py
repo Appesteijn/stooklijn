@@ -494,3 +494,139 @@ class TestFirmwareBevestiging:
     def test_geen_mismatch_als_de_keten_niet_af_is(self):
         link = _link(firmware="Disabled", feedforward="model")
         assert not link.mismatch
+
+
+class TestHartslag:
+    """De versheidscontrole moet ook daadwerkelijk kúnnen afgaan.
+
+    De coordinator ververst alleen op verzoek (``update_interval=None``), dus
+    de listener op de buitentemperatuur is de enige andere trigger — en juist
+    een bevroren bronsensor stuurt geen enkel event. Zonder een eigen hartslag
+    zou de sensor tot in lengte van dagen op zijn laatste waarde blijven staan,
+    en was de hele leeftijdscontrole dode code.
+    """
+
+    async def _added(self, monkeypatch):
+        from unittest.mock import patch
+
+        from custom_components.quatt_stooklijn.sensor import QuattHeatDemandSensor
+
+        sensor = QuattHeatDemandSensor.__new__(QuattHeatDemandSensor)
+        sensor.hass = MagicMock()
+        sensor._entry = MagicMock(entry_id="e1", data={}, options={})
+        sensor.async_on_remove = MagicMock()
+
+        with patch(
+            "custom_components.quatt_stooklijn.sensor.candidate_entities",
+            return_value=[OUTDOOR],
+        ), patch(
+            "custom_components.quatt_stooklijn.sensor.async_track_state_change_event"
+        ) as track_state, patch(
+            "custom_components.quatt_stooklijn.sensor.async_track_time_interval"
+        ) as track_time:
+            await sensor.async_added_to_hass()
+        return sensor, track_state, track_time
+
+    @pytest.mark.asyncio
+    async def test_registreert_een_hartslag(self, monkeypatch):
+        from custom_components.quatt_stooklijn.sensor import HEARTBEAT_INTERVAL
+
+        sensor, track_state, track_time = await self._added(monkeypatch)
+        track_state.assert_called_once()
+        track_time.assert_called_once()
+        assert track_time.call_args[0][2] == HEARTBEAT_INTERVAL
+
+    @pytest.mark.asyncio
+    async def test_de_hartslag_schrijft_de_state(self, monkeypatch):
+        sensor, _s, track_time = await self._added(monkeypatch)
+        sensor.async_write_ha_state = MagicMock()
+        track_time.call_args[0][1](None)
+        sensor.async_write_ha_state.assert_called_once()
+
+    def test_hartslag_ligt_ruim_onder_de_leeftijdsgrens(self):
+        """Anders zou een bevroren bron pas veel later opgemerkt worden."""
+        from custom_components.quatt_stooklijn.heat_demand import (
+            HEARTBEAT_INTERVAL_SECONDS,
+        )
+
+        assert HEARTBEAT_INTERVAL_SECONDS < OUTDOOR_MAX_AGE_SECONDS / 2
+
+
+class TestRandgevallenVanDeVraag:
+    """Wat er gebeurt als het huismodel of de meting onbruikbaar is."""
+
+    def _sensor(self, **kw):
+        return TestWarmtevraagSensor()._sensor(**kw)
+
+    def test_onbruikbaar_warmteverliesgetal(self):
+        from custom_components.quatt_stooklijn.analysis.heat_loss import HeatLossResult
+        from custom_components.quatt_stooklijn.coordinator import QuattStooklijnData
+
+        sensor = self._sensor(t_outdoor=0.0)
+        sensor.coordinator.data = QuattStooklijnData(
+            heat_loss_hp=HeatLossResult(heat_loss_coefficient=0.0, balance_point=16.0)
+        )
+        assert sensor.native_value is None
+
+    def test_geen_balanspunt_en_geen_regelaar(self):
+        """Zonder nulpunt valt er niets te publiceren — ook geen 0."""
+        from custom_components.quatt_stooklijn.analysis.heat_loss import HeatLossResult
+        from custom_components.quatt_stooklijn.coordinator import QuattStooklijnData
+
+        sensor = self._sensor(t_outdoor=0.0)
+        sensor.coordinator.data = QuattStooklijnData(
+            heat_loss_hp=HeatLossResult(heat_loss_coefficient=HLC, balance_point=None)
+        )
+        assert sensor.native_value is None
+
+    def test_niet_numerieke_buitentemperatuur(self):
+        sensor = self._sensor(t_outdoor="kapot")
+        assert sensor.native_value is None
+
+    def test_attributen_overleven_een_lege_analyse(self):
+        """Het dashboard leest deze attributen ook vóór de eerste analyse."""
+        attrs = self._sensor(t_outdoor=0.0, data=False).extra_state_attributes
+        assert attrs["warmteverliescoefficient"] is None
+        assert attrs["nulpunt"] is None
+        assert attrs["boven_firmware_plafond"] is False
+
+
+class TestBronOnafhankelijkheid:
+    """De sensor mag geen enkele integratie veronderstellen.
+
+    Een installatie met alleen OpenQuatt heeft geen `sensor.heatpump_*`, en een
+    kale CiC heeft geen `sensor.openquatt_*`. Door de buitentemperatuur via de
+    gedeelde bronregistry op te vragen werkt de sensor in beide gevallen — en
+    verhuist hij mee als de bron tijdens bedrijf wisselt. Een hardgecodeerde
+    entity-ID zou dat stilletjes breken voor de helft van de gebruikers.
+    """
+
+    def test_vraagt_de_buitentemperatuur_op_rol_op(self):
+        from unittest.mock import patch
+
+        from custom_components.quatt_stooklijn.discovery import ROLE_OUTDOOR_TEMP
+        from custom_components.quatt_stooklijn.sensor import QuattHeatDemandSensor
+
+        sensor = QuattHeatDemandSensor.__new__(QuattHeatDemandSensor)
+        sensor.hass = MagicMock()
+        sensor._entry = MagicMock(entry_id="e1", data={}, options={})
+
+        with patch(
+            "custom_components.quatt_stooklijn.sensor.async_source_entity",
+            return_value="sensor.openquatt_outside_temperature_selected",
+        ) as resolve:
+            assert (
+                sensor._outdoor_entity
+                == "sensor.openquatt_outside_temperature_selected"
+            )
+        assert resolve.call_args[0][2] == ROLE_OUTDOOR_TEMP
+
+    def test_volgt_dezelfde_rol_in_zijn_listener(self):
+        """De listener en de uitlezing moeten dezelfde bron volgen."""
+        import inspect
+
+        from custom_components.quatt_stooklijn.sensor import QuattHeatDemandSensor
+
+        src = inspect.getsource(QuattHeatDemandSensor.async_added_to_hass)
+        assert "ROLE_OUTDOOR_TEMP" in src
+        assert "candidate_entities" in src

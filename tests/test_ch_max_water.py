@@ -213,3 +213,93 @@ class TestWederzijdseUitsluitingMetDeWarmtevraag:
         )
         await _controller(hass)._async_tick(None)
         hass.services.async_call.assert_called_once()
+
+
+class TestConfiguratiesZonderBeideIntegraties:
+    """De interlock mag alleen terugtreden waar er echt een andere route is.
+
+    Twee installaties die hier gemakkelijk buiten beeld vallen: een kale Quatt
+    CiC zonder OpenQuatt, en OpenQuatt zonder de Quatt-integratie. Voor de
+    eerste is deze schrijfroute de énige aansturing die de integratie heeft —
+    treedt de interlock daar ten onrechte terug, dan valt die stil zonder dat
+    er iets voor in de plaats komt.
+    """
+
+    def _hass(self, entries, states):
+        hass = MagicMock()
+        hass._test_entity_registry = er.FakeRegistry(entries)
+        hass.states.get = lambda entity_id: states.get(entity_id)
+        hass.services.async_call = AsyncMock()
+        return hass
+
+    @pytest.mark.asyncio
+    async def test_kale_cic_zonder_openquatt_blijft_schrijven(self):
+        # Geen ESPHome-node in het register: geen keuzeknop, geen proxy, en
+        # dus niets wat de vraag zou kunnen ontvangen.
+        entries = [
+            er.RegistryEntry(
+                entity_id=CIC_NUMBER,
+                unique_id=f"{HUB}:cic:chMaxWaterTemperature",
+                platform="quatt",
+            )
+        ]
+        hass = self._hass(
+            entries,
+            {
+                CIC_NUMBER: CIC_STATE,
+                MPC_SOURCE: _State("32.0"),
+                # De warmtevraag bestaat wél — hij is niet OpenQuatt-specifiek.
+                HEAT_DEMAND_ENTITY: _State("3200"),
+            },
+        )
+        ctrl = _controller(hass)
+        assert ctrl._demand_link_active() is False
+        await ctrl._async_tick(None)
+        hass.services.async_call.assert_called_once()
+        assert hass.services.async_call.call_args[0][2]["entity_id"] == CIC_NUMBER
+
+    @pytest.mark.asyncio
+    async def test_openquatt_zonder_quatt_integratie(self):
+        """Geen CiC in het register; OpenQuatt levert de knop."""
+        entries = [
+            er.RegistryEntry(
+                entity_id="sensor.openquatt_openquatt_version",
+                unique_id=f"{OQ_MAC}/0/text_sensor/OpenQuatt Version",
+                platform="esphome",
+            ),
+            er.RegistryEntry(
+                entity_id=OQ_NUMBER,
+                unique_id=f"{OQ_MAC}/0/number/Maximum water temperature",
+                platform="esphome",
+            ),
+            er.RegistryEntry(
+                entity_id=OQ_SELECT,
+                unique_id=f"{OQ_MAC}/0/select/External Heat Demand Source",
+                platform="esphome",
+            ),
+            er.RegistryEntry(
+                entity_id=PROXY_FALLBACK_ENTITY,
+                unique_id=PROXY_UNIQUE_ID,
+                platform="template",
+            ),
+        ]
+        states = {
+            OQ_NUMBER: OQ_STATE,
+            MPC_SOURCE: _State("32.0"),
+            OQ_SELECT: _State("Disabled"),
+            HEAT_DEMAND_ENTITY: _State("3200"),
+            PROXY_FALLBACK_ENTITY: _State("3200"),
+        }
+        hass = self._hass(entries, states)
+        ctrl = _controller(hass)
+        # Koppeling staat uit, dus schrijven — en wel naar OpenQuatt.
+        await ctrl._async_tick(None)
+        hass.services.async_call.assert_called_once()
+        assert hass.services.async_call.call_args[0][2]["entity_id"] == OQ_NUMBER
+
+        # En zodra de koppeling wél loopt, treedt hij terug.
+        states[OQ_SELECT] = _State("HA input")
+        states[SOURCE_SELECTOR_ENTITY] = _State(HEAT_DEMAND_ENTITY)
+        hass.services.async_call.reset_mock()
+        await ctrl._async_tick(None)
+        hass.services.async_call.assert_not_called()
