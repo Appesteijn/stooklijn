@@ -968,6 +968,42 @@ views:
               {% endif %}
 
 
+              {% set wv = 'sensor.quatt_warmteanalyse_warmtevraag' %}
+
+              {% set vraag = states(wv) %}
+
+              {% if vraag not in ['unknown', 'unavailable', 'None'] %}
+
+              **Warmtevraag** — {{ vraag }} W bij {{ state_attr(wv,
+              'buiten_temp') }}°C buiten
+
+              {% if state_attr(wv, 'koppeling_actief') %}
+
+              Deze waarde stuurt Power House rechtstreeks aan: ze vervangt de
+              feedforward, terwijl de comfortterm, de clamp op Pr en de
+              waterbegrenzer van de firmware blijven.
+
+              {% if state_attr(wv, 'boven_firmware_plafond') %}
+
+              ⚠️ De vraag ligt boven **Rated maximum house power** ({{
+              state_attr(wv, 'firmware_plafond_w') }} W); de firmware kapt hem
+              daar stilletjes af. Stel Pr bij via het huismodel hierboven.
+
+              {% endif %}
+
+              {% else %}
+
+              Niet gekoppeld — {{ state_attr(wv, 'koppeling') }}. Zet
+              `{{ state_attr(wv, 'bronhelper') }}` op `{{ wv }}` en de
+              OpenQuatt-keuzeknop *External Heat Demand Source* op **HA input**.
+              Leegmaken van die bronhelper zet de installatie terug op haar
+              eigen huismodel.
+
+              {% endif %}
+
+              {% endif %}
+
+
               Maak een HA-automation die deze waarden naar je OpenQuatt
               entiteiten schrijft.
 

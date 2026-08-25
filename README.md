@@ -18,6 +18,7 @@ Home Assistant custom integration for analyzing your Quatt heat pump performance
 - **Quatt advies** — Shows exactly which parameters to ask Quatt to adjust (stookgrens, nominaal vermogen, stooklijn breakpoints)
 - **Geluidsniveaucompensatie** (optional) — Automatically adjusts the compressor sound level based on MPC error and boiler activity, with separate day/night limits
 - **OpenQuatt ready** — Output sensors with optimal heating curve breakpoints and balance point, ready for OpenQuatt automations
+- **Power House feedforward** — Publishes the measured house heat demand (W) for OpenQuatt's external heat demand input
 - **Dashboard included** — Pre-built Lovelace dashboard with five tabs including a dedicated Geluid view
 
 ## MPC shadow sensor
@@ -132,6 +133,45 @@ State = number of breakpoints (6). Attributes:
 **`sensor.quatt_warmteanalyse_openquatt_balance_point`** — Optimal balance temperature (°C)
 
 **`sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur`** — Real-time optimal supply temperature (°C), updated with weather forecast and solar gain.
+
+**`sensor.quatt_warmteanalyse_warmtevraag`** — House heat demand (W), see below.
+
+### Driving Power House with the measured house model
+
+Since [OpenQuatt#503](https://github.com/OpenQuatt/OpenQuatt/pull/503) the Power House
+strategy accepts an external heat demand. It replaces **only** the feedforward term
+`P_house`; the comfort trim, the saturation clamp on `Rated maximum house power`, the
+slew limiter and the water-temperature limiter stay firmware-owned. That is exactly the
+split this integration can fill: the house model comes from a year of measurements, the
+control loop stays where the safety is.
+
+`sensor.quatt_warmteanalyse_warmtevraag` publishes `UA × max(0, T_balance − T_outdoor)`
+in watts, straight from the seasonal regression. **The integration writes nothing** — you
+point OpenQuatt's existing source helper at the sensor, which keeps the chain visible and
+reversible.
+
+1. Install OpenQuatt's `dynamic-sources.yaml` package (it provides
+   `sensor.openquatt_ext_heat_demand` and the `input_text` below).
+2. Set `input_text.openquatt_source_heat_demand` to
+   `sensor.quatt_warmteanalyse_warmtevraag`.
+3. Set the OpenQuatt select *External Heat Demand Source* to **HA input**.
+
+The sensor's `koppeling` attribute reports which of those three steps is still missing, and
+the Advies dashboard view shows the same status. This matters because a broken link is
+invisible from the outside: OpenQuatt falls back to its own house model silently and the
+house keeps heating — just not on your measurements.
+
+Two things are deliberately **not** subtracted from the published value:
+
+- **The room error.** The firmware subtracts `Kp · e` itself (3000 W/K by default).
+  Compensating here as well would count it twice.
+- **Solar gain.** Sunshine warms the room, which the firmware already sees through that
+  same comfort term.
+
+Clearing the `input_text` returns the installation to its own model — that is the stop
+button. While the link is active the integration's `chMaxWaterTemperature` adjustment
+stands down automatically: with Power House driven by demand, the water ceiling is a
+safety limiter (derate within 3 K, trip at +5 K), not a control knob.
 
 ### Example automation
 
@@ -286,6 +326,7 @@ The MPC/shadow validation tab also uses `sensor.heatpump_flowmeter_temperature` 
 | `quatt_advies_parameters` | — | Recommended Quatt parameter changes with full detail attributes |
 | `openquatt_balance_point` | °C | Optimal balance point for OpenQuatt |
 | `openquatt_stooklijn` | — | 6 heating curve breakpoints for OpenQuatt |
+| `warmtevraag` | W | House heat demand, feeds OpenQuatt's Power House feedforward |
 
 **Live sensors** (update in real-time based on current conditions):
 

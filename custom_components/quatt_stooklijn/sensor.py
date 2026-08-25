@@ -63,6 +63,7 @@ from .discovery import (
 )
 from .coordinator import QuattStooklijnCoordinator, QuattStooklijnData
 from .helpers import get_device_info, get_effective_flow, get_float_state
+from .heat_demand import SOURCE_SELECTOR_ENTITY
 from .sources import (
     ENTITY_PREFIX,
     MIRROR_SPECS,
@@ -336,6 +337,7 @@ async def async_setup_entry(
     entities.append(QuattAdviceSensor(coordinator, entry))
     entities.append(QuattOpenQuattCurveSensor(coordinator, entry))
     entities.append(QuattPowerHouseCalibrationSensor(hass, coordinator, entry))
+    entities.append(QuattHeatDemandSensor(hass, coordinator, entry))
 
     if {**entry.data, **entry.options}.get(CONF_SOUND_LEVEL_ENABLED, False):
         entities.append(QuattSoundLevelSensor(entry))
@@ -1988,6 +1990,155 @@ class QuattPowerHouseCalibrationSensor(
             f"meting boven de stookgrens geen data heeft "
             f"(regressie zegt {cal.balance_point_measured:.1f}°C, maar dat is "
             f"extrapolatie)."
+        )
+        return attrs
+
+
+class QuattHeatDemandSensor(
+    CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity
+):
+    """De warmtevraag van het huis in W — het koppelvlak naar Power House.
+
+    Publiceert ``P = UA · (T_balans − T_buiten)``, begrensd op nul, uit de
+    seizoensregressie over een jaar meetdata. Wie de OpenQuatt-bronhelper
+    hiernaar laat wijzen vervangt daarmee de feedforward van Power House; de
+    comfortterm, de clamp op ``Pr``, de slew-limiter en de waterbegrenzer
+    blijven van de firmware. Zie ``heat_demand.py`` voor waarom hier bewust
+    niets van wordt afgetrokken.
+
+    Bewust géén schrijfactie, ook niet naar de bronhelper: de gebruiker wijst
+    hem één keer aan, en het leegmaken van dat ene veld is de noodrem.
+
+    Zonder analysedata geeft deze sensor ``None``. De proxy in het HA-package
+    maakt daar 0 W van, maar zet zijn ``…_valid``-vlag op ``off``, en de
+    firmware houdt dan 300 s de laatste geldige waarde vast en valt daarna
+    terug op haar eigen huismodel. Dat vervalgedrag is van de firmware — hier
+    hoeft niets te worden nagebouwd.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Warmtevraag"
+    _attr_native_unit_of_measurement = "W"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:home-lightning-bolt"
+    _attr_suggested_display_precision = 0
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        coordinator: QuattStooklijnCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_heat_demand"
+        # Entity-ID vastpinnen: HA leidt de ID van een nieuwe entity af uit het
+        # *gebied* van het device, en dit device staat in de bijkeuken. Zie de
+        # toelichting bij MirrorSpec.slug — en bij de kalibratiesensor, waar het
+        # in v0.8.11 alsnog misging.
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            f"{ENTITY_PREFIX}_warmtevraag",
+            hass=hass,
+        )
+        self._attr_device_info = get_device_info(entry.entry_id)
+
+    @property
+    def _outdoor_entity(self) -> str:
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_OUTDOOR_TEMP,
+            config=cfg, conf_key=CONF_TEMP_ENTITIES,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        """Volg de buitentemperatuur, niet alleen de analysecyclus.
+
+        Het huismodel verandert hooguit één keer per analyse, maar de vraag die
+        eruit volgt beweegt met het weer mee. Zonder deze listener zou de
+        regelaar een uur op een verouderde vraag lopen.
+        """
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                candidate_entities(
+                    self.hass, self._entry.entry_id, (ROLE_OUTDOOR_TEMP,)
+                ),
+                self._handle_state_change,
+            )
+        )
+
+    async def _handle_state_change(self, event) -> None:
+        self.async_write_ha_state()
+
+    def _model(self) -> tuple[float, float] | None:
+        """De helling en het snijpunt van het gemeten warmteverliesmodel."""
+        data = self.coordinator.data
+        if data is None:
+            return None
+        heat_loss = data.heat_loss_hp
+        if heat_loss.slope is None or heat_loss.intercept is None:
+            return None
+        return heat_loss.slope, heat_loss.intercept
+
+    @property
+    def native_value(self) -> float | None:
+        model = self._model()
+        t_outdoor = get_float_state(self.hass, self._outdoor_entity)
+        if model is None or t_outdoor is None:
+            return None
+
+        from .analysis.utils import calc_heat_demand
+
+        slope, intercept = model
+        return round(calc_heat_demand(slope, intercept, t_outdoor))
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        from .discovery import (
+            ROLE_PH_RATED_POWER,
+            async_discover_openquatt_entities,
+            async_heat_demand_link,
+        )
+
+        # Eén keer detecteren voor beide vragen: die scan loopt over het hele
+        # entity-register, en dit blok draait bij elke buitentemperatuur-update.
+        openquatt = async_discover_openquatt_entities(self.hass)
+        link = async_heat_demand_link(self.hass, self.entity_id, openquatt=openquatt)
+        data = self.coordinator.data
+        heat_loss = data.heat_loss_hp if data is not None else None
+
+        attrs: dict[str, Any] = {
+            "buiten_temp": get_float_state(self.hass, self._outdoor_entity),
+            "warmteverliescoefficient": (
+                heat_loss.heat_loss_coefficient if heat_loss else None
+            ),
+            "balanspunt": (
+                round(heat_loss.balance_point, 2)
+                if heat_loss and heat_loss.balance_point is not None
+                else None
+            ),
+            "formule": "UA × max(0, T_balans − T_buiten)",
+            "koppeling": link.status,
+            "koppeling_actief": link.active,
+            "bronhelper": SOURCE_SELECTOR_ENTITY,
+            "bronhelper_wijst_naar": link.selector,
+            "proxy_entity": link.proxy_entity,
+            "firmware_bron": link.firmware_source,
+        }
+
+        # Het plafond van de firmware erbij: die klemt een externe vraag op
+        # ``Rated maximum house power``, en dat gebeurt zonder melding. Wie de
+        # vraag boven Pr ziet uitkomen weet dan meteen dat de regelaar hem
+        # afkapt en dat Pr aan bijstelling toe is.
+        rated_entity = openquatt.get(ROLE_PH_RATED_POWER)
+        rated = get_float_state(self.hass, rated_entity) if rated_entity else None
+        attrs["firmware_plafond_w"] = rated
+        value = self.native_value
+        attrs["boven_firmware_plafond"] = (
+            bool(rated is not None and value is not None and value > rated)
         )
         return attrs
 

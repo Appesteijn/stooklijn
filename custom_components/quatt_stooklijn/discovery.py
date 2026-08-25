@@ -27,6 +27,14 @@ import logging
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 
+from .heat_demand import (
+    PROXY_FALLBACK_ENTITY,
+    PROXY_UNIQUE_ID,
+    SOURCE_SELECTOR_ENTITY,
+    HeatDemandLink,
+    selector_entity,
+)
+
 _LOGGER = logging.getLogger(__name__)
 
 # Platform (integratie-domein) van de officiële Quatt-integratie.
@@ -60,6 +68,12 @@ ROLE_COP = "cop"
 ROLE_PH_ZERO_POWER_TEMP = "ph_zero_power_temp"
 ROLE_PH_COLD_TEMP = "ph_cold_temp"
 ROLE_PH_RATED_POWER = "ph_rated_power"
+# De keuzeknop die bepaalt of Power House naar een externe warmtevraag luistert.
+# Uitsluitend om te *lezen*: hij zegt of de gepubliceerde warmtevraag ergens
+# aankomt. Bewust géén schrijfbestemming, en dus ook niet bekend bij
+# ``async_resolve_setting_entity`` — deze integratie zet de regelaar niet zelf
+# in een andere modus.
+ROLE_EXT_HEAT_DEMAND_SOURCE = "ext_heat_demand_source"
 
 # Rol → Quatt sensor-keys, in volgorde van voorkeur. Deze keys komen uit
 # sensor_descriptions_cic.py / sensor_descriptions_heat.py / number.py van de
@@ -171,6 +185,7 @@ OPENQUATT_NAMES: dict[str, tuple[str, ...]] = {
     ROLE_PH_ZERO_POWER_TEMP: ("Maximum heating outdoor temperature",),
     ROLE_PH_COLD_TEMP: ("House cold temp",),
     ROLE_PH_RATED_POWER: ("Rated maximum house power",),
+    ROLE_EXT_HEAT_DEMAND_SOURCE: ("External Heat Demand Source",),
 }
 
 
@@ -503,3 +518,53 @@ def async_resolve_candidates(
         if async_entity_exists(hass, entity_id):
             candidates.append(entity_id)
     return candidates
+
+
+@callback
+def async_heat_demand_link(
+    hass: HomeAssistant,
+    demand_entity: str,
+    *,
+    openquatt: dict[str, str] | None = None,
+) -> HeatDemandLink:
+    """Stel vast of ``demand_entity`` nu de feedforward van Power House voedt.
+
+    Drie schakels, elk op hun eigen manier op te zoeken:
+
+    * de keuzeknop in de firmware — een ESPHome-entity, dus via de node op
+      *naam* en niet op entity-ID (zie ``_async_openquatt_node``);
+    * de proxy uit het HA-package — een template-sensor met een vaste
+      unique-ID, die geen device en dus geen gebiedsprefix heeft;
+    * de bronhelper, waarvan de entity-ID uit de YAML-sleutel volgt.
+
+    Ontbreekt er een, dan is dat geen fout: de firmware valt stil en correct
+    terug op haar eigen huismodel. Precies daarom is deze status het melden
+    waard — een niet-aangekomen koppeling ziet er verder uit als een werkende.
+    """
+    registry = er.async_get(hass)
+
+    proxy = registry.async_get_entity_id("sensor", "template", PROXY_UNIQUE_ID)
+    if proxy is None and async_entity_exists(hass, PROXY_FALLBACK_ENTITY):
+        proxy = PROXY_FALLBACK_ENTITY
+
+    # ``openquatt`` mag worden meegegeven door een aanroeper die de detectie
+    # toch al deed: die scant het hele entity-register, en deze status wordt
+    # bij elke buitentemperatuur-update opnieuw opgebouwd.
+    if openquatt is None:
+        openquatt = async_discover_openquatt_entities(hass)
+    select_entity = openquatt.get(ROLE_EXT_HEAT_DEMAND_SOURCE)
+    firmware_source: str | None = None
+    if select_entity:
+        state = hass.states.get(select_entity)
+        if state is not None and state.state not in ("unknown", "unavailable", ""):
+            firmware_source = state.state
+
+    selector_state = hass.states.get(SOURCE_SELECTOR_ENTITY)
+
+    return HeatDemandLink(
+        demand_entity=demand_entity,
+        select_entity=select_entity,
+        firmware_source=firmware_source,
+        proxy_entity=proxy,
+        selector=selector_entity(selector_state.state if selector_state else None),
+    )

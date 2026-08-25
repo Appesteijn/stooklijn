@@ -6,12 +6,20 @@ laag bevestigt de schrijfactie en gooit hem weg. Alleen de bestemming zelf
 verraadt of het goed gaat.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.helpers import entity_registry as er
 
-from custom_components.quatt_stooklijn.ch_max_water import ChMaxWaterController
+from custom_components.quatt_stooklijn.ch_max_water import (
+    HEAT_DEMAND_ENTITY,
+    ChMaxWaterController,
+)
+from custom_components.quatt_stooklijn.heat_demand import (
+    PROXY_FALLBACK_ENTITY,
+    PROXY_UNIQUE_ID,
+    SOURCE_SELECTOR_ENTITY,
+)
 
 HUB = "CIC-abc123"
 OQ_MAC = "58:E6:C5:6E:9D:78"
@@ -19,6 +27,7 @@ OQ_MAC = "58:E6:C5:6E:9D:78"
 CIC_NUMBER = "number.cic_max_water_temperature"
 OQ_NUMBER = "number.openquatt_maximum_water_temperature"
 MPC_SOURCE = "sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur"
+OQ_SELECT = "select.openquatt_external_heat_demand_source"
 
 
 class _State:
@@ -125,3 +134,67 @@ class TestClamp:
     def test_rondt_af_op_de_stap_van_de_knop(self):
         hass = _hass({OQ_NUMBER: OQ_STATE})
         assert _controller(hass)._clamp(31.4, OQ_NUMBER) == 31.5
+
+
+class TestWederzijdseUitsluitingMetDeWarmtevraag:
+    """Twee routes naar dezelfde grootheid mogen niet tegelijk lopen.
+
+    Stuurt de warmtevraag Power House rechtstreeks aan, dan is het waterplafond
+    daar een veiligheidsbegrenzer en geen stuurknop. Er alsnog een aanvoeradvies
+    naartoe schrijven knijpt de vraag die we net zelf hebben gesteld — en het
+    plafond blijft staan als de koppeling wegvalt, waar de vraag vanzelf vervalt.
+    """
+
+    def _hass_met_koppeling(self, *, firmware, selector):
+        entries = [
+            *_registry_entries(),
+            er.RegistryEntry(
+                entity_id=OQ_SELECT,
+                unique_id=f"{OQ_MAC}/0/select/External Heat Demand Source",
+                platform="esphome",
+            ),
+            er.RegistryEntry(
+                entity_id=PROXY_FALLBACK_ENTITY,
+                unique_id=PROXY_UNIQUE_ID,
+                platform="template",
+            ),
+        ]
+        states = {
+            CIC_NUMBER: CIC_STATE,
+            OQ_NUMBER: OQ_STATE,
+            MPC_SOURCE: _State("32.0"),
+            OQ_SELECT: _State(firmware),
+            SOURCE_SELECTOR_ENTITY: _State(selector),
+            PROXY_FALLBACK_ENTITY: _State("3200"),
+        }
+        hass = MagicMock()
+        hass._test_entity_registry = er.FakeRegistry(entries)
+        hass.states.get = lambda entity_id: states.get(entity_id)
+        hass.services.async_call = AsyncMock()
+        return hass
+
+    @pytest.mark.asyncio
+    async def test_slaat_over_als_de_warmtevraag_stuurt(self):
+        hass = self._hass_met_koppeling(
+            firmware="HA input", selector=HEAT_DEMAND_ENTITY
+        )
+        await _controller(hass)._async_tick(None)
+        hass.services.async_call.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_schrijft_gewoon_als_de_koppeling_uit_staat(self):
+        hass = self._hass_met_koppeling(
+            firmware="Disabled", selector=HEAT_DEMAND_ENTITY
+        )
+        await _controller(hass)._async_tick(None)
+        hass.services.async_call.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_schrijft_gewoon_als_de_bronhelper_ergens_anders_wijst(self):
+        # Firmware luistert wél naar HA, maar naar een andere bron. Deze
+        # integratie stuurt dan niets aan en het plafond is weer een stuurknop.
+        hass = self._hass_met_koppeling(
+            firmware="HA input", selector="input_number.openquatt_test_heat_demand"
+        )
+        await _controller(hass)._async_tick(None)
+        hass.services.async_call.assert_called_once()

@@ -26,6 +26,7 @@ from .const import CONF_CH_MAX_WATER_ENTITY, DEFAULT_CH_MAX_WATER_SOURCE
 from .discovery import (
     ROLE_CH_MAX_WATER,
     async_entity_has_value,
+    async_heat_demand_link,
     async_resolve_setting_entity,
 )
 
@@ -36,6 +37,11 @@ _SOURCE_ENTITY: dict[str, str] = {
     "stooklijn": "sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur",
     "mpc": "sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur",
 }
+
+# De warmtevraag-sensor uit dezelfde integratie. Wijst de OpenQuatt-bronhelper
+# hiernaar, dan loopt de aansturing via de vermogensvraag en heeft deze
+# controller niets meer te zoeken — zie ``_demand_link_active``.
+HEAT_DEMAND_ENTITY = "sensor.quatt_warmteanalyse_warmtevraag"
 
 
 class ChMaxWaterController:
@@ -69,6 +75,8 @@ class ChMaxWaterController:
         self._last_written: float | None = None
         self._last_written_at: datetime | None = None
         self._target_entity: str | None = None
+        # Eén logregel per keer dat de koppeling actief wórdt, niet elke tick.
+        self._demand_link_logged = False
 
     # ------------------------------------------------------------------
 
@@ -107,6 +115,24 @@ class ChMaxWaterController:
 
     async def _async_tick(self, _now: datetime) -> None:
         """Periodieke check: schrijf nieuwe waarde als dat nodig is."""
+        if self._demand_link_active():
+            # Twee routes naar dezelfde grootheid, en ze sluiten elkaar uit.
+            # Loopt de warmtevraag rechtstreeks naar Power House, dan is het
+            # waterplafond daar geen stuursignaal meer maar een veiligheids-
+            # begrenzer (derate binnen 3 K, trip bij +5 K). Er alsnog een
+            # aanvoeradvies naartoe schrijven knijpt de vraag die we net zelf
+            # hebben gesteld — met een plafond dat, anders dan de vraag, niet
+            # vanzelf vervalt als de koppeling wegvalt.
+            if not self._demand_link_logged:
+                _LOGGER.info(
+                    "ChMaxWater: overgeslagen — de warmtevraag stuurt Power "
+                    "House rechtstreeks aan. Het waterplafond is dan een "
+                    "veiligheidsbegrenzer, geen stuurknop."
+                )
+                self._demand_link_logged = True
+            return
+        self._demand_link_logged = False
+
         recommended = self._read_recommended()
         if recommended is None:
             _LOGGER.debug("ChMaxWater: bronentiteit '%s' niet beschikbaar", self.source_entity)
@@ -137,6 +163,10 @@ class ChMaxWaterController:
         await self._write(clamped, entity_id)
 
     # ------------------------------------------------------------------
+
+    def _demand_link_active(self) -> bool:
+        """Stuurt de gepubliceerde warmtevraag Power House nu rechtstreeks aan?"""
+        return async_heat_demand_link(self._hass, HEAT_DEMAND_ENTITY).active
 
     def _read_recommended(self) -> float | None:
         """Lees de aanbevolen aanvoertemperatuur uit de geconfigureerde bronentiteit."""

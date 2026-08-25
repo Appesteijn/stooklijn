@@ -208,6 +208,21 @@ def _stub_ha():
         def async_get(self, entity_id):
             return self.entities.get(entity_id)
 
+        def async_get_entity_id(self, domain, platform, unique_id):
+            """Zoek op (domein, platform, unique_id), net als het echte register.
+
+            De echte HA-versie houdt hiervoor een aparte index bij; hier volstaat
+            een scan, want een testregister telt een handvol entries.
+            """
+            for entry in self.entities.values():
+                if (
+                    entry.entity_id.split(".", 1)[0] == domain
+                    and entry.platform == platform
+                    and entry.unique_id == unique_id
+                ):
+                    return entry.entity_id
+            return None
+
     def _async_get_registry(hass):
         # hass is in veel tests een MagicMock; die levert voor elk attribuut een
         # nieuwe mock op. Alleen een echt neergezet register telt mee.
