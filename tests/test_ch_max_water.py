@@ -145,7 +145,7 @@ class TestWederzijdseUitsluitingMetDeWarmtevraag:
     plafond blijft staan als de koppeling wegvalt, waar de vraag vanzelf vervalt.
     """
 
-    def _hass_met_koppeling(self, *, firmware, selector):
+    def _hass_met_koppeling(self, *, firmware, selector, vraag="3200"):
         entries = [
             *_registry_entries(),
             er.RegistryEntry(
@@ -166,6 +166,7 @@ class TestWederzijdseUitsluitingMetDeWarmtevraag:
             OQ_SELECT: _State(firmware),
             SOURCE_SELECTOR_ENTITY: _State(selector),
             PROXY_FALLBACK_ENTITY: _State("3200"),
+            HEAT_DEMAND_ENTITY: _State(vraag),
         }
         hass = MagicMock()
         hass._test_entity_registry = er.FakeRegistry(entries)
@@ -195,6 +196,20 @@ class TestWederzijdseUitsluitingMetDeWarmtevraag:
         # integratie stuurt dan niets aan en het plafond is weer een stuurknop.
         hass = self._hass_met_koppeling(
             firmware="HA input", selector="input_number.openquatt_test_heat_demand"
+        )
+        await _controller(hass)._async_tick(None)
+        hass.services.async_call.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_schrijft_gewoon_als_de_warmtevraag_niets_publiceert(self):
+        """Terugtreden mag alleen als er via de andere route ook echt gestuurd wordt.
+
+        Zonder analysedata, of met een bronmeting die te oud is, levert de
+        vraag niets. Zou de controller dan ook zwijgen, dan liggen beide wegen
+        tegelijk stil.
+        """
+        hass = self._hass_met_koppeling(
+            firmware="HA input", selector=HEAT_DEMAND_ENTITY, vraag="unknown"
         )
         await _controller(hass)._async_tick(None)
         hass.services.async_call.assert_called_once()

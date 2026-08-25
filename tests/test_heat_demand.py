@@ -221,6 +221,10 @@ class TestWarmtevraagSensor:
         sensor.coordinator = type("C", (), {"data": payload})()
         sensor.entity_id = DEMAND
         sensor.hass = MagicMock()
+        # Velden die __init__ normaal zet; dat wordt hier overgeslagen omdat
+        # het een echte hass vraagt voor de entity-ID.
+        sensor._openquatt_cache = None
+        sensor._stale_logged = False
         states = {}
         if t_outdoor is not None:
             states[OUTDOOR] = _State(str(t_outdoor), age_seconds=age)
@@ -465,11 +469,27 @@ class TestFirmwareBevestiging:
         assert link.status == "actief"
 
     def test_firmware_die_extern_meldt_terwijl_de_keten_niet_af_is(self):
-        """Een andere bron voedt de firmware; dat is niet ónze koppeling."""
+        """Een andere bron voedt de firmware; dat is niet ónze koppeling.
+
+        ``demand source = external`` zegt dát er een externe vraag stuurt, niet
+        van wie. Hierop afgaan zou de ch_max_water-route stilzetten terwijl
+        onze vraag helemaal niet aankomt — precies de situatie waarin de
+        bronhelper nog op een testwaarde staat.
+        """
         link = _link(selector="input_number.iets_anders", feedforward="external")
         assert not link.wired
+        assert not link.active
         assert not link.mismatch
         assert "input_number.iets_anders" in link.status
+
+    def test_externe_vraag_van_een_andere_bron_bij_elke_losse_schakel(self):
+        for kw in (
+            {"selector": "input_number.iets_anders"},
+            {"firmware": "API input"},
+            {"proxy": False},
+        ):
+            link = _link(feedforward="external", **kw)
+            assert not link.active, kw
 
     def test_geen_mismatch_als_de_keten_niet_af_is(self):
         link = _link(firmware="Disabled", feedforward="model")

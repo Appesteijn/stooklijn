@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from time import monotonic
 import logging
 from typing import Any
 
@@ -63,7 +64,12 @@ from .discovery import (
 )
 from .coordinator import QuattStooklijnCoordinator, QuattStooklijnData
 from .helpers import get_device_info, get_effective_flow, get_float_state
-from .heat_demand import OUTDOOR_MAX_AGE_SECONDS, SOURCE_SELECTOR_ENTITY
+from .heat_demand import (
+    HEARTBEAT_INTERVAL_SECONDS,
+    OPENQUATT_CACHE_SECONDS,
+    OUTDOOR_MAX_AGE_SECONDS,
+    SOURCE_SELECTOR_ENTITY,
+)
 from .sources import (
     ENTITY_PREFIX,
     MIRROR_SPECS,
@@ -1994,6 +2000,10 @@ class QuattPowerHouseCalibrationSensor(
         return attrs
 
 
+# De hartslag als timedelta, één keer opgebouwd.
+HEARTBEAT_INTERVAL = timedelta(seconds=HEARTBEAT_INTERVAL_SECONDS)
+
+
 class QuattHeatDemandSensor(
     CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity
 ):
@@ -2043,6 +2053,9 @@ class QuattHeatDemandSensor(
             hass=hass,
         )
         self._attr_device_info = get_device_info(entry.entry_id)
+        self._openquatt_cache: tuple[float, dict[str, str]] | None = None
+        # Eén melding per keer dat de bron bevriest, niet per uitgelezen veld.
+        self._stale_logged = False
 
     @property
     def _outdoor_entity(self) -> str:
@@ -2069,9 +2082,44 @@ class QuattHeatDemandSensor(
                 self._handle_state_change,
             )
         )
+        # Zonder deze hartslag zou de versheidscontrole nooit kunnen afgaan:
+        # de coordinator ververst alleen op verzoek (``update_interval=None``),
+        # dus de listener hierboven is de enige trigger — en juist een bevroren
+        # bronsensor stuurt geen enkel event. De gepubliceerde vraag zou dan tot
+        # in lengte van dagen op zijn laatste waarde blijven staan.
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass, self._handle_heartbeat, HEARTBEAT_INTERVAL
+            )
+        )
 
     async def _handle_state_change(self, event) -> None:
         self.async_write_ha_state()
+
+    @callback
+    def _handle_heartbeat(self, _now) -> None:
+        self.async_write_ha_state()
+
+    def _openquatt(self) -> dict[str, str]:
+        """De OpenQuatt-detectie, hooguit één keer per state-write.
+
+        ``async_discover_openquatt_entities`` loopt het hele entity-register
+        langs, en HA vraagt bij elke write zowel ``native_value`` als
+        ``extra_state_attributes`` op — die samen vier keer een nulpunt of een
+        rol nodig hebben. Een kort geheugen vouwt dat terug naar één scan,
+        zonder de detectie vast te zetten: hernoemt de firmware een entiteit,
+        dan is dat binnen enkele seconden weer zichtbaar.
+        """
+        now = monotonic()
+        cached = self._openquatt_cache
+        if cached is not None and now - cached[0] < OPENQUATT_CACHE_SECONDS:
+            return cached[1]
+
+        from .discovery import async_discover_openquatt_entities
+
+        found = async_discover_openquatt_entities(self.hass)
+        self._openquatt_cache = (now, found)
+        return found
 
     def _zero_point(self, openquatt: dict[str, str] | None = None) -> tuple[float, str] | None:
         """De buitentemperatuur waarbij de warmtevraag nul wordt, plus zijn bron.
@@ -2092,14 +2140,11 @@ class QuattHeatDemandSensor(
         Zonder regelaar valt hij terug op de meting; dan is dat het enige
         nulpunt dat er is.
         """
-        from .discovery import (
-            ROLE_PH_ZERO_POWER_TEMP,
-            async_discover_openquatt_entities,
-        )
+        from .discovery import ROLE_PH_ZERO_POWER_TEMP
         from .power_house import T0_FROM_CONTROLLER, T0_FROM_MEASUREMENT
 
         if openquatt is None:
-            openquatt = async_discover_openquatt_entities(self.hass)
+            openquatt = self._openquatt()
         controller_t0 = get_float_state(
             self.hass, openquatt.get(ROLE_PH_ZERO_POWER_TEMP) or ""
         )
@@ -2131,14 +2176,20 @@ class QuattHeatDemandSensor(
         if reported is not None:
             age = (dt_util.utcnow() - reported).total_seconds()
             if age > OUTDOOR_MAX_AGE_SECONDS:
-                _LOGGER.warning(
-                    "Warmtevraag: buitentemperatuur van '%s' is %.0f min oud "
-                    "(grens %.0f min) — geen vraag gepubliceerd",
-                    self._outdoor_entity,
-                    age / 60,
-                    OUTDOOR_MAX_AGE_SECONDS / 60,
-                )
+                # HA leest bij elke write zowel de waarde als de attributen uit,
+                # dus zonder deze vlag komt dezelfde melding meermaals per write
+                # in het log — en blijft dat doen zolang de bron stilstaat.
+                if not self._stale_logged:
+                    _LOGGER.warning(
+                        "Warmtevraag: buitentemperatuur van '%s' is %.0f min "
+                        "oud (grens %.0f min) — geen vraag gepubliceerd",
+                        self._outdoor_entity,
+                        age / 60,
+                        OUTDOOR_MAX_AGE_SECONDS / 60,
+                    )
+                    self._stale_logged = True
                 return None
+        self._stale_logged = False
 
         try:
             return float(state.state)
@@ -2163,19 +2214,13 @@ class QuattHeatDemandSensor(
 
     @property
     def native_value(self) -> float | None:
-        return self._demand()
+        return self._demand(self._openquatt())
 
     @property
     def extra_state_attributes(self) -> dict | None:
-        from .discovery import (
-            ROLE_PH_RATED_POWER,
-            async_discover_openquatt_entities,
-            async_heat_demand_link,
-        )
+        from .discovery import ROLE_PH_RATED_POWER, async_heat_demand_link
 
-        # Eén keer detecteren voor beide vragen: die scan loopt over het hele
-        # entity-register, en dit blok draait bij elke buitentemperatuur-update.
-        openquatt = async_discover_openquatt_entities(self.hass)
+        openquatt = self._openquatt()
         link = async_heat_demand_link(self.hass, self.entity_id, openquatt=openquatt)
         data = self.coordinator.data
         heat_loss = data.heat_loss_hp if data is not None else None

@@ -165,7 +165,15 @@ class ChMaxWaterController:
     # ------------------------------------------------------------------
 
     def _demand_link_active(self) -> bool:
-        """Stuurt de gepubliceerde warmtevraag Power House nu rechtstreeks aan?"""
+        """Stuurt de gepubliceerde warmtevraag Power House nu rechtstreeks aan?
+
+        De waarde zelf telt mee, niet alleen de koppeling. Publiceert de sensor
+        niets — geen analysedata, of een bronmeting die te oud is — dan stuurt
+        er via die route niets, en zou terugtreden beide wegen tegelijk
+        stilleggen.
+        """
+        if not async_entity_has_value(self._hass, HEAT_DEMAND_ENTITY):
+            return False
         return async_heat_demand_link(self._hass, HEAT_DEMAND_ENTITY).active
 
     def _read_recommended(self) -> float | None:

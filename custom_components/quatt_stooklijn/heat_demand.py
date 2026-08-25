@@ -66,6 +66,14 @@ FEEDFORWARD_EXTERNAL = "external"
 # geen reden om terug te vallen.
 OUTDOOR_MAX_AGE_SECONDS = 1800
 
+# Hoe vaak de sensor zichzelf herschrijft, los van binnenkomende metingen.
+# Ruim onder ``OUTDOOR_MAX_AGE_SECONDS``, zodat een bevroren bron binnen één
+# tel na het overschrijden van de grens ook echt opgemerkt wordt.
+HEARTBEAT_INTERVAL_SECONDS = 300
+
+# Levensduur van het OpenQuatt-detectieresultaat binnen één state-write.
+OPENQUATT_CACHE_SECONDS = 5
+
 
 def selector_entity(raw: str | None) -> str | None:
     """Haal de entity-ID uit de waarde van de bronhelper.
@@ -133,14 +141,20 @@ class HeatDemandLink:
 
     @property
     def active(self) -> bool:
-        """Voedt deze sensor nu de feedforward van Power House?
+        """Voedt **deze sensor** nu de feedforward van Power House?
 
-        De firmware heeft het laatste woord. Zegt die niets, dan is de
-        voorspelling het beste dat er is.
+        Beide kanten moeten kloppen. De keten moet aan onze kant compleet zijn,
+        én de firmware mag niet tegenspreken dat ze een externe vraag gebruikt.
+
+        Dat eerste is geen formaliteit: ``demand source = external`` zegt alleen
+        dát er een externe vraag stuurt, niet van wie. Wijst de bronhelper naar
+        iets anders — een testwaarde bijvoorbeeld — dan is die vraag niet de
+        onze, en zou hierop afgaan de ch_max_water-route onterecht stilzetten.
+
+        Zwijgt de firmware (oudere build zonder de diagnostische sensor), dan
+        blijft de voorspelling gelden: geen uitsluitsel is geen ontkenning.
         """
-        if self.confirmed is not None:
-            return self.confirmed
-        return self.wired
+        return self.wired and self.confirmed is not False
 
     @property
     def mismatch(self) -> bool:
