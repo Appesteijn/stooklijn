@@ -97,7 +97,9 @@ class PowerHouseCalibration:
     capacity_source: str     # waar de capaciteit bij Tc vandaan komt
     full_output_power: float # ongeafgeronde warmtevraag bij Tc, ter controle
     zero_power_temp_source: str      # T0_FROM_CONTROLLER of T0_FROM_MEASUREMENT
-    balance_point_measured: float    # wat de regressie zegt, puur ter informatie
+    balance_point_measured: float    # wat de regressie zegt
+    zero_power_temp_advised: bool    # wijkt de ingestelde stookgrens te ver af?
+    zero_power_temp_bias_w: float | None  # systematische onder/overvraag daardoor
 
 
 def calc_power_house_calibration(
@@ -111,13 +113,13 @@ def calc_power_house_calibration(
 ) -> PowerHouseCalibration | None:
     """Leid Tc en Pr af, gegeven een T0 en het gemeten huismodel.
 
-    **T0 is een invoer, geen advies.** Het is de buitentemperatuur waarbij de
-    warmtevraag nul wordt, en juist dáár heeft de meting niets te zeggen: boven
-    de stookgrens wordt er niet gestookt, dus die dagen vallen uit de regressie.
-    Bij deze woning ligt de warmste waarneming op 15,2 °C terwijl de fit het
-    nulpunt op 16,7 °C legt — anderhalve graad extrapolatie, in een gebied waar
-    de ruis even groot is als het signaal. Een advies van 16,5 in plaats van de
-    ingestelde 16,0 zou precisie suggereren die er niet is.
+    **T0 is in de eerste plaats een invoer.** Het is de buitentemperatuur waarbij
+    de warmtevraag nul wordt, en juist dáár heeft de meting het minst te zeggen:
+    boven de stookgrens wordt er niet gestookt, dus die dagen vallen uit de
+    regressie. Bij deze woning ligt de warmste waarneming op 15,2 °C terwijl de
+    fit het nulpunt op 16,7 °C legt — anderhalve graad extrapolatie, in een
+    gebied waar de ruis even groot is als het signaal. Het nulpunt klakkeloos
+    adviseren zou dus precisie suggereren die er niet is.
 
     Wat de data wél draagt is de helling, en daarmee Tc: het snijpunt van de
     vraaglijn met de capaciteitscurve ligt midden in het koude gebied waar de
@@ -128,6 +130,25 @@ def calc_power_house_calibration(
     allebei van T0 af, dus je kunt er niet één van laten staan en de andere twee
     tegen een ander nulpunt uitrekenen. Zonder opgegeven T0 valt hij terug op
     het gemeten balanspunt, voor een installatie waar nog niets is ingesteld.
+
+    **Wanneer de ingestelde T0 tóch bijgesteld wordt.** Het bezwaar hierboven
+    blijft staan, maar het zegt alleen dat we het nulpunt niet nauwkeurig
+    kénnen — niet dat elke waarde even goed is. Wat er wél uit de meting volgt
+    is wat een verkeerd nulpunt *kost*: de feedforward vraagt dan overal
+    ``UA · (T_balans − T0)`` watt te weinig, elke stookdag opnieuw. Bij deze
+    woning was dat 189 W bij een stookgrens van 16,0.
+
+    Die afwijking is gewoon een getal, en zodra hij groter wordt dan wat één
+    stap op de knop kan corrigeren, is stil blijven staan geen voorzichtigheid
+    meer maar een keuze voor een bekende fout. Dan wordt het gemeten balanspunt
+    geadviseerd — en worden Tc en Pr daar meteen tegenaan gerekend, want anders
+    levert het advies een drietal op dat onderling niet klopt.
+
+    Merk op dat dit wiskundig hetzelfde is als het balanspunt adviseren: de
+    afwijking ís ``UA · (T_balans − T0)``. De drempel maakt het verschil — hij
+    zorgt dat er alleen iets gezegd wordt als het de moeite van het zeggen
+    waard is, en de afwijking wordt meegepubliceerd zodat de gebruiker de
+    extrapolatie zelf kan wegen in plaats van een kaal getal te krijgen.
 
     Geeft ``None`` zodra een van de ingrediënten ontbreekt of het resultaat
     fysisch nergens op slaat. Een half advies is hier erger dan geen advies: deze
@@ -142,9 +163,18 @@ def calc_power_house_calibration(
     measured_balance = float(balance_temp)
 
     # T0 uit de regelaar als die er is; anders het gemeten balanspunt.
+    bias_w: float | None = None
+    advised = False
     if controller_zero_power_temp is not None:
         t0_raw = float(controller_zero_power_temp)
         t0_source = T0_FROM_CONTROLLER
+        # Wat de ingestelde stookgrens kost aan structureel te weinig vraag.
+        bias_w = hlc * (measured_balance - t0_raw)
+        # Onder één knopstap valt er niets te corrigeren; dan is adviseren ruis.
+        if abs(bias_w) >= hlc * TEMP_STEP:
+            t0_raw = measured_balance
+            t0_source = T0_FROM_MEASUREMENT
+            advised = True
     else:
         t0_raw = measured_balance
         t0_source = T0_FROM_MEASUREMENT
@@ -220,4 +250,6 @@ def calc_power_house_calibration(
         full_output_power=round(rated_raw, 1),
         zero_power_temp_source=t0_source,
         balance_point_measured=round(measured_balance, 2),
+        zero_power_temp_advised=advised,
+        zero_power_temp_bias_w=round(bias_w) if bias_w is not None else None,
     )

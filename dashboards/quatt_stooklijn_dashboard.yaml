@@ -955,11 +955,28 @@ views:
               | Rated max house power | {{ state_attr(kal, 'rated_power_huidig')
               }} W | **{{ state_attr(kal, 'rated_power') }} W** |
 
+              {% if state_attr(kal, 'zero_power_temp_geadviseerd') %}
+
+              | Stookgrens | {{ state_attr(kal, 'zero_power_temp_huidig') }}°C |
+              **{{ a }}°C** |
+
+
+              De ingestelde stookgrens staat **{{ state_attr(kal,
+              'stookgrens_afwijking_w') | abs }} W** van de meting af: zo veel
+              vraagt de feedforward elke stookdag {% if state_attr(kal,
+              'stookgrens_afwijking_w') > 0 %}te weinig{% else %}te veel{% endif
+              %}. Pas de drie waarden samen aan — Tc en Pr hierboven horen bij
+              het nieuwe nulpunt.
+
+              {% else %}
 
               Stookgrens staat op **{{ a }}°C** en wordt overgenomen, niet
-              geadviseerd — de regressie ziet geen enkele dag boven 16°C, dus
-              het nulpunt is extrapolatie (meting zegt {{ state_attr(kal,
-              'balanspunt_gemeten') }}°C).
+              geadviseerd: hij ligt binnen één knopstap van de meting ({{
+              state_attr(kal, 'balanspunt_gemeten') }}°C, afwijking {{
+              state_attr(kal, 'stookgrens_afwijking_w') }} W), en daaronder valt
+              er niets te corrigeren.
+
+              {% endif %}
 
 
               *{{ state_attr(kal, 'toelichting') }}* (bron: {{ state_attr(kal,

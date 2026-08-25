@@ -1942,13 +1942,22 @@ class QuattPowerHouseCalibrationSensor(
         if not any(targets.values()):
             return "OpenQuatt niet gevonden"
 
-        # T0 telt bewust niet mee: die wordt overgenomen van de regelaar, niet
-        # geadviseerd. De meting kan het nulpunt niet zien — boven de stookgrens
-        # wordt er niet gestookt, dus daar is geen data.
-        pairs = (
+        # T0 telt alleen mee als de meting er iets over te zeggen heeft. Normaal
+        # wordt hij overgenomen van de regelaar — boven de stookgrens is geen
+        # data — maar staat hij zó ver weg dat de feedforward er structureel te
+        # weinig door vraagt, dan is dat wél te meten. Zie power_house.py.
+        pairs = [
             (cal.cold_temp, targets["cold_temp"], COLD_TEMP_THRESHOLD),
             (cal.rated_power, targets["rated_power"], RATED_POWER_THRESHOLD),
-        )
+        ]
+        if cal.zero_power_temp_advised:
+            pairs.append(
+                (
+                    cal.zero_power_temp,
+                    targets["zero_power_temp"],
+                    ZERO_POWER_TEMP_THRESHOLD,
+                )
+            )
         changes = 0
         for advised, entity_id, threshold in pairs:
             current = self._current(entity_id)
@@ -1986,17 +1995,34 @@ class QuattPowerHouseCalibrationSensor(
             # te schrijven — de regressie ziet geen enkele dag boven 16 °C.
             "zero_power_temp_bron": cal.zero_power_temp_source,
             "balanspunt_gemeten": cal.balance_point_measured,
-            "zero_power_temp_geadviseerd": False,
+            "zero_power_temp_geadviseerd": cal.zero_power_temp_advised,
+            # Wat de ingestelde stookgrens kost aan structureel te weinig vraag.
+            # Positief = het huis vraagt meer dan de feedforward aanbiedt.
+            "stookgrens_afwijking_w": cal.zero_power_temp_bias_w,
         }
-        attrs["toelichting"] = (
+        basis = (
             f"Bij {cal.cold_temp:.1f}°C buiten heeft het huis "
-            f"{cal.rated_power:.0f} W nodig en draaien de warmtepompen vollast. "
-            f"Tc en Pr zijn uitgerekend tegen de ingestelde stookgrens van "
-            f"{cal.zero_power_temp:.1f}°C; die wordt niet geadviseerd omdat de "
-            f"meting boven de stookgrens geen data heeft "
-            f"(regressie zegt {cal.balance_point_measured:.1f}°C, maar dat is "
-            f"extrapolatie)."
+            f"{cal.rated_power:.0f} W nodig en draaien de warmtepompen vollast."
         )
+        if cal.zero_power_temp_advised:
+            attrs["toelichting"] = (
+                f"{basis} De ingestelde stookgrens staat "
+                f"{cal.zero_power_temp_bias_w:.0f} W van de meting af: zo veel "
+                f"vraagt de feedforward elke stookdag te weinig. Geadviseerd "
+                f"wordt het gemeten balanspunt van "
+                f"{cal.balance_point_measured:.1f}°C — dat is extrapolatie "
+                f"boven de warmste meetdag, maar wel dichter bij de meting dan "
+                f"de huidige stand. Tc en Pr hierboven horen bij dat nieuwe "
+                f"nulpunt; pas ze samen aan."
+            )
+        else:
+            attrs["toelichting"] = (
+                f"{basis} Tc en Pr zijn uitgerekend tegen de ingestelde "
+                f"stookgrens van {cal.zero_power_temp:.1f}°C; die wordt niet "
+                f"geadviseerd omdat de meting boven de stookgrens geen data "
+                f"heeft (regressie zegt {cal.balance_point_measured:.1f}°C, "
+                f"maar dat is extrapolatie)."
+            )
         return attrs
 
 

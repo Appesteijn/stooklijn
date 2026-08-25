@@ -167,6 +167,14 @@ firmware never falls back — this check is the only place that gap is closed.
    `sensor.quatt_warmteanalyse_warmtevraag`.
 3. Set the OpenQuatt select *External Heat Demand Source* to **HA input**.
 
+The calibration sensor also reports what the configured heating limit costs. A limit that
+sits away from the measured balance point makes the feedforward ask
+`UA × (T_balance − T0)` watts too little on every heating day; that figure is published as
+`stookgrens_afwijking_w`. Once it exceeds what one step of the knob can correct, the
+measured balance point is recommended — and `cold_temp` / `rated_power` are then computed
+against that new zero point, so the three values stay a consistent set. Within one step it
+stays quiet, so the advice settles instead of nagging.
+
 The sensor's `koppeling` attribute reports which of those three steps is still missing, and
 the Advies dashboard view shows the same status. This matters because a broken link is
 invisible from the outside: OpenQuatt falls back to its own house model silently and the

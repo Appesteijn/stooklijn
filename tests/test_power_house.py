@@ -195,31 +195,43 @@ class TestKalibratieSensor:
             controller_zero_power_temp=current["number.oq_t0"],
         )
 
-    def test_telt_alleen_tc_en_pr(self):
-        """T0 telt niet mee: die wordt overgenomen, niet geadviseerd."""
-        sensor = self._sensor(self.HUIDIG_ONGEKALIBREERD)
-        assert sensor.native_value == "2 aanpassingen aanbevolen"
+    def test_telt_ook_de_stookgrens_als_die_ver_weg_staat(self):
+        """T0 telt mee zodra de meting er iets over te zeggen heeft.
 
-    def test_afwijkend_balanspunt_telt_niet_als_aanpassing(self):
-        """De regressie zegt 16,7 en de regelaar staat op 16,0 — geen advies,
-        want boven de stookgrens heeft de meting geen data."""
-        cal = self._advised(self.HUIDIG_ONGEKALIBREERD)
+        Bij 16,0 vraagt de feedforward 189 W per stookdag te weinig — meer dan
+        één knopstap kan corrigeren, dus stil blijven is dan een keuze voor een
+        bekende fout.
+        """
+        sensor = self._sensor(self.HUIDIG_ONGEKALIBREERD)
+        assert sensor.native_value == "3 aanpassingen aanbevolen"
+
+    def test_stookgrens_binnen_een_knopstap_telt_niet(self):
+        """Binnen één stap valt er niets te corrigeren, dus wordt er gezwegen.
+
+        Zo dempt het advies zichzelf: het duwt T0 naar het gemeten balanspunt
+        en houdt daar op, in plaats van elke analyse opnieuw een halve graad
+        te blijven vragen.
+        """
+        cal = self._advised({"number.oq_t0": 16.5})
         sensor = self._sensor({
-            "number.oq_t0": 16.0,
+            "number.oq_t0": 16.5,
             "number.oq_tc": cal.cold_temp,
             "number.oq_pr": cal.rated_power,
         })
+        assert cal.zero_power_temp_advised is False
         assert sensor.native_value == "model is gekalibreerd"
 
     def test_enkelvoud_bij_een_afwijking(self):
-        current = {"number.oq_t0": 16.0, "number.oq_tc": None, "number.oq_pr": 7020.0}
+        current = {"number.oq_t0": 16.5, "number.oq_tc": None, "number.oq_pr": 7020.0}
         cal = self._advised(current)
         current["number.oq_tc"] = cal.cold_temp
         sensor = self._sensor(current)
         assert sensor.native_value == "1 aanpassing aanbevolen"
 
     def test_gekalibreerd_model_meldt_niets(self):
-        current = {"number.oq_t0": 16.0, "number.oq_tc": None, "number.oq_pr": None}
+        # 16,5 ligt binnen één knopstap van het gemeten balanspunt, dus over de
+        # stookgrens valt niets meer te zeggen; Tc en Pr volgen het advies.
+        current = {"number.oq_t0": 16.5, "number.oq_tc": None, "number.oq_pr": None}
         cal = self._advised(current)
         current["number.oq_tc"] = cal.cold_temp
         current["number.oq_pr"] = cal.rated_power
@@ -250,26 +262,56 @@ class TestKalibratieSensor:
         assert attrs["capaciteitsbron"] == SOURCE_CAPABILITY_CURVE
         assert attrs["zero_power_temp_huidig"] == 16.0
 
-    def test_t0_wordt_overgenomen_van_de_regelaar(self):
-        attrs = self._sensor(self.HUIDIG_ONGEKALIBREERD).extra_state_attributes
-        assert attrs["zero_power_temp"] == 16.0
+    def test_t0_wordt_overgenomen_zolang_hij_dichtbij_staat(self):
+        attrs = self._sensor({**self.HUIDIG_ONGEKALIBREERD,
+                              "number.oq_t0": 16.5}).extra_state_attributes
+        assert attrs["zero_power_temp"] == 16.5
         assert attrs["zero_power_temp_bron"] == T0_FROM_CONTROLLER
         assert attrs["zero_power_temp_geadviseerd"] is False
+        assert attrs["stookgrens_afwijking_w"] == 47
+
+    def test_t0_wordt_geadviseerd_als_de_afwijking_meetbaar_is(self):
+        attrs = self._sensor(self.HUIDIG_ONGEKALIBREERD).extra_state_attributes
+        assert attrs["zero_power_temp"] == 16.5
+        assert attrs["zero_power_temp_huidig"] == 16.0
+        assert attrs["zero_power_temp_geadviseerd"] is True
+        # Positief: het huis vraagt meer dan de feedforward aanbiedt.
+        assert attrs["stookgrens_afwijking_w"] == 189
+        assert "189 W" in attrs["toelichting"]
+
+    def test_de_afwijking_kan_ook_de_andere_kant_op(self):
+        """Een te hoge stookgrens laat de feedforward juist te veel vragen."""
+        attrs = self._sensor({**self.HUIDIG_ONGEKALIBREERD,
+                              "number.oq_t0": 18.0}).extra_state_attributes
+        assert attrs["stookgrens_afwijking_w"] == -380
+        assert attrs["zero_power_temp_geadviseerd"] is True
 
     def test_gemeten_balanspunt_blijft_zichtbaar(self):
         """Informatief houden, ook al wordt er niet naar geschreven."""
         attrs = self._sensor(self.HUIDIG_ONGEKALIBREERD).extra_state_attributes
         assert attrs["balanspunt_gemeten"] == pytest.approx(16.66, abs=0.01)
 
-    def test_tc_volgt_de_t0_van_de_regelaar(self):
+    def test_tc_en_pr_volgen_de_t0_van_de_regelaar(self):
         """Tc en Pr hangen van T0 af, dus ze moeten tegen dezelfde T0 gerekend
-        worden als er in de firmware staat — anders klopt het drietal niet."""
-        laag = self._sensor({**self.HUIDIG_ONGEKALIBREERD, "number.oq_t0": 14.0})
-        hoog = self._sensor({**self.HUIDIG_ONGEKALIBREERD, "number.oq_t0": 18.0})
-        assert (
-            laag.extra_state_attributes["cold_temp"]
-            < hoog.extra_state_attributes["cold_temp"]
+        worden als er in de firmware staat — anders klopt het drietal niet.
+
+        Dit geldt binnen de band waarin de stookgrens niet geadviseerd wordt;
+        daarbuiten hoort het drietal juist bij het *geadviseerde* nulpunt.
+        """
+        laag = self._sensor({**self.HUIDIG_ONGEKALIBREERD, "number.oq_t0": 16.5})
+        hoog = self._sensor({**self.HUIDIG_ONGEKALIBREERD, "number.oq_t0": 17.0})
+        assert laag.extra_state_attributes["rated_power"] < (
+            hoog.extra_state_attributes["rated_power"]
         )
+
+    def test_buiten_de_band_horen_tc_en_pr_bij_het_geadviseerde_nulpunt(self):
+        """Anders levert het advies een drietal op dat onderling niet klopt."""
+        ver_weg = self._sensor({**self.HUIDIG_ONGEKALIBREERD, "number.oq_t0": 14.0})
+        op_advies = self._sensor({**self.HUIDIG_ONGEKALIBREERD, "number.oq_t0": 16.5})
+        a, b = ver_weg.extra_state_attributes, op_advies.extra_state_attributes
+        assert a["zero_power_temp"] == b["zero_power_temp"]
+        assert a["cold_temp"] == b["cold_temp"]
+        assert a["rated_power"] == b["rated_power"]
 
 
 class TestEntityId:
