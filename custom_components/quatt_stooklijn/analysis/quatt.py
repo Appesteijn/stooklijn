@@ -272,6 +272,8 @@ async def async_fetch_quatt_insights(
     end_date: str,
     power_entity: str | None = None,
     temp_entity: str | None = None,
+    power_input_entity: str | None = None,
+    boiler_heat_entity: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Fetch Quatt data using a hybrid approach.
 
@@ -320,8 +322,13 @@ async def async_fetch_quatt_insights(
         end_date,
         power_entity,
         temp_entity,
-        async_resolve_entity(hass, {}, None, ROLE_POWER_INPUT, discovered=discovered),
-        async_resolve_entity(hass, {}, None, ROLE_BOILER_HEAT, discovered=discovered),
+        # Ingesteld gaat vóór detectie, net als bij power/temp hierboven.
+        # Zonder deze voorrang leest de analyse alsnog de Quatt-sensor terwijl
+        # de gebruiker de rol op een andere bron heeft gezet.
+        power_input_entity
+        or async_resolve_entity(hass, {}, None, ROLE_POWER_INPUT, discovered=discovered),
+        boiler_heat_entity
+        or async_resolve_entity(hass, {}, None, ROLE_BOILER_HEAT, discovered=discovered),
     )
 
     # === Step 2: Cached hourly data for historical period (before API window) ===

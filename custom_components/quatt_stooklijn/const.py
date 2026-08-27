@@ -37,6 +37,14 @@ NOMINAL_FLOW_LPH = 800  # l/h — fallback when HP is off, for theoretical suppl
 CONF_POWER_INPUT_ENTITY = "power_input_entity"
 CONF_BOILER_HEAT_ENTITY = "boiler_heat_entity"
 
+# De overige gespiegelde metingen. Elke rol uit sources.MIRROR_SPECS hoort een
+# eigen sleutel te hebben: zonder sleutel kan de gebruiker de bron niet kiezen
+# en wint de detectievolgorde (Quatt vóór OpenQuatt) altijd stilzwijgend.
+# sources.ROLE_CONF_KEYS legt die koppeling vast en wordt in de tests bewaakt.
+CONF_CONTROL_SETPOINT_ENTITY = "control_setpoint_entity"
+CONF_ROOM_SETPOINT_ENTITY = "room_setpoint_entity"
+CONF_COP_ENTITY = "cop_entity"
+
 # How many days of detailed hourly data to fetch from Quatt API
 API_FETCH_DAYS = 30
 

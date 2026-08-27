@@ -37,6 +37,20 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_time_interval
 import homeassistant.util.dt as dt_util
 
+# const.py importeert zelf niets, dus dit levert geen kringverwijzing op.
+from .const import (
+    CONF_BOILER_HEAT_ENTITY,
+    CONF_CONTROL_SETPOINT_ENTITY,
+    CONF_COP_ENTITY,
+    CONF_FLOW_ENTITY,
+    CONF_INDOOR_TEMP_ENTITY,
+    CONF_POWER_ENTITY,
+    CONF_POWER_INPUT_ENTITY,
+    CONF_RETURN_TEMP_ENTITY,
+    CONF_ROOM_SETPOINT_ENTITY,
+    CONF_SUPPLY_TEMP_ENTITY,
+    CONF_TEMP_ENTITIES,
+)
 from .discovery import (
     QUATT_PLATFORM,
     ROLE_BOILER_HEAT,
@@ -123,6 +137,27 @@ OVERVIEW_SLUG = "databronnen"
 ENTITY_PREFIX = "quatt_warmteanalyse"
 
 MIRROR_ROLES: tuple[str, ...] = tuple(spec.role for spec in MIRROR_SPECS)
+
+# Rol → config-sleutel waarmee de gebruiker de bron zelf kiest.
+#
+# Een ingestelde entity gaat vóór alle detectie (zie async_resolve_candidates),
+# dus dit is de enige manier om de vaste voorkeur "Quatt vóór OpenQuatt" te
+# overrulen. Elke rol uit MIRROR_SPECS hoort hier te staan: ontbreekt er een,
+# dan biedt het optiescherm wél een keuze aan die de bronregistratie vervolgens
+# negeert — een stille misconfiguratie. test_sources bewaakt de volledigheid.
+ROLE_CONF_KEYS: dict[str, str] = {
+    ROLE_SUPPLY_TEMP: CONF_SUPPLY_TEMP_ENTITY,
+    ROLE_RETURN_TEMP: CONF_RETURN_TEMP_ENTITY,
+    ROLE_OUTDOOR_TEMP: CONF_TEMP_ENTITIES,
+    ROLE_INDOOR_TEMP: CONF_INDOOR_TEMP_ENTITY,
+    ROLE_CONTROL_SETPOINT: CONF_CONTROL_SETPOINT_ENTITY,
+    ROLE_ROOM_SETPOINT: CONF_ROOM_SETPOINT_ENTITY,
+    ROLE_FLOW_RATE: CONF_FLOW_ENTITY,
+    ROLE_TOTAL_POWER: CONF_POWER_ENTITY,
+    ROLE_POWER_INPUT: CONF_POWER_INPUT_ENTITY,
+    ROLE_BOILER_HEAT: CONF_BOILER_HEAT_ENTITY,
+    ROLE_COP: CONF_COP_ENTITY,
+}
 
 
 @callback
@@ -341,20 +376,5 @@ class SourceRegistry:
 
     def _configured_for(self, role: str) -> str | list[str] | None:
         """Wat de gebruiker voor deze rol heeft ingesteld, indien iets."""
-        from .const import (
-            CONF_FLOW_ENTITY,
-            CONF_POWER_ENTITY,
-            CONF_RETURN_TEMP_ENTITY,
-            CONF_SUPPLY_TEMP_ENTITY,
-            CONF_TEMP_ENTITIES,
-        )
-
-        mapping = {
-            ROLE_SUPPLY_TEMP: CONF_SUPPLY_TEMP_ENTITY,
-            ROLE_RETURN_TEMP: CONF_RETURN_TEMP_ENTITY,
-            ROLE_FLOW_RATE: CONF_FLOW_ENTITY,
-            ROLE_TOTAL_POWER: CONF_POWER_ENTITY,
-            ROLE_OUTDOOR_TEMP: CONF_TEMP_ENTITIES,
-        }
-        conf_key = mapping.get(role)
+        conf_key = ROLE_CONF_KEYS.get(role)
         return self._config.get(conf_key) if conf_key else None

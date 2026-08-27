@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 from homeassistant.helpers import entity_registry as er
 
-from custom_components.quatt_stooklijn.const import DOMAIN
+from custom_components.quatt_stooklijn.const import CONF_TEMP_ENTITIES, DOMAIN
 from custom_components.quatt_stooklijn.discovery import (
     ROLE_OUTDOOR_TEMP,
     ROLE_SUPPLY_TEMP,
@@ -22,6 +22,7 @@ from custom_components.quatt_stooklijn.sources import (
     MIRROR_ROLES,
     MIRROR_SPECS,
     OVERVIEW_SLUG,
+    ROLE_CONF_KEYS,
     SOURCE_OPENQUATT,
     SOURCE_OTHER,
     SOURCE_QUATT,
@@ -397,3 +398,46 @@ class TestEntityIdStabiliteit:
             "ketelvermogen", "cop", "databronnen",
         }:
             assert slug in bekend
+
+
+class TestRolConfiguratie:
+    """Elke gespiegelde meting moet zelf te kiezen zijn.
+
+    De kandidatenvolgorde zet Quatt bewust vóór OpenQuatt, zodat bestaande
+    installaties niet van bron wisselen. Een ingestelde entity is de enige
+    manier om daar vanaf te wijken — ontbreekt de config-sleutel voor een rol,
+    dan zit de gebruiker onherroepelijk aan die volgorde vast.
+    """
+
+    def test_elke_spiegelrol_heeft_een_config_sleutel(self):
+        assert set(ROLE_CONF_KEYS) == set(MIRROR_ROLES)
+
+    def test_config_sleutels_zijn_uniek(self):
+        sleutels = list(ROLE_CONF_KEYS.values())
+        assert len(sleutels) == len(set(sleutels))
+
+    @pytest.mark.parametrize("role", MIRROR_ROLES)
+    def test_ingestelde_bron_wint_voor_elke_rol(self, role):
+        """Ook als de Quatt-sensor voor die rol gewoon een waarde levert."""
+        eigen = f"sensor.eigen_{role}"
+        conf_key = ROLE_CONF_KEYS[role]
+        # De buitentemperatuur is historisch een lijst; de rest een enkele ID.
+        waarde = [eigen] if conf_key == CONF_TEMP_ENTITIES else eigen
+
+        hass = _hass(
+            [*QUATT_ENTRIES, *OQ_ENTRIES],
+            states={
+                eigen: "21.0",
+                "sensor.heatpump_flowmeter_temperature": "35.0",
+                "sensor.heatpump_hp1_temperature_outside": "11.5",
+                "sensor.heatpump_total_power": "3000",
+                "sensor.openquatt_water_supply_temp_selected": "35.5",
+                "sensor.openquatt_total_heat_power": "3100",
+                "sensor.openquatt_outside_temperature_selected": "11.4",
+            },
+        )
+        registry = SourceRegistry(hass, {conf_key: waarde})
+        registry.async_evaluate()
+
+        assert registry.active_entity(role) == eigen
+        assert registry.get(role).integration == SOURCE_OTHER

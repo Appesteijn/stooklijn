@@ -15,6 +15,8 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_BOILER_EFFICIENCY,
     CONF_BOILER_HEAT_ENTITY,
+    CONF_CONTROL_SETPOINT_ENTITY,
+    CONF_COP_ENTITY,
     CONF_FLOW_ENTITY,
     CONF_GAS_ENABLED,
     CONF_GAS_ENTITY,
@@ -39,6 +41,7 @@ from .const import (
     CONF_POWER_ENTITY,
     CONF_QUATT_START_DATE,
     CONF_RETURN_TEMP_ENTITY,
+    CONF_ROOM_SETPOINT_ENTITY,
     CONF_SOLAR_ENTITY,
     CONF_SUPPLY_TEMP_ENTITY,
     CONF_TEMP_ENTITIES,
@@ -62,15 +65,19 @@ from .const import (
 from .discovery import (
     ROLE_BOILER_HEAT,
     ROLE_CH_MAX_WATER,
+    ROLE_CONTROL_SETPOINT,
+    ROLE_COP,
     ROLE_FLOW_RATE,
     ROLE_INDOOR_TEMP,
     ROLE_OUTDOOR_TEMP,
     ROLE_POWER_INPUT,
     ROLE_RETURN_TEMP,
+    ROLE_ROOM_SETPOINT,
     ROLE_SUPPLY_TEMP,
     ROLE_TOTAL_POWER,
     async_discover_quatt_entities,
 )
+from .sources import async_source_entity
 
 
 def _entity(domain: str | list[str], *, multiple: bool = False) -> EntitySelector:
@@ -328,6 +335,17 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
             value = data.get(key)
             if value:
                 return value
+            # Wat er nú levert gaat voor op wat de Quatt-detectie zou kiezen.
+            # Staat een Quatt-sensor op 'unknown', dan is de bronregistratie al
+            # doorgeschoven naar OpenQuatt; dán is díe entity het eerlijke
+            # voorstel. Zonder deze stap stelt het formulier een dode sensor
+            # voor en lijkt het alsof die in gebruik is.
+            if role:
+                active = async_source_entity(
+                    self.hass, self._config_entry.entry_id, role
+                )
+                if active:
+                    return active
             if role and role in detected:
                 return detected[role]
             return fallback
@@ -379,6 +397,20 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     _prefill(
                         CONF_INDOOR_TEMP_ENTITY,
                         _current(CONF_INDOOR_TEMP_ENTITY, ROLE_INDOOR_TEMP),
+                    ): _entity("sensor"),
+                    # De resterende gespiegelde metingen. Ze zijn zelden nodig
+                    # — auto-detectie vindt ze — maar zonder keuze kan de vaste
+                    # volgorde (Quatt vóór OpenQuatt) niet overruled worden.
+                    _prefill(
+                        CONF_CONTROL_SETPOINT_ENTITY,
+                        _current(CONF_CONTROL_SETPOINT_ENTITY, ROLE_CONTROL_SETPOINT),
+                    ): _entity("sensor"),
+                    _prefill(
+                        CONF_ROOM_SETPOINT_ENTITY,
+                        _current(CONF_ROOM_SETPOINT_ENTITY, ROLE_ROOM_SETPOINT),
+                    ): _entity("sensor"),
+                    _prefill(
+                        CONF_COP_ENTITY, _current(CONF_COP_ENTITY, ROLE_COP)
                     ): _entity("sensor"),
                     vol.Optional(
                         CONF_SOUND_LEVEL_ENABLED,

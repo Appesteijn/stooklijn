@@ -17,6 +17,7 @@ from custom_components.quatt_stooklijn.config_flow import (
     QuattStooklijnConfigFlow,
     QuattStooklijnOptionsFlow,
 )
+from custom_components.quatt_stooklijn.sources import ROLE_CONF_KEYS
 from custom_components.quatt_stooklijn.const import (
     CONF_BOILER_HEAT_ENTITY,
     CONF_CH_MAX_WATER_ENTITY,
@@ -199,6 +200,10 @@ def _hass(entries=_MODERN):
     hass = MagicMock()
     hass._test_entity_registry = er.FakeRegistry(entries)
     hass.states.get = lambda entity_id: None
+    # Echte dict, geen MagicMock: het optiescherm vraagt de bronregistratie op
+    # en moet kunnen zien dat die er niet is in plaats van een mock terug te
+    # krijgen die overal als geldige entity-ID doorheen glipt.
+    hass.data = {}
     return hass
 
 
@@ -292,6 +297,17 @@ class TestOptiescherm:
     ])
     def test_voorheen_onbereikbare_velden_zijn_instelbaar(self, key):
         assert key in _run(self._options().async_step_init())["data_schema"]
+
+    @pytest.mark.parametrize("role,conf_key", sorted(ROLE_CONF_KEYS.items()))
+    def test_elke_gespiegelde_meting_is_instelbaar(self, role, conf_key):
+        """Bewaakt beide helften van de koppeling in één keer.
+
+        Een rol kan een config-sleutel hebben die het formulier niet aanbiedt
+        (dan is de keuze onbereikbaar), of het formulier kan een veld tonen dat
+        de bronregistratie negeert (dan verdwijnt de keuze stilzwijgend). Deze
+        test faalt in beide gevallen.
+        """
+        assert conf_key in _run(self._options().async_step_init())["data_schema"]
 
     def test_ingevulde_waarde_wordt_bewaard(self):
         result = _run(self._options().async_step_init(

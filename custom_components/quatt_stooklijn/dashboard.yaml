@@ -1441,13 +1441,14 @@ views:
               |:--|:--|:--|
 
               {% for rol, info in rollen.items() -%}
+
               | {{ rol }} | {% if info.integration %}{{ info.integration }}{% else %}**geen**{% endif %} | {% if info.entity %}`{{ info.entity }}`{% else %}*—*{% endif %} |
+
               {% endfor %}
 
               {% if ontbreekt %}
 
-              > Zonder bron: {{ ontbreekt | join(', ') }}. Deze metingen leveren
-              > niets, ook niet aan de analyse.
+              > Zonder bron: {{ ontbreekt | join(', ') }}. Deze metingen leveren niets, ook niet aan de analyse.
 
               {% endif %}
             grid_options:

@@ -24,6 +24,7 @@ from .analysis.stooklijn import (
 from .cache import KneeDataStore
 from .const import (
     CONF_BOILER_EFFICIENCY,
+    CONF_BOILER_HEAT_ENTITY,
     CONF_EOS_THROTTLE_ENTITY,
     CONF_GAS_CALORIFIC_VALUE,
     CONF_GAS_ENABLED,
@@ -32,6 +33,7 @@ from .const import (
     CONF_GAS_START_DATE,
     CONF_HOT_WATER_TEMP_THRESHOLD,
     CONF_POWER_ENTITY,
+    CONF_POWER_INPUT_ENTITY,
     CONF_QUATT_START_DATE,
     CONF_TEMP_ENTITIES,
     DEFAULT_BOILER_EFFICIENCY,
@@ -108,6 +110,8 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             # entity-IDs deze installatie gebruikt (zie discovery.py).
             power_entity=config.get(CONF_POWER_ENTITY) or None,
             temp_entity=temp_entities[0] if temp_entities else None,
+            power_input_entity=config.get(CONF_POWER_INPUT_ENTITY) or None,
+            boiler_heat_entity=config.get(CONF_BOILER_HEAT_ENTITY) or None,
         )
 
         # Step 2: Fetch gas data (if enabled)
