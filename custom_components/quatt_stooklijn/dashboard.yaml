@@ -1255,6 +1255,111 @@ views:
               columns: full
               rows: auto
 
+      # ── Rendement & herverdeling (validatie richting 1.0) ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: markdown
+            title: Rendement & herverdeling
+            content: >
+              {% set cp = 'sensor.quatt_warmteanalyse_cop_prestatie' %}
+
+              {% set ratio = states(cp) | float(none) %}
+
+              {% if ratio is not none %}
+
+              {% set d7 = state_attr(cp, 'rolling_7d') %}
+
+              {% set dag = state_attr(cp, 'laatste_ratio') %}
+
+              ### {{ ratio }} — rendement t.o.v. de eigen norm
+
+              1,00 is zoals deze installatie het bij die buitentemperatuur altijd deed.
+              Hoger is beter. Dit is het 30-daags gemiddelde; losse dagen schommelen
+              ongeveer 12%.
+
+              | | Waarde |
+
+              |:--|--:|
+
+              | 30 dagen | **{{ ratio }}** |
+
+              | 7 dagen | {{ d7 }} |
+
+              | Laatste stookdag ({{ state_attr(cp, 'laatste_dag') }}) | {{ dag }} |
+
+              | Norm gebouwd uit | {{ state_attr(cp, 'referentie_stookdagen') }} stookdagen |
+
+              {% else %}
+
+              *Nog geen rendementsmaat — er zijn stookdagen nodig om een norm te bouwen.*
+
+              {% endif %}
+
+              {% set ws = 'sensor.quatt_warmteanalyse_warmtevraag_verschoven' %}
+
+              {% set nu = states(ws) | float(none) %}
+
+              {% if nu is not none %}
+
+              {% set g = state_attr(ws, 'gamma') | float(0) %}
+
+              {% set bes = state_attr(ws, 'verwachte_besparing') | float(0) %}
+
+              ### Herverdeling — γ = {{ g }}{% if g == 0 %} (uit){% endif %}
+
+              {% if g == 0 %}
+
+              Staat uit: de verschoven vraag is gelijk aan de gewone. Zet γ hoger in de
+              integratie-opties om te zien wat verschuiven zou opleveren. Er wordt niets
+              mee aangestuurd.
+
+              {% else %}
+
+              Zou nu **{{ nu | round(0) }} W** publiceren in plaats van
+              **{{ state_attr(ws, 'vlak_nu') | round(0) }} W**.
+
+              {% endif %}
+
+              | | Waarde |
+
+              |:--|--:|
+
+              | Verwachte besparing | **{{ (bes * 100) | round(2) }}%** |
+
+              | Venster | {{ state_attr(ws, 'venster_uren') }} uur |
+
+              | Voorspelde kamerdrift | {{ state_attr(ws, 'voorspelde_drift_k') }} K |
+
+              | Uren boven firmwareplafond | {{ state_attr(ws, 'uren_boven_plafond') }} |
+
+              {% if (state_attr(ws, 'drift_begrenzing') | float(1)) < 1 %}
+
+              > De comfortgrens greep in: de verschuiving is teruggeschaald met factor
+              {{ state_attr(ws, 'drift_begrenzing') }} om de kamerdrift onder 0,3 K te houden.
+
+              {% endif %}
+
+              {% if (state_attr(ws, 'uren_boven_plafond') | int(0)) > 0 %}
+
+              > In {{ state_attr(ws, 'uren_boven_plafond') }} uur komt de verdeling boven
+              *Rated maximum house power*. Daar kapt de firmware af en gaat de
+              energie-neutraliteit alsnog verloren — kies dan een lagere γ.
+
+              {% endif %}
+
+              *Schaduwsensor: nergens aan gekoppeld.*
+
+              {% else %}
+
+              *Herverdeling nog niet beschikbaar — wacht op de weersverwachting en een
+              geconvergeerd thermisch model.*
+
+              {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
+
       # ── Aanvoertemperatuur vergelijking (volle breedte) ──
       - type: grid
         column_span: 2

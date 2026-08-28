@@ -216,3 +216,44 @@ class TestComfortbewaking:
     def test_gamma_nul_drijft_niet(self):
         r = _shift(0.0, thermal_mass_wh_k=C_WH_K)
         assert r.worst_drift_k in (None, 0.0) or abs(r.worst_drift_k) < 1e-9
+
+
+class TestMpcKoppeling:
+    """De schaduwsensor haalt de thermische massa bij de MPC-sensor op.
+
+    Deze test voert de property écht uit in plaats van de broncode als tekst te
+    controleren. Dat onderscheid is niet theoretisch: een eerdere versie riep
+    ``self.model`` aan in plaats van ``self.thermal_model``, en dat glipte langs
+    alle bestaande tests omdat die alleen naar strings keken. In HA gaf het een
+    AttributeError bij elke state-write.
+    """
+
+    def test_thermal_params_draait_op_een_echt_object(self):
+        from custom_components.quatt_stooklijn.sensor import QuattMpcSensor
+
+        class _ZonderModel:
+            thermal_model = None
+
+        # Roept de property-body aan; een verkeerde attribuutnaam knalt hier.
+        assert QuattMpcSensor.thermal_params.fget(_ZonderModel()) == {
+            "converged": False
+        }
+
+    def test_thermal_params_geeft_de_modelparameters_door(self):
+        from custom_components.quatt_stooklijn.sensor import QuattMpcSensor
+
+        class _Model:
+            params = {"converged": True, "C_whk": 25583.0}
+
+        class _MetModel:
+            thermal_model = _Model()
+
+        out = QuattMpcSensor.thermal_params.fget(_MetModel())
+        assert out["C_whk"] == 25583.0
+
+    def test_mpc_sensor_heeft_de_verwachte_koppelvlakken(self):
+        """Beide namen die de schaduwsensor gebruikt moeten bestaan."""
+        from custom_components.quatt_stooklijn.sensor import QuattMpcSensor
+
+        for naam in ("thermal_model", "thermal_params", "build_forecast_arrays"):
+            assert hasattr(QuattMpcSensor, naam), f"ontbreekt: {naam}"

@@ -807,7 +807,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         massa nodig heeft om de kamerdrift te schatten. Zonder ``converged``
         staat er geen bruikbare C in en hoort er niet op gerekend te worden.
         """
-        model = self.model
+        model = self.thermal_model
         return model.params if model is not None else {"converged": False}
 
     def build_forecast_arrays(
@@ -2427,7 +2427,7 @@ class QuattShiftedHeatDemandSensor(QuattHeatDemandSensor):
         hass: HomeAssistant,
         coordinator: QuattStooklijnCoordinator,
         entry: ConfigEntry,
-        mpc_sensor: "QuattMpcSupplyTempSensor",
+        mpc_sensor: "QuattMpcSensor",
     ) -> None:
         super().__init__(hass, coordinator, entry)
         self._mpc = mpc_sensor
