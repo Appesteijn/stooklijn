@@ -34,11 +34,13 @@ from .const import (
     CONF_HOT_WATER_TEMP_THRESHOLD,
     CONF_POWER_ENTITY,
     CONF_POWER_INPUT_ENTITY,
+    CONF_QUATT_CLOUD_ENABLED,
     CONF_QUATT_START_DATE,
     CONF_TEMP_ENTITIES,
     DEFAULT_BOILER_EFFICIENCY,
     DEFAULT_GAS_CALORIFIC_VALUE,
     DEFAULT_HOT_WATER_TEMP_THRESHOLD,
+    DEFAULT_QUATT_CLOUD_ENABLED,
     DOMAIN,
 )
 from .discovery import (
@@ -112,6 +114,9 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             temp_entity=temp_entities[0] if temp_entities else None,
             power_input_entity=config.get(CONF_POWER_INPUT_ENTITY) or None,
             boiler_heat_entity=config.get(CONF_BOILER_HEAT_ENTITY) or None,
+            use_cloud=config.get(
+                CONF_QUATT_CLOUD_ENABLED, DEFAULT_QUATT_CLOUD_ENABLED
+            ),
         )
 
         # Step 2: Fetch gas data (if enabled)

@@ -14,6 +14,7 @@ from homeassistant.helpers import entity_registry as er
 
 from custom_components.quatt_stooklijn.const import CONF_TEMP_ENTITIES, DOMAIN
 from custom_components.quatt_stooklijn.discovery import (
+    ROLE_INDOOR_TEMP,
     ROLE_OUTDOOR_TEMP,
     ROLE_SUPPLY_TEMP,
     ROLE_TOTAL_POWER,
@@ -441,3 +442,68 @@ class TestRolConfiguratie:
 
         assert registry.active_entity(role) == eigen
         assert registry.get(role).integration == SOURCE_OTHER
+
+
+class TestBestaandeConfiguraties:
+    """Wat er gebeurt bij een upgrade van een installatie die al draait.
+
+    Sinds ROLE_CONF_KEYS alle elf rollen kent, worden drie sleutels
+    (indoor_temp, boiler_heat, power_input) opeens wél gehonoreerd terwijl de
+    bronregistratie ze eerder negeerde. Een blijven staande, inmiddels dode
+    instelling mag daardoor geen meting stukmaken.
+    """
+
+    LIVE = {
+        "sensor.heatpump_thermostat_room_temperature": "unknown",
+        "sensor.openquatt_room_temperature_selected": "21.4",
+    }
+
+    # De gedeelde OQ_ENTRIES kent geen kamertemperatuur; OpenQuatt-detectie
+    # werkt op de entity-naam, dus die moet hier expliciet bij.
+    OQ_KAMER = _oq("sensor.openquatt_room_temperature_selected",
+                   "Room Temperature (Selected)")
+    QUATT_KAMER = _quatt("sensor.heatpump_thermostat_room_temperature",
+                         "thermostat", "thermostat.otFtRoomTemperature")
+
+    def _registry(self, config, extra_states=None):
+        states = {**self.LIVE, **(extra_states or {})}
+        hass = _hass(
+            [*QUATT_ENTRIES, self.QUATT_KAMER, *OQ_ENTRIES, self.OQ_KAMER],
+            states=states,
+        )
+        registry = SourceRegistry(hass, config)
+        registry.async_evaluate()
+        return registry
+
+    def test_zonder_instelling_verandert_er_niets(self):
+        """De norm: verreweg de meeste installaties hebben niets ingesteld."""
+        registry = self._registry({})
+        assert (
+            registry.active_entity(ROLE_INDOOR_TEMP)
+            == "sensor.openquatt_room_temperature_selected"
+        )
+
+    def test_verwijderde_entity_maakt_de_meting_niet_stuk(self):
+        registry = self._registry({"indoor_temp_entity": "sensor.oud_en_verwijderd"})
+        assert (
+            registry.active_entity(ROLE_INDOOR_TEMP)
+            == "sensor.openquatt_room_temperature_selected"
+        )
+
+    def test_onbruikbare_entity_valt_door_naar_de_detectie(self):
+        registry = self._registry(
+            {"indoor_temp_entity": "sensor.mijn_kamer"},
+            {"sensor.mijn_kamer": "unavailable"},
+        )
+        assert (
+            registry.active_entity(ROLE_INDOOR_TEMP)
+            == "sensor.openquatt_room_temperature_selected"
+        )
+
+    def test_werkende_entity_wordt_nu_wel_gevolgd(self):
+        """Dit is de bedoelde gedragswijziging, niet een neveneffect."""
+        registry = self._registry(
+            {"indoor_temp_entity": "sensor.mijn_kamer"},
+            {"sensor.mijn_kamer": "22.8"},
+        )
+        assert registry.active_entity(ROLE_INDOOR_TEMP) == "sensor.mijn_kamer"

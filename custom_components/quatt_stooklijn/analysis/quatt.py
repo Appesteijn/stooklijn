@@ -274,6 +274,7 @@ async def async_fetch_quatt_insights(
     temp_entity: str | None = None,
     power_input_entity: str | None = None,
     boiler_heat_entity: str | None = None,
+    use_cloud: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Fetch Quatt data using a hybrid approach.
 
@@ -358,17 +359,32 @@ async def async_fetch_quatt_insights(
             )
 
     # === Step 3: Quatt API for last N days (hourly detail) ===
+    #
+    # Staat de cloud uit, dan wordt dit venster op dezelfde manier behandeld als
+    # het historische venster hierboven: alleen uit de cache lezen. De reeds
+    # opgebouwde dagen blijven dus meedoen; er komen alleen geen nieuwe bij.
+    # De recorder-tak (stap 1) vult die rol en levert dezelfde kolommen.
     api_start_str = api_start.strftime("%Y-%m-%d")
 
-    _LOGGER.info(
-        "Fetching Quatt API data for %s to %s (%d days)...",
-        api_start_str,
-        end_date,
-        (end_dt - api_start).days + 1,
-    )
+    if use_cloud:
+        _LOGGER.info(
+            "Fetching Quatt API data for %s to %s (%d days)...",
+            api_start_str,
+            end_date,
+            (end_dt - api_start).days + 1,
+        )
+    else:
+        _LOGGER.info(
+            "Quatt cloud disabled — reading %s to %s from cache only; "
+            "new days come from the recorder",
+            api_start_str,
+            end_date,
+        )
 
     api_hourly, api_daily, api_calls_made, api_cache_hits = (
-        await _async_fetch_api_days(hass, api_start, end_dt, cache)
+        await _async_fetch_api_days(
+            hass, api_start, end_dt, cache, cache_only=not use_cloud
+        )
     )
     hourly_chunks.extend(api_hourly)
     daily_records.extend(api_daily)

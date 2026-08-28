@@ -1451,6 +1451,32 @@ views:
               > Zonder bron: {{ ontbreekt | join(', ') }}. Deze metingen leveren niets, ook niet aan de analyse.
 
               {% endif %}
+
+              {% set stats = 'sensor.quatt_warmteanalyse_data_statistieken' %}
+
+              {% set cache_nieuwste = state_attr(stats, 'cache_newest') %}
+
+              {% set cache_dagen = state_attr(stats, 'cache_days') | int(0) %}
+
+              {% if state_attr(s, 'cloud_enabled') == false %}
+
+              **Quatt cloud staat uit** — nieuwe dagen komen uit de recorder. De
+              opgebouwde cache ({{ cache_dagen }} dagen{% if cache_nieuwste %}, t/m {{ cache_nieuwste }}{% endif %})
+              blijft meedoen voor de historie, maar groeit niet meer.
+
+              {% if cache_nieuwste %}
+
+              {% set achterstand = (now().date() - strptime(cache_nieuwste, '%Y-%m-%d').date()).days %}
+
+              {% if achterstand > 1 %}
+
+              > Je draait {{ achterstand }} dagen op eigen data. Dat is de bedoeling zolang de cloud uit staat.
+
+              {% endif %}
+
+              {% endif %}
+
+              {% endif %}
             grid_options:
               columns: full
               rows: auto

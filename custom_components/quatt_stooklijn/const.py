@@ -48,6 +48,16 @@ CONF_COP_ENTITY = "cop_entity"
 # How many days of detailed hourly data to fetch from Quatt API
 API_FETCH_DAYS = 30
 
+# Of de Quatt cloud-API überhaupt bevraagd wordt.
+#
+# Uit betekent níet dat de opgebouwde historie verdwijnt: de insights-cache
+# blijft gelezen worden (retentie is 100 jaar, zie cache.py) en levert de oude
+# dagen gewoon aan. Alleen nieuwe dagen komen dan uit de recorder in plaats van
+# uit de cloud — die tak berekent dezelfde kolommen zelf, COP incluis.
+# Standaard aan, zodat bestaande installaties niets merken.
+CONF_QUATT_CLOUD_ENABLED = "quatt_cloud_enabled"
+DEFAULT_QUATT_CLOUD_ENABLED = True
+
 # Analysis parameters
 MIN_POWER_FILTER = 2500  # W - minimum power to consider heat pump active
 OUTLIER_STD_THRESHOLD = 2.5  # Z-score threshold for outlier removal

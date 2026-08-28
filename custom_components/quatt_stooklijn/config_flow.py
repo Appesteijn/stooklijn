@@ -39,6 +39,7 @@ from .const import (
     CONF_SOUND_NIGHT_START_HOUR,
     CONF_SOUND_NIGHT_END_HOUR,
     CONF_POWER_ENTITY,
+    CONF_QUATT_CLOUD_ENABLED,
     CONF_QUATT_START_DATE,
     CONF_RETURN_TEMP_ENTITY,
     CONF_ROOM_SETPOINT_ENTITY,
@@ -53,6 +54,7 @@ from .const import (
     DEFAULT_COMFORT_FLOOR_TEMP,
     DEFAULT_EOS_THROTTLE_ENTITY,
     DEFAULT_GAS_CALORIFIC_VALUE,
+    DEFAULT_QUATT_CLOUD_ENABLED,
     DEFAULT_HOT_WATER_TEMP_THRESHOLD,
     DEFAULT_SOLAR_ENTITY,
     DEFAULT_SOUND_LEVEL_MAX,
@@ -412,6 +414,14 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     _prefill(
                         CONF_COP_ENTITY, _current(CONF_COP_ENTITY, ROLE_COP)
                     ): _entity("sensor"),
+                    # Uit = draaien op recorder + eigen stores. De opgebouwde
+                    # insights-cache blijft meedoen, hij groeit alleen niet meer.
+                    vol.Optional(
+                        CONF_QUATT_CLOUD_ENABLED,
+                        default=data.get(
+                            CONF_QUATT_CLOUD_ENABLED, DEFAULT_QUATT_CLOUD_ENABLED
+                        ),
+                    ): bool,
                     vol.Optional(
                         CONF_SOUND_LEVEL_ENABLED,
                         default=data.get(CONF_SOUND_LEVEL_ENABLED, False),

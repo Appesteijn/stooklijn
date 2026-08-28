@@ -32,6 +32,8 @@ from .const import (
     CONF_COMFORT_FLOOR_TEMP,
     CONF_FLOW_ENTITY,
     CONF_INDOOR_TEMP_ENTITY,
+    CONF_QUATT_CLOUD_ENABLED,
+    DEFAULT_QUATT_CLOUD_ENABLED,
     CONF_POWER_ENTITY,
     CONF_RETURN_TEMP_ENTITY,
     CONF_SOLAR_ENTITY,
@@ -1836,11 +1838,18 @@ class QuattSourceOverviewSensor(SensorEntity):
     def extra_state_attributes(self) -> dict:
         summary = self._registry.summary()
         missing = [role for role, info in summary.items() if info["entity"] is None]
+        cfg = {**self._entry.data, **self._entry.options}
         return {
             "roles": summary,
             "missing_roles": missing,
             "roles_total": len(summary),
             "roles_resolved": len(summary) - len(missing),
+            # Hoort hier omdat het dezelfde vraag beantwoordt als de rest van
+            # deze sensor: waar komt de data vandaan. Staat dit uit, dan komen
+            # nieuwe dagen uit de recorder en groeit de insights-cache niet meer.
+            "cloud_enabled": bool(
+                cfg.get(CONF_QUATT_CLOUD_ENABLED, DEFAULT_QUATT_CLOUD_ENABLED)
+            ),
         }
 
 
