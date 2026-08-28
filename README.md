@@ -4,7 +4,32 @@
   <img src="icon.png" alt="Quatt Warmteanalyse" width="128">
 </p>
 
-Home Assistant custom integration for analyzing your Quatt heat pump performance. Calculates optimal heating curves (stooklijn), COP, heat loss characteristics, and optionally compares with historical gas consumption.
+Home Assistant custom integration for analyzing your Quatt heat pump performance. It measures
+what your house actually needs — heat loss, balance point, the temperature where the gas
+boiler has to assist — and turns that into concrete settings you can ask Quatt to change.
+Optionally compares against your gas consumption from before the heat pump.
+
+Everything it does is read-only by default: it advises, it does not steer your installation.
+
+![Overzicht tab](screenshot-overzicht.png)
+
+*The Overzicht tab: current COP, your home's measured heat loss and balance point, the knee
+temperature where the boiler has to assist, and the concrete change to ask Quatt for.*
+
+## Terminology
+
+The analysis uses the Dutch terms your installer and Quatt support use, so you can repeat
+them verbatim when you ask for a change. Dutch and English are used interchangeably below.
+
+| Term | Meaning |
+|------|---------|
+| **Stooklijn** | Heating curve — the relation between outdoor temperature and the supply temperature the heat pump aims for. Flatter is usually more efficient. |
+| **Aanvoertemperatuur** | Supply temperature — water leaving the heat pump towards your radiators or floor. |
+| **Retourtemperatuur** | Return temperature — water coming back. |
+| **Stookgrens** | Heating limit — the outdoor temperature above which no heating is needed. Called *balance point* in the English parts of this README. |
+| **Knikpunt** | Knee temperature — the outdoor temperature below which the heat pump alone can no longer keep up and the gas boiler must assist. |
+| **Nominaal vermogen** | Rated power — the heat output Quatt assumes your house needs at −10 °C. |
+| **Warmtevraag** | Heat demand — how much power (W) your house currently needs. |
 
 ## Features
 
@@ -19,7 +44,247 @@ Home Assistant custom integration for analyzing your Quatt heat pump performance
 - **Geluidsniveaucompensatie** (optional) — Automatically adjusts the compressor sound level based on MPC error and boiler activity, with separate day/night limits
 - **OpenQuatt ready** — Output sensors with optimal heating curve breakpoints and balance point, ready for OpenQuatt automations
 - **Power House feedforward** — Publishes the measured house heat demand (W) for OpenQuatt's external heat demand input
-- **Dashboard included** — Pre-built Lovelace dashboard with five tabs including a dedicated Geluid view
+- **Source abstraction** — Every measurement is exposed through a mirror sensor with a stable entity ID. Dashboards and automations keep working while the underlying source (Quatt, OpenQuatt, or your own sensor) switches or drops out
+- **Runs without the cloud** — The Quatt Insights API is optional. With it off, the analysis continues on Home Assistant's own long-term statistics plus the integration's stored history
+- **Dashboard included** — Pre-built Lovelace dashboard with five tabs, including a Systeem view showing which integration delivers each measurement
+
+## Requirements
+
+- Home Assistant 2024.1.0 or newer
+- At least one source for the measurements — either works, and they can be mixed:
+  - [Quatt integration](https://github.com/marcoboers/home-assistant-quatt) (local polling of the CIC), and/or
+  - [OpenQuatt](https://github.com/OpenQuatt/OpenQuatt) (ESPHome firmware reading the heat pump locally)
+- A Quatt account is **not** required. The Quatt Insights cloud API only adds hourly detail and can be switched off entirely
+- [apexcharts-card](https://github.com/RomRider/apexcharts-card) (HACS frontend) for the dashboard charts
+- [mini-graph-card](https://github.com/kalkih/mini-graph-card) (HACS frontend) for the historical trend charts
+
+## Installation
+
+### HACS (recommended)
+
+1. Open HACS in Home Assistant
+2. Go to **Integrations** > **Custom repositories**
+3. Add `https://github.com/Appesteijn/stooklijn` and select **Integration** as category
+4. Search for "Quatt Warmteanalyse" and install
+5. Restart Home Assistant
+
+### Manual
+
+1. Copy the `custom_components/quatt_stooklijn` folder to your Home Assistant `config/custom_components/` directory
+2. Restart Home Assistant
+
+## Configuration
+
+1. Go to **Settings** > **Devices & Services** > **Add Integration**
+2. Search for "Quatt Warmteanalyse"
+3. Follow the setup wizard:
+
+### Step 1: Heat pump data
+- **Start/end date** — The period to analyze (after heat pump installation)
+- **Outside temperature sensor(s)** — Entity picker; add several and the first available one is used, the rest fill gaps
+- **Power sensor** — Entity for total heat pump power
+
+Leave a field empty and auto-detection picks the entity at runtime. That is usually the better choice: entity IDs differ per Quatt installation (see the v2→v3 device migration), so a value that is right today can be wrong after an update.
+
+### Step 2: Gas analysis (optional)
+- **Gas entity** — Cumulative gas meter (m³)
+- **Gas period** — Date range from *before* heat pump installation
+- **Calorific value** — Gas energy content (default: 9.77 kWh/m³ for Dutch gas)
+- **Boiler efficiency** — Your old boiler's efficiency (default: 0.90)
+- **Hot water threshold** — Temperature above which gas usage is counted as hot water only (default: 18°C)
+
+### Step 3: Geluidsniveaucompensatie (optional)
+- Enable the sound level compensation switch and configure day/night maximum levels and the day/night start times
+
+## Data sources
+
+The integration does not read sensors directly. It resolves eleven logical **roles** — supply temp, return temp, outside temp, room temp, control setpoint, room setpoint, flow rate, total power, power input, boiler heat, COP — and each role is filled by the first candidate that actually delivers a number.
+
+### Candidate order
+
+```
+your configured entity  →  Quatt integration  →  OpenQuatt  →  known fallback names
+```
+
+Quatt deliberately comes before OpenQuatt so existing installations keep exactly the same primary source after an update. A configured entity always wins, which is the only way to override that order.
+
+If the active source stops delivering — `unavailable`, `unknown`, or a non-numeric state — the next candidate takes over automatically, and it switches back as soon as the preferred source recovers.
+
+### Choosing sources yourself
+
+Every one of the eleven roles has its own field in **Configure**. Leave it empty for auto-detection, or point it at any sensor you like — including one that belongs to neither integration. Set the outside temperature to your own weather station and the analysis will use it.
+
+### Mirror sensors
+
+Each role is also published as a `sensor.quatt_warmteanalyse_*` mirror with a fixed entity ID. Dashboards and automations should use these rather than the raw sensors: the mirror keeps one continuous history while the source underneath switches. Its attributes name the entity and integration currently delivering.
+
+`sensor.quatt_warmteanalyse_databronnen` gives the full picture in one place: per role the active entity, its integration, all candidates, and when it last switched. The **Systeem** dashboard tab renders this as a table.
+
+### Running without the Quatt cloud
+
+The option **Use Quatt cloud API** (default on) controls whether the Quatt Insights service is queried at all.
+
+Switched off, the integration keeps working:
+
+- Daily analysis runs on Home Assistant's long-term statistics, which are never purged. It derives heat, electricity, boiler heat and COP itself.
+- Knee detection keeps running on recorder minute data plus the knee data store.
+- The insights cache is still **read**, so everything collected so far keeps contributing. Only new days stop being added.
+
+What you give up is the hourly Quatt detail (a fallback for knee detection and a backfill source for historical cold spells) and the current day, which the API used to supply live before Home Assistant has closed the day's statistics.
+
+Worth knowing: this switch does not affect the Quatt HA integration, which polls your CIC locally. If OpenQuatt is your only other source, consider that turning the cloud off leaves each role with a single candidate and no fallback.
+
+## First run — what to expect
+
+The analysis starts automatically when Home Assistant starts, and again on demand. What it
+can tell you depends entirely on how much data it has seen.
+
+| When | What works |
+|------|-----------|
+| Immediately | Mirror sensors, data sources overview, live COP estimate |
+| First run | Heat loss regression and balance point, using Home Assistant's long-term statistics — these often go back months, so results can be meaningful straight away |
+| After ~2 days | The online thermal model converges (48 hourly updates) and the MPC advice becomes available |
+| After the first cold period | Knee detection becomes reliable — it needs hours where the heat pump ran at full capacity below 10 °C |
+| Over the following winters | Knee detection and the Quatt advice keep sharpening as the knee data store fills |
+
+Two things are normal and not errors:
+
+- **`unknown` on the error sensors while the pump is idle.** Comparing advice to actual
+  supply temperature is meaningless without circulation, so they deliberately return
+  nothing below 30 L/h.
+- **An empty data sources table right after a restart.** Sources are re-evaluated once a
+  minute; other integrations may still be starting.
+
+The `analysis_status` sensor and the **Analyse** dashboard tab show what data is available.
+If a result stays empty, that tab tells you which input is missing.
+
+## Usage
+
+The analysis runs **automatically** when Home Assistant starts, so your dashboards are always populated after a restart.
+
+You can also trigger an analysis manually:
+
+1. Call the `quatt_stooklijn.run_analysis` service, or
+2. Press the **Analyse Starten** button on the dashboard
+
+### Dashboard
+
+Import the dashboard from `dashboards/quatt_stooklijn_dashboard.yaml`:
+
+1. Go to **Settings** > **Dashboards** > **Add Dashboard**
+2. Choose **New dashboard from scratch**
+3. Open the dashboard, switch to YAML mode (three dots > **Edit in YAML**)
+4. Paste the contents of `quatt_stooklijn_dashboard.yaml`
+
+The dashboard has five tabs:
+
+| Tab | Contents |
+|-----|----------|
+| **Overzicht** | Key metrics (COP, heat loss, balance temp, knee), comfort chart, quick advice |
+| **Analyse** | Heat loss scatter + trendlines, COP vs temperature, heat demand table, data availability |
+| **Advies** | Quatt parameter recommendations, stooklijn breakpoints, OpenQuatt integration |
+| **MPC** | Thermal model status, 6-hour forecast, supply temperature comparison, error sensors |
+| **Systeem** | Data sources per measurement, supply-temperature limiting, 48-hour aligned charts: power, MPC deviation, flow & outdoor temp; sound level status when enabled |
+
+### Adapting the dashboard to your setup
+
+Almost nothing needs adapting. The dashboard references only `sensor.quatt_warmteanalyse_*`
+entities, which this integration creates itself with fixed entity IDs. Those keep working no
+matter which integration delivers the underlying measurement, and no matter how your Quatt
+sensors happen to be named.
+
+Two exceptions:
+
+| Entity ID | What to do |
+|-----------|------------|
+| `number.cic_max_water_temperature` | Used by the supply-temperature limiting card. Comes from the Quatt integration; replace it if yours is named differently, or ignore the card if you do not use that feature. |
+| `input_number.eos_comfort_coast_margin_min` | Only referenced in explanatory text on the MPC tab. Safe to ignore unless you run an Energy-OS style setup. |
+
+Cards for optional features hide themselves when the feature is off, so an unused card does
+not show errors — it simply is not there.
+
+**Weather forecast — required for MPC shadow sensor:**
+
+The MPC sensor needs a weather forecast entity to predict the next 6 hours of outdoor temperature and solar radiation. During setup you are asked to provide one; the default is `weather.home`.
+
+Almost every Home Assistant installation has this: the built-in [Met.no integration](https://www.home-assistant.io/integrations/met/) creates `weather.home` automatically. If your entity is named differently (e.g. `weather.your_city`), update it in **Settings > Devices & Services > Quatt Warmteanalyse > Configure**.
+
+> **No weather integration?** The MPC sensor will stay `unavailable`. Install Met.no (free, no API key) or any other HA weather integration to enable it.
+
+## Sensors
+
+| Sensor | Unit | Description |
+|--------|------|-------------|
+| `heat_loss_coefficient` | W/K | Heat loss per degree below balance point |
+| `balance_point` | °C | Outdoor temp where no heating is needed |
+| `optimal_stooklijn_slope` | W/°C | Slope of the optimal heating curve |
+| `quatt_stooklijn_slope` | W/°C | Slope of Quatt's estimated curve |
+| `knee_temperature` | °C | Temperature where boiler must assist |
+| `average_cop` | — | Average coefficient of performance |
+| `freezing_performance_slope` | W/°C | Heat pump performance below 0°C |
+| `gas_heat_loss_coefficient` | W/K | Heat loss from gas period (if configured) |
+| `last_analysis` | timestamp | When the last analysis was run |
+| `analysis_status` | — | Current analysis status |
+| `data_statistieken` | — | Data availability per source (recorder days, cache days, knee store points) |
+| `quatt_advies_parameters` | — | Recommended Quatt parameter changes with full detail attributes |
+| `openquatt_balance_point` | °C | Optimal balance point for OpenQuatt |
+| `openquatt_stooklijn` | — | 6 heating curve breakpoints for OpenQuatt |
+| `openquatt_power_house_kalibratie` | — | Advised Power House parameters (cold temp, rated power, zero-power temp) |
+| `warmtevraag` | W | House heat demand, feeds OpenQuatt's Power House feedforward |
+| `databronnen` | — | Which integration delivers which measurement, with candidates and switch times |
+
+**Mirror sensors** (one per role, stable entity ID regardless of which integration delivers — use these in dashboards and automations):
+
+| Sensor | Unit | Sensor | Unit |
+|--------|------|--------|------|
+| `aanvoertemperatuur` | °C | `thermisch_vermogen` | W |
+| `retourtemperatuur` | °C | `opgenomen_vermogen` | W |
+| `buitentemperatuur` | °C | `ketelvermogen` | W |
+| `kamertemperatuur` | °C | `debiet` | L/h |
+| `thermostaat_setpoint` | °C | `cop` | — |
+| `kamer_setpoint` | °C | | |
+
+Each carries `source_entity`, `source_integration`, `candidates` and `switched_at` as attributes.
+
+**Live sensors** (update in real-time based on current conditions):
+
+| Sensor | Unit | Description |
+|--------|------|-------------|
+| `geschatte_actuele_cop` | — | Interpolated COP at current outdoor temperature |
+| `aanbevolen_aanvoertemperatuur` | °C | Recommended supply temperature (stooklijn-based) |
+| `mpc_aanbevolen_aanvoertemperatuur` | °C | MPC recommended supply temperature (weather + solar + RC model) |
+| `stooklijn_fout_aanvoertemperatuur` | °C | Error: stooklijn advice − actual supply |
+| `mpc_fout_aanvoertemperatuur` | °C | Error: MPC advice − actual supply |
+| `veilige_uitlooptijd` | min | How long the house can coast with the heat pump off before hitting the comfort floor |
+| `max_aanvoertemperatuur_instelling` | °C | Value last written to the heat pump's max supply temperature (only when supply-temperature control is enabled) |
+| `geluidsniveau` | — | Current compressor sound level (`uit` / `building87` / `silent` / `library` / `normal`) — only when sound level compensation is enabled |
+
+Both error sensors return no value while the pump is idle (flow below 30 L/h): comparing advice against actual supply temperature is meaningless without circulation.
+
+**Binary sensors:**
+
+| Entity | Description |
+|--------|-------------|
+| `gasketel_actief` | Whether the gas boiler is currently producing heat |
+
+**Control entities** (only when geluidsniveaucompensatie is enabled):
+
+| Entity | Type | Description |
+|--------|------|-------------|
+| `geluidsniveau_compensatie` | switch | Enable/disable automatic sound level management |
+
+**Other entities:**
+
+| Entity | Type | Description |
+|--------|------|-------------|
+| `analyse_startdatum` | text | Start date of the analysis period, editable from the dashboard |
+
+## Services
+
+| Service | Description |
+|---------|-------------|
+| `quatt_stooklijn.run_analysis` | Run the full analysis pipeline |
+| `quatt_stooklijn.clear_data` | Clear all analysis results and reset sensors |
 
 ## MPC shadow sensor
 
@@ -34,9 +299,14 @@ Every update cycle the sensor:
 3. Applies a simple RC thermal model of your home (heat loss coefficient + thermal mass) to predict how much heat the house will need hour by hour
 4. Picks the supply temperature that keeps the house comfortable while avoiding unnecessary overheating
 
-The result is compared to the actual supply temperature via the **error sensors** on the Shadow Validatie tab:
+The result is compared to the actual supply temperature via the **error sensors** on the MPC tab:
 - A positive error means the sensor advises a higher supply temperature than what's currently running (risk of underheating)
 - A negative error means the sensor advises lower (heat pump is running warmer than necessary)
+
+![MPC tab](screenshot-mpc.png)
+
+*The MPC tab: the learned thermal model of your house, how long it can coast with the heat
+pump off, the 6-hour forecast, and advice versus actual supply temperature.*
 
 ### Solar gain correction
 
@@ -44,11 +314,11 @@ The integration uses [Open-Meteo](https://open-meteo.com/) shortwave radiation (
 
 ### Shadow mode
 
-The MPC sensor only produces advice — it never writes setpoints to your system. After a few weeks of data you can judge on the **Geluid** dashboard tab whether the advice tracks reality before taking any further action.
+The MPC sensor only produces advice — it never writes setpoints to your system. After a few weeks of data you can judge on the **MPC** dashboard tab whether the advice tracks reality before taking any further action.
 
 ## Quatt advies sensor
 
-The `sensor.quatt_warmteanalyse_quatt_advies` sensor analyzes your heat pump data and tells you exactly what parameters to ask Quatt to change in their app. This is useful because Quatt support can adjust your installation settings remotely, but you need to tell them what to change.
+The `sensor.quatt_warmteanalyse_quatt_advies_parameters` sensor analyzes your heat pump data and tells you exactly what parameters to ask Quatt to change in their app. This is useful because Quatt support can adjust your installation settings remotely, but you need to tell them what to change.
 
 The sensor state shows how many adjustments are recommended (e.g. "3 aanpassingen aanbevolen" or "Instellingen optimaal"). The attributes contain the specific advice:
 
@@ -116,7 +386,7 @@ The switch exposes these attributes for monitoring:
 
 ## OpenQuatt readiness
 
-If you plan to install an [OpenQuatt](https://github.com/openquatt) (ESPHome-based CiC replacement), the integration provides output sensors that OpenQuatt automations can consume directly.
+If you plan to install an [OpenQuatt](https://github.com/OpenQuatt/OpenQuatt) (ESPHome-based CiC replacement), the integration provides output sensors that OpenQuatt automations can consume directly.
 
 ### Sensors
 
@@ -216,178 +486,11 @@ automation:
           value: "{{ states('sensor.quatt_warmteanalyse_openquatt_balance_point') }}"
 ```
 
-## Requirements
-
-- Home Assistant 2024.1.0 or newer
-- [Quatt integration](https://github.com/marcoboers/home-assistant-quatt) configured and running
-- [apexcharts-card](https://github.com/RomRider/apexcharts-card) (HACS frontend) for the dashboard charts
-- [mini-graph-card](https://github.com/kalkih/mini-graph-card) (HACS frontend) for the historical trend charts
-
-## Installation
-
-### HACS (recommended)
-
-1. Open HACS in Home Assistant
-2. Go to **Integrations** > **Custom repositories**
-3. Add `https://github.com/Appesteijn/stooklijn` and select **Integration** as category
-4. Search for "Quatt Warmteanalyse" and install
-5. Restart Home Assistant
-
-### Manual
-
-1. Copy the `custom_components/quatt_stooklijn` folder to your Home Assistant `config/custom_components/` directory
-2. Restart Home Assistant
-
-## Configuration
-
-1. Go to **Settings** > **Devices & Services** > **Add Integration**
-2. Search for "Quatt Warmteanalyse"
-3. Follow the setup wizard:
-
-### Step 1: Heat pump data
-- **Start/end date** — The period to analyze (after heat pump installation)
-- **Temperature sensors** — Comma-separated entity IDs for outdoor temperature (in priority order)
-- **Power sensor** — Entity for total heat pump power
-
-### Step 2: Gas analysis (optional)
-- **Gas entity** — Cumulative gas meter (m³)
-- **Gas period** — Date range from *before* heat pump installation
-- **Calorific value** — Gas energy content (default: 9.77 kWh/m³ for Dutch gas)
-- **Boiler efficiency** — Your old boiler's efficiency (default: 0.90)
-- **Hot water threshold** — Temperature above which gas usage is counted as hot water only (default: 18°C)
-
-### Step 3: Geluidsniveaucompensatie (optional)
-- Enable the sound level compensation switch and configure day/night maximum levels and the day/night start times
-
-## Usage
-
-The analysis runs **automatically** when Home Assistant starts, so your dashboards are always populated after a restart.
-
-You can also trigger an analysis manually:
-
-1. Call the `quatt_stooklijn.run_analysis` service, or
-2. Press the **Analyse Starten** button on the dashboard
-
-### Dashboard
-
-Import the dashboard from `dashboards/quatt_stooklijn_dashboard.yaml`:
-
-1. Go to **Settings** > **Dashboards** > **Add Dashboard**
-2. Choose **New dashboard from scratch**
-3. Open the dashboard, switch to YAML mode (three dots > **Edit in YAML**)
-4. Paste the contents of `quatt_stooklijn_dashboard.yaml`
-
-The dashboard has five tabs:
-
-| Tab | Contents |
-|-----|----------|
-| **Overzicht** | Key metrics (COP, heat loss, balance temp, knee), comfort chart, quick advice |
-| **Analyse** | Heat loss scatter + trendlines, COP vs temperature, heat demand table, data availability |
-| **Advies** | Quatt parameter recommendations, stooklijn breakpoints, OpenQuatt integration |
-| **MPC** | Thermal model status, 6-hour forecast, supply temperature comparison, error sensors |
-| **Geluid** | 48-hour aligned charts: supply temp, power & sound level, MPC deviation, flow & outdoor temp; history graph + compensation status |
-
-### Adapting the dashboard to your setup
-
-The dashboard uses a mix of entity IDs: those created by this integration (always working) and those from the Quatt hardware integration and other devices in your home (may need adjustment).
-
-**These entity IDs are auto-generated by this integration — no changes needed:**
-
-All `sensor.quatt_warmteanalyse_*` entities.
-
-**These come from the [Quatt HA integration](https://github.com/marcoboers/home-assistant-quatt) — consistent across all Quatt systems:**
-
-| Entity ID | Description |
-|-----------|-------------|
-| `sensor.heatpump_flowmeter_temperature` | Actual supply temperature |
-| `sensor.heatpump_flowmeter_flowrate` | Flow rate (l/h) |
-| `sensor.heatpump_hp1_temperature_outside` | Outdoor temperature (HP1 sensor) |
-| `sensor.heatpump_hp1_temperature_water_in` | Return water temperature |
-| `sensor.heatpump_thermostat_room_temperature` | Room temperature |
-| `sensor.heatpump_thermostat_room_setpoint` | Room setpoint |
-
-If you have two heat pumps, the dashboard also references `sensor.heatpump_hp2_temperature_outside`. If you only have one, this sensor is simply unavailable — that's fine, the dashboard still works.
-
-**These may differ per household — check and replace as needed:**
-
-| Entity ID | What to replace it with |
-|-----------|------------------------|
-| `sensor.thermostat_temperature_outside` | Your outdoor temperature sensor (Toon, Nest, weather station, etc.) |
-| `sensor.heatpump_thermostat_control_setpoint` | Only exists when a thermostat is connected to the Quatt's OpenTherm input and reports a control setpoint. If you steer the Quatt another way (OTGW, a thermostat on the boiler side, etc.) this entity is **not created** — that is not an error. No action needed: the setpoint tile shows the real Quatt value when it exists and automatically falls back to this integration's own `sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur` when it doesn't, and the supply-temperature chart and the limit card simply skip it if it's missing. |
-
-**Weather forecast — required for MPC shadow sensor:**
-
-The MPC sensor needs a weather forecast entity to predict the next 6 hours of outdoor temperature and solar radiation. During setup you are asked to provide one; the default is `weather.home`.
-
-Almost every Home Assistant installation has this: the built-in [Met.no integration](https://www.home-assistant.io/integrations/met/) creates `weather.home` automatically. If your entity is named differently (e.g. `weather.your_city`), update it in **Settings > Devices & Services > Quatt Warmteanalyse > Configure**.
-
-> **No weather integration?** The MPC sensor will stay `unavailable`. Install Met.no (free, no API key) or any other HA weather integration to enable it.
-
-**Search and replace:**
-
-Open `dashboards/quatt_stooklijn_dashboard.yaml` in a text editor and use find-and-replace:
-
-```
-sensor.thermostat_temperature_outside  →  your outdoor temp entity
-```
-
-The MPC/shadow validation tab also uses `sensor.heatpump_flowmeter_temperature` for the supply temperature — this is already in the Quatt hardware list above.
-
-## Sensors
-
-| Sensor | Unit | Description |
-|--------|------|-------------|
-| `heat_loss_coefficient` | W/K | Heat loss per degree below balance point |
-| `balance_point` | °C | Outdoor temp where no heating is needed |
-| `optimal_stooklijn_slope` | W/°C | Slope of the optimal heating curve |
-| `quatt_stooklijn_slope` | W/°C | Slope of Quatt's estimated curve |
-| `knee_temperature` | °C | Temperature where boiler must assist |
-| `average_cop` | — | Average coefficient of performance |
-| `freezing_performance_slope` | W/°C | Heat pump performance below 0°C |
-| `gas_heat_loss_coefficient` | W/K | Heat loss from gas period (if configured) |
-| `last_analysis` | timestamp | When the last analysis was run |
-| `analysis_status` | — | Current analysis status |
-| `data_statistieken` | — | Data availability per source (recorder days, cache days, knee store points) |
-| `quatt_advies_parameters` | — | Recommended Quatt parameter changes with full detail attributes |
-| `openquatt_balance_point` | °C | Optimal balance point for OpenQuatt |
-| `openquatt_stooklijn` | — | 6 heating curve breakpoints for OpenQuatt |
-| `warmtevraag` | W | House heat demand, feeds OpenQuatt's Power House feedforward |
-
-**Live sensors** (update in real-time based on current conditions):
-
-| Sensor | Unit | Description |
-|--------|------|-------------|
-| `geschatte_actuele_cop` | — | Interpolated COP at current outdoor temperature |
-| `aanbevolen_aanvoertemperatuur` | °C | Recommended supply temperature (stooklijn-based) |
-| `mpc_aanbevolen_aanvoertemperatuur` | °C | MPC recommended supply temperature (weather + solar + RC model) |
-| `stooklijn_fout_aanvoertemperatuur` | °C | Error: stooklijn advice − actual supply |
-| `mpc_fout_aanvoertemperatuur` | °C | Error: MPC advice − actual supply |
-| `geluidsniveau` | — | Current compressor sound level (`uit` / `building87` / `silent` / `library` / `normal`) |
-
-**Binary sensors:**
-
-| Entity | Description |
-|--------|-------------|
-| `gasketel_actief` | Whether the gas boiler is currently producing heat |
-
-**Control entities** (only when geluidsniveaucompensatie is enabled):
-
-| Entity | Type | Description |
-|--------|------|-------------|
-| `geluidsniveau_compensatie` | switch | Enable/disable automatic sound level management |
-
-## Services
-
-| Service | Description |
-|---------|-------------|
-| `quatt_stooklijn.run_analysis` | Run the full analysis pipeline |
-| `quatt_stooklijn.clear_data` | Clear all analysis results and reset sensors |
-
 ## How it works
 
 The integration ports the analysis from a Jupyter notebook into a Home Assistant integration:
 
-1. **Data collection** — Uses a hybrid approach combining four data sources (see below)
+1. **Data collection** — Uses a hybrid approach combining five data sources (see below)
 2. **Stooklijn estimation** — Estimates the current Quatt stooklijn from HA recorder minute-level power data, using the 2500W filter to capture full-capacity operation
 3. **Knee detection** — Piecewise linear fit on Quatt hourly data to find the temperature where the boiler must assist
 4. **Heat loss regression** — Linear regression on daily heat energy vs outdoor temperature to determine your home's thermal characteristics
@@ -402,8 +505,8 @@ The integration combines five data sources for the best balance of coverage, acc
 |--------|-----------|--------|---------|
 | **HA Recorder statistics** | Daily means | Full configured period (months) | Heat loss regression, COP scatter, optimal stooklijn |
 | **HA Recorder state changes** | Minute-level | Last 30 days | Knee detection (primary), stooklijn estimation |
-| **Knee data store** | Hourly, filtered | Rolling 3 years | Knee detection: cold-weather history across winters |
-| **Quatt API** | Hourly detail | Last 30 days | Knee detection (fallback), envelope analysis |
+| **Knee data store** | Hourly, filtered | Permanent | Knee detection: cold-weather history across winters |
+| **Quatt API** *(optional)* | Hourly detail | Last 30 days | Knee detection (fallback), envelope analysis |
 | **Insights cache** | Hourly detail | Previously fetched days | Extends Quatt hourly data beyond 30-day API window |
 
 **How it works per analysis run:**
@@ -412,7 +515,7 @@ The integration combines five data sources for the best balance of coverage, acc
 2. **Recorder state changes** — Fetches minute-level power and temperature readings from the last 30 days (limited by HA's `purge_keep_days` setting, default 10 days). Used as the primary input for knee detection and stooklijn estimation.
 3. **Knee data store** — Loads previously saved cold-weather data points (see below). Combined with the current recorder window so knee detection benefits from multiple winters of data.
 4. **Cached historical data** — Checks the insights cache for any Quatt hourly data from before the 30-day API window. This data was fetched in previous runs and is reused without any API calls.
-5. **Quatt API** — Fetches the last 30 days of hourly data from the Quatt `get_insights` service. Already-cached days are skipped. Used as fallback for knee detection when recorder data is insufficient.
+5. **Quatt API** — Fetches the last 30 days of hourly data from the Quatt `get_insights` service. Already-cached days are skipped. Used as fallback for knee detection when recorder data is insufficient. Skipped entirely when **Use Quatt cloud API** is off; the cache is still read, so this step then behaves exactly like step 4.
 6. **Merge** — Recorder data forms the base, API data overwrites recent days (more accurate for the last 30 days).
 
 **Result:** From the first run you get months of daily data (via recorder), plus 30 days of hourly detail. Both caches grow organically over time, and knee detection improves with each cold period.
@@ -537,17 +640,17 @@ The knee data store (`quatt_stooklijn_knee_data`) persistently accumulates cold-
 - After each analysis, active HP minutes (power ≥ 2500W, temp < 10°C) are resampled to hourly averages and stored per day
 - New analyses merge stored historical points with the current 30-day recorder window
 - This means cold-weather data from previous winters is always available for knee detection, even during mild periods
-- Rolling 3-year window: entries older than 3 years are purged automatically
+- Effectively never purged (`KNEE_YEARS_TO_KEEP = 100`): cold-weather data is the only anchor that keeps knee detection stable across seasons, and the storage cost is negligible
 
-**Storage footprint:** ~8 hourly points per heating day × ~150 heating days/year ≈ **~18 KB/year**, growing to a max of ~54 KB after 3 years.
+**Storage footprint:** ~8 hourly points per heating day × ~150 heating days/year ≈ **~18 KB/year**. No practical ceiling.
 
 ### Insights cache management
 
 The insights cache is stored in `.storage/quatt_stooklijn_insights_cache` and:
-- Automatically cleans up data older than 3 years (matching the knee data store retention)
+- Is kept effectively forever (same retention as the knee data store: 100 years)
 - Can be manually cleared by deleting the cache file and restarting HA
-- Is completely transparent (no configuration needed)
 - Survives Home Assistant restarts
+- Keeps being **read** when the Quatt cloud is switched off — only new days stop being added. Nothing you have already collected is lost by turning the cloud off.
 
 ### Monitoring
 
@@ -605,6 +708,13 @@ INFO: Quatt stooklijn estimated from recorder: slope=-353.5 W/°C, intercept=603
 1. Stop Home Assistant
 2. Delete `.storage/quatt_stooklijn_knee_data`
 3. Start Home Assistant — the store rebuilds from the current 30-day recorder window on the next analysis
+
+**Problem:** A measurement shows no data, or you want to know where a value comes from
+
+**Solution:**
+- Open the **Systeem** dashboard tab, or check `sensor.quatt_warmteanalyse_databronnen`. Its `roles` attribute names the active entity and integration per measurement, plus every candidate it considered.
+- A role with no source is listed under `missing_roles`. That means none of its candidates delivered a number — check whether the underlying integration is loaded.
+- Right after a Home Assistant restart the table can briefly show `geen`: sources are re-evaluated once a minute, and the other integrations may still be starting.
 
 **Problem:** COP values seem too low
 
