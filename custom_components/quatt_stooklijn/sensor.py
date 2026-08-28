@@ -22,7 +22,11 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
+from homeassistant.helpers.event import (
+    async_call_later,
+    async_track_state_change_event,
+    async_track_time_interval,
+)
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
@@ -37,6 +41,7 @@ from .const import (
     DEFAULT_DEMAND_SHIFT_GAMMA,
     DEMAND_SHIFT_HOURS,
     DEMAND_SHIFT_MAX_DRIFT_K,
+    FORECAST_RETRY_DELAYS,
     DEFAULT_QUATT_CLOUD_ENABLED,
     CONF_POWER_ENTITY,
     CONF_RETURN_TEMP_ENTITY,
@@ -594,6 +599,10 @@ class QuattSupplyTempSensor(
         from .analysis.utils import calc_heat_demand
         effective_flow = get_effective_flow(flow_lph)
         heat_demand_w = calc_heat_demand(heat_loss.slope, heat_loss.intercept, t_outdoor)
+        if heat_demand_w <= 0:
+            # Boven het balanspunt valt er niets te adviseren. Teruggeven van de
+            # retourtemperatuur suggereert een advies dat er niet is.
+            return None
         t_supply = t_return + heat_demand_w / (1.16 * effective_flow)
         return round(t_supply, 1)
 
@@ -688,6 +697,11 @@ def _calc_mpc_supply_temp(
         return None
     raw_demand = heat_loss_slope * t_outdoor + heat_loss_intercept
     net_demand = max(0.0, raw_demand - solar_gain_w)
+    if net_demand <= 0:
+        # Geen warmtevraag, dus geen aanvoeradvies. Zonder deze afslag zou de
+        # ondergrens hieronder een advies van 20 °C tonen terwijl er niets te
+        # adviseren valt — precies zoals de foutsensoren zwijgen bij stilstand.
+        return None
     t_supply = t_return + net_demand / (1.16 * flow_lph)
     return max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, t_supply))
 
@@ -722,6 +736,10 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         self._attr_device_info = get_device_info(entry.entry_id)
         self._forecast: list[dict] = []
         self._forecast_fetched_at: float | None = None
+        # Hoeveel herpogingen er al gedaan zijn na het opstarten, en of er al
+        # gewaarschuwd is dat de verwachting structureel uitblijft.
+        self._forecast_retry = 0
+        self._forecast_warned = False
         self._solar_radiation: list[float] = []  # uurlijkse shortwave W/m² van Open-Meteo
         # Online thermal model
         self._thermal_store = ThermalModelStore(coordinator.hass)
@@ -990,7 +1008,14 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         await self._async_refresh_solar_radiation()
 
     async def _async_refresh_forecast(self, _now=None) -> None:
-        """Haal hourly weersverwachting op via HA weather service."""
+        """Haal hourly weersverwachting op via HA weather service.
+
+        Een mislukte poging laat de vórige verwachting staan. Leegmaken zou een
+        tijdelijke storing verergeren: de forecast-arrays vallen dan terug op de
+        huidige buitentemperatuur voor élk uur, en een vlakke reeks is voor de
+        herverdeling hetzelfde als geen reeks.
+        """
+        haalde_op = False
         try:
             result = await self.hass.services.async_call(
                 "weather",
@@ -1000,12 +1025,56 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 return_response=True,
             )
             entity_data = result.get(self._weather_entity, {})
-            self._forecast = entity_data.get("forecast", [])
+            forecast = entity_data.get("forecast", [])
+            if forecast:
+                if not self._forecast and self._forecast_warned:
+                    _LOGGER.info(
+                        "MPC: weersverwachting weer beschikbaar (%d uur)",
+                        len(forecast),
+                    )
+                    self._forecast_warned = False
+                self._forecast = forecast
+                haalde_op = True
         except Exception:
             _LOGGER.debug("MPC: kon weersverwachting niet ophalen", exc_info=True)
-            self._forecast = []
+
+        if not haalde_op and not self._forecast:
+            self._async_schedule_forecast_retry()
 
         self.async_write_ha_state()
+
+    @callback
+    def _async_schedule_forecast_retry(self) -> None:
+        """Probeer het opstartvenster te overbruggen.
+
+        De eerste poging valt in ``async_added_to_hass``; is de weather-integratie
+        dan nog niet geladen, dan mislukt hij stil. Zonder deze herpogingen blijft
+        de verwachting tot de volgende uurlijkse tik leeg.
+        """
+        if self._forecast_retry >= len(FORECAST_RETRY_DELAYS):
+            if not self._forecast_warned:
+                _LOGGER.warning(
+                    "MPC: geen weersverwachting van %s na %d pogingen. De "
+                    "forecast valt terug op de huidige buitentemperatuur voor "
+                    "elk uur; controleer of die weather-entity bestaat en "
+                    "hourly forecasts levert.",
+                    self._weather_entity,
+                    len(FORECAST_RETRY_DELAYS) + 1,
+                )
+                self._forecast_warned = True
+            return
+
+        delay = FORECAST_RETRY_DELAYS[self._forecast_retry]
+        self._forecast_retry += 1
+        _LOGGER.debug(
+            "MPC: nog geen weersverwachting, nieuwe poging over %d s", delay
+        )
+        self.async_on_remove(
+            async_call_later(self.hass, delay, self._async_retry_forecast)
+        )
+
+    async def _async_retry_forecast(self, _now) -> None:
+        await self._async_refresh_forecast()
 
     async def _async_refresh_solar_radiation(self, _=None) -> None:
         """Haal shortwave_radiation forecast op van Open-Meteo (gratis, geen API key).
@@ -1052,6 +1121,10 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 q_needed = model.calc_required_power(
                     t_indoor, t_outdoor, q_solar_wm2, t_setpoint=20.0,
                 )
+                if q_needed <= 0:
+                    # Kamer op of boven setpoint: geen vraag, geen advies. De
+                    # ondergrens hieronder zou anders 20 °C tonen bij nul vraag.
+                    return None
                 t_supply = t_return + q_needed / (1.16 * effective_flow)
                 # Heating branch: floor at MPC_SUPPLY_TEMP_MIN (HP is inefficient
                 # below ~20°C aanvoer). COOL_MIN (15°C) is reserved for the future

@@ -107,6 +107,14 @@ DEMAND_SHIFT_HOURS = 24
 # (3000 W/K) blijft daarnaast gewoon het echte vangnet.
 DEMAND_SHIFT_MAX_DRIFT_K = 0.3
 
+# Herpogingen voor de weersverwachting direct na het opstarten (seconden).
+#
+# De eerste poging valt in async_added_to_hass, en op dat moment is de
+# weather-integratie er soms nog niet. Zonder herpoging blijft de forecast dan
+# tot de volgende uurlijkse tik leeg, en draait de MPC-tabel een uur lang op de
+# huidige buitentemperatuur voor elk uur — zichtbaar als 'condition: current'.
+FORECAST_RETRY_DELAYS = (30, 120, 300)
+
 # MPC / shadow-mode forecast sensor
 CONF_SOLAR_ENTITY = "solar_entity"
 CONF_WEATHER_ENTITY = "weather_entity"

@@ -54,11 +54,15 @@ class TestCalcMpcSupplyTemp:
         assert result < result_no_sun
 
     def test_warm_outdoor_temp_no_heating(self):
-        """Bij warme buitentemp (boven balance point) is warmtevraag 0."""
+        """Geen warmtevraag betekent geen advies, niet de retourtemperatuur.
+
+        Boven het balanspunt valt er niets te adviseren. Vroeger kwam hier de
+        retourtemperatuur uit, en na de ondergrens van 20 °C werd dat een advies
+        van 20 °C terwijl de vraag nul was — een getal dat er zinnig uitzag maar
+        het niet was. Nu zwijgt de sensor, net als de foutsensoren bij stilstand.
+        """
         # t_outdoor = 22°C > balance_point = 20°C → warmtevraag = 0
-        # T_aanvoer = T_retour + 0 = 30°C (retourtemp is al boven MPC_SUPPLY_TEMP_MIN)
-        result = _calc_mpc_supply_temp(-200, 4000, 20.0, 22.0, 30.0, 500, 0.0)
-        assert result == 30.0
+        assert _calc_mpc_supply_temp(-200, 4000, 20.0, 22.0, 30.0, 500, 0.0) is None
 
     def test_very_cold_temp_clamped_to_max(self):
         """Bij extreme kou wordt T_aanvoer geclamped op MPC_SUPPLY_TEMP_MAX."""
@@ -94,11 +98,16 @@ class TestCalcMpcSupplyTemp:
                 )
 
     def test_solar_gain_cannot_exceed_demand(self):
-        """Zonnewinst groter dan warmtevraag → netto vraag = 0, niet negatief."""
+        """Zonnewinst groter dan warmtevraag → netto nul, en dus geen advies."""
         # warmtevraag bij 15°C = -200 × 15 + 4000 = 1000 W
-        # solar_gain = 2000 W (meer dan vraag) → net = 0 → T_aanvoer = T_retour = 30°C
-        result = _calc_mpc_supply_temp(-200, 4000, 20.0, 15.0, 30.0, 500, 2000.0)
-        assert result == 30.0
+        # solar_gain = 2000 W (meer dan de vraag) → netto 0, niet negatief
+        assert _calc_mpc_supply_temp(-200, 4000, 20.0, 15.0, 30.0, 500, 2000.0) is None
+
+    def test_zon_iets_onder_de_vraag_geeft_nog_wel_advies(self):
+        """De grens ligt op nul, niet ergens daarboven."""
+        # warmtevraag 1000 W, zon 900 W → netto 100 W blijft over
+        result = _calc_mpc_supply_temp(-200, 4000, 20.0, 15.0, 30.0, 500, 900.0)
+        assert result is not None and result > 30.0
 
     def test_return_temp_affects_supply_temp(self):
         """Hogere retourtemp leidt tot hogere aanvoertemp."""
