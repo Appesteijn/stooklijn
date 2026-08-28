@@ -81,6 +81,7 @@
           "control_setpoint_entity": "Thermostat control setpoint sensor (°C) — leave empty for auto-detection",
           "room_setpoint_entity": "Thermostat room setpoint sensor (°C) — leave empty for auto-detection",
           "cop_entity": "COP sensor — leave empty for auto-detection",
+          "demand_shift_gamma": "Demand shift aggressiveness (0 = off) — shadow sensor only, nothing is controlled by it",
           "quatt_cloud_enabled": "Use Quatt cloud API — off = local only (recorder + own stores). The built-up history is kept; only new hourly detail stops. Best if you have a second local source such as OpenQuatt.",
           "sound_level_enabled": "Enable sound level compensation (limits heat pump power via CiC sound level)",
           "sound_level_max_day": "Maximum sound level during the day",

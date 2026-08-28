@@ -73,6 +73,7 @@
           "control_setpoint_entity": "Capteur de consigne du thermostat (°C) — laisser vide pour la détection auto",
           "room_setpoint_entity": "Capteur de consigne d'ambiance (°C) — laisser vide pour la détection auto",
           "cop_entity": "Capteur COP — laisser vide pour la détection auto",
+          "demand_shift_gamma": "Agressivité du décalage de la demande (0 = désactivé) — capteur fantôme uniquement, ne pilote rien",
           "quatt_cloud_enabled": "Utiliser l'API cloud Quatt — désactivé = local uniquement (recorder + stockage interne). L'historique constitué est conservé ; seul le détail horaire s'arrête. Surtout utile avec une seconde source locale comme OpenQuatt.",
           "sound_level_enabled": "Activer la compensation du niveau sonore (limite la puissance de la pompe à chaleur via le niveau sonore CiC)",
           "sound_level_max_day": "Niveau sonore maximum de jour",

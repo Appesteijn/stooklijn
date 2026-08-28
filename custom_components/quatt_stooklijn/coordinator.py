@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .analysis.gas import async_fetch_gas_data
+from .analysis.cop_performance import CopPerformanceResult, calculate_cop_performance
 from .analysis.heat_loss import HeatLossResult, calculate_heat_loss
 from .analysis.quatt import async_fetch_quatt_insights, async_get_cache_stats
 from .analysis.stooklijn import (
@@ -62,6 +63,11 @@ class QuattStooklijnData:
     heat_loss_hp: HeatLossResult = field(default_factory=HeatLossResult)
     heat_loss_gas: HeatLossResult = field(default_factory=HeatLossResult)
     average_cop: float | None = None
+    # Rendement los van het weer — de maat waarop een regelwijziging beoordeeld
+    # kan worden, want de kale dag-COP volgt vooral de buitentemperatuur.
+    cop_performance: CopPerformanceResult = field(
+        default_factory=CopPerformanceResult
+    )
     last_analysis: datetime | None = None
     analysis_status: str = "idle"
 
@@ -262,6 +268,25 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             if len(cop_valid) > 0:
                 average_cop = float(cop_valid.mean())
 
+        # Step 6b: Rendement genormaliseerd op buitentemperatuur.
+        #
+        # De kale dag-COP is onbruikbaar om een wijziging aan te toetsen: hij
+        # volgt vooral het weer. Deze maat zet elke stookdag af tegen wat de
+        # installatie bij díe buitentemperatuur normaal presteerde, en is
+        # daarmee wél vergelijkbaar over seizoenen heen.
+        cop_performance = await self.hass.async_add_executor_job(
+            calculate_cop_performance,
+            df_daily if not df_daily.empty else None,
+        )
+        if cop_performance.latest_ratio is not None:
+            _LOGGER.info(
+                "COP-prestatie: %.3f op %s (7d %.3f, 30d %.3f) — norm uit %d "
+                "stookdagen in %d bins",
+                cop_performance.latest_ratio, cop_performance.latest_date,
+                cop_performance.rolling_7d, cop_performance.rolling_30d,
+                cop_performance.reference_days, len(cop_performance.reference),
+            )
+
         # Collect data availability stats
         cache_stats = await async_get_cache_stats(self.hass)
         knee_stats = self._knee_store.get_stats()
@@ -320,6 +345,7 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             heat_loss_hp=heat_loss_hp,
             heat_loss_gas=heat_loss_gas,
             average_cop=average_cop,
+            cop_performance=cop_performance,
             last_analysis=datetime.now(timezone.utc),
             analysis_status=analysis_status,
             data_stats=computed_data_stats,

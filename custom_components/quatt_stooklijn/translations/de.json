@@ -73,6 +73,7 @@
           "control_setpoint_entity": "Thermostat-Sollwert-Sensor (°C) — leer lassen für Auto-Erkennung",
           "room_setpoint_entity": "Raum-Sollwert-Sensor (°C) — leer lassen für Auto-Erkennung",
           "cop_entity": "COP-Sensor — leer lassen für Auto-Erkennung",
+          "demand_shift_gamma": "Aggressivität der Wärmebedarf-Verschiebung (0 = aus) — nur Schattensensor, steuert nichts",
           "quatt_cloud_enabled": "Quatt-Cloud-API verwenden — aus = nur lokal (Recorder + eigene Speicher). Die aufgebaute Historie bleibt, nur neue Stundendaten entfallen. Sinnvoll vor allem mit einer zweiten lokalen Quelle wie OpenQuatt.",
           "sound_level_enabled": "Schallpegel-Kompensation aktivieren (begrenzt Wärmepumpenleistung über CiC-Schallpegel)",
           "sound_level_max_day": "Maximaler Schallpegel tagsüber",

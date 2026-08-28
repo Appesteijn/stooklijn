@@ -17,6 +17,7 @@ from .const import (
     CONF_BOILER_HEAT_ENTITY,
     CONF_CONTROL_SETPOINT_ENTITY,
     CONF_COP_ENTITY,
+    CONF_DEMAND_SHIFT_GAMMA,
     CONF_FLOW_ENTITY,
     CONF_GAS_ENABLED,
     CONF_GAS_ENTITY,
@@ -53,6 +54,7 @@ from .const import (
     DEFAULT_CH_MAX_WATER_INTERVAL,
     DEFAULT_COMFORT_FLOOR_TEMP,
     DEFAULT_EOS_THROTTLE_ENTITY,
+    DEFAULT_DEMAND_SHIFT_GAMMA,
     DEFAULT_GAS_CALORIFIC_VALUE,
     DEFAULT_QUATT_CLOUD_ENABLED,
     DEFAULT_HOT_WATER_TEMP_THRESHOLD,
@@ -416,6 +418,14 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     ): _entity("sensor"),
                     # Uit = draaien op recorder + eigen stores. De opgebouwde
                     # insights-cache blijft meedoen, hij groeit alleen niet meer.
+                    # Schaduw-parameter: 0 laat de verschoven warmtevraag
+                    # exact gelijk zijn aan de gewone. Niets is eraan gekoppeld.
+                    vol.Optional(
+                        CONF_DEMAND_SHIFT_GAMMA,
+                        default=data.get(
+                            CONF_DEMAND_SHIFT_GAMMA, DEFAULT_DEMAND_SHIFT_GAMMA
+                        ),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=3.0)),
                     vol.Optional(
                         CONF_QUATT_CLOUD_ENABLED,
                         default=data.get(

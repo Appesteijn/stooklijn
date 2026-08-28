@@ -71,6 +71,42 @@ MIN_MODULATION_WATTS = 2000  # W - minimum Quatt output at lowest compressor ste
 SERVICE_RUN_ANALYSIS = "run_analysis"
 SERVICE_CLEAR_DATA = "clear_data"
 
+# Agressiviteit van de COP-gewogen herverdeling van de warmtevraag.
+#
+# 0 = uit: de verschoven reeks is exact de vlakke reeks, dus de schaduwsensor
+# toont hetzelfde als `warmtevraag`. Hoger verschuift meer warmte naar de uren
+# met de beste COP, binnen de harde eis dat het totaal gelijk blijft.
+# Standaard uit — dit is een schaduwsensor, geen regeling.
+CONF_DEMAND_SHIFT_GAMMA = "demand_shift_gamma"
+DEFAULT_DEMAND_SHIFT_GAMMA = 0.0
+
+# Venster waarover de herverdeling rekent — bewust los van MPC_FORECAST_HOURS.
+#
+# De winst hangt volledig aan de dagzwaai binnen het venster: gemeten op een dag
+# rond 0 °C met 8 K zwaai levert 6 uur 0,09%, 12 uur 3,4% en 24 uur 6,7%. Met
+# zes uur valt er dus niets te verdelen.
+#
+# Maar MPC_FORECAST_HOURS verhogen zou de displayforecast van de MPC-sensor
+# meevergroten: een tabel van 24 rijen op het dashboard en een viervoudig
+# attribuut dat bij elke state-write de recorder in gaat. Die twee horen niet
+# aan elkaar vast — het model heeft een lang venster nodig, de weergave niet.
+#
+# 24 uur en niet meer: daarboven wordt de temperatuurvoorspelling onbetrouwbaar,
+# en de weer-entity levert ruim genoeg uren (~148) om dit te dekken.
+DEMAND_SHIFT_HOURS = 24
+
+# Hoeveel de kamertemperatuur maximaal mag wegzakken door de herverdeling (K).
+#
+# Gemeten op 20 januari 2026 met de geleerde massa van 25.583 Wh/K: gamma=1 geeft
+# 0,16 K, gamma=2 geeft 0,25 K en gamma=3 geeft 0,34 K. Deze grens laat alles tot
+# ongeveer gamma=2,5 ongemoeid en schaalt agressievere instellingen evenredig
+# terug in plaats van ze te verwerpen.
+#
+# Geen configuratie-optie maar een veiligheidsgrens: gamma is de knop, dit is de
+# rand waarbinnen die knop mag bewegen. De comfortterm van de firmware
+# (3000 W/K) blijft daarnaast gewoon het echte vangnet.
+DEMAND_SHIFT_MAX_DRIFT_K = 0.3
+
 # MPC / shadow-mode forecast sensor
 CONF_SOLAR_ENTITY = "solar_entity"
 CONF_WEATHER_ENTITY = "weather_entity"
