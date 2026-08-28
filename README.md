@@ -169,12 +169,19 @@ You can also trigger an analysis manually:
 
 ### Dashboard
 
-Import the dashboard from `dashboards/quatt_stooklijn_dashboard.yaml`:
+The integration creates the **Quatt Warmteanalyse** dashboard itself on first setup — you do
+not have to import anything. A copy also lives in `dashboards/quatt_stooklijn_dashboard.yaml`
+if you would rather build your own from it.
 
-1. Go to **Settings** > **Dashboards** > **Add Dashboard**
-2. Choose **New dashboard from scratch**
-3. Open the dashboard, switch to YAML mode (three dots > **Edit in YAML**)
-4. Paste the contents of `quatt_stooklijn_dashboard.yaml`
+Later releases keep it up to date, but only when that is safe:
+
+- If the dashboard is still exactly as the integration last wrote it, a new version is applied
+  silently.
+- If you changed it — added a card, edited a chart — it is left alone, and a repair notice
+  offers you the new version instead. Ignoring the notice keeps your own dashboard.
+
+To take the shipped version regardless (and lose your changes to that dashboard), call the
+`quatt_stooklijn.update_dashboard` service.
 
 The dashboard has five tabs:
 

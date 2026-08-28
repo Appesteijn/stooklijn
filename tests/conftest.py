@@ -181,6 +181,14 @@ def _stub_ha():
     storage_mod = sys.modules["homeassistant.helpers.storage"]
     storage_mod.Store = MagicMock
 
+    # Lovelace: alleen ConfigNotFound wordt gebruikt, als sein "dashboard
+    # bestaat wel maar heeft nog geen config".
+    lovelace_mod = _ensure_module("homeassistant.components.lovelace")
+    lovelace_mod.__path__ = []  # laat Python het als package behandelen
+    lovelace_const = _ensure_module("homeassistant.components.lovelace.const")
+    lovelace_const.ConfigNotFound = type("ConfigNotFound", (Exception,), {})
+    lovelace_mod.const = lovelace_const
+
     # dt_util
     dt_mod = sys.modules["homeassistant.util.dt"]
     dt_mod.utcnow = lambda: datetime.now(timezone.utc)

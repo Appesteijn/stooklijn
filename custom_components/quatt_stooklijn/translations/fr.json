@@ -101,6 +101,10 @@
     "run_analysis": {
       "name": "Lancer l'analyse thermique",
       "description": "Exécute le pipeline d'analyse complet : récupère les données et calcule les courbes de chauffe, le COP et le coefficient de déperdition thermique."
+    },
+    "update_dashboard": {
+      "name": "Restaurer le tableau de bord",
+      "description": "Remplace le tableau de bord Quatt Warmteanalyse par la version fournie avec l'intégration. Vos modifications sur ce tableau de bord seront perdues."
     }
   },
   "entity": {
@@ -112,6 +116,19 @@
           "completed": "Terminé",
           "no_data": "Terminé — pas encore de données de chauffe",
           "error": "Erreur"
+        }
+      }
+    }
+  },
+  "issues": {
+    "dashboard_update_available": {
+      "title": "Nouvelle version du tableau de bord Quatt Warmteanalyse",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Restaurer le tableau de bord fourni ?",
+            "description": "Cette mise à jour contient un tableau de bord amélioré, mais le vôtre diffère de la version que l'intégration a écrite en dernier — il n'a donc pas été touché.\n\nConfirmer remplace votre tableau de bord par le nouveau. **Les cartes et modifications que vous avez ajoutées seront perdues.** Vous préférez garder le vôtre ? Ignorez cet avis ; rien ne sera écrasé."
+          }
         }
       }
     }

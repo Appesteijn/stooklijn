@@ -70,6 +70,7 @@ MIN_MODULATION_WATTS = 2000  # W - minimum Quatt output at lowest compressor ste
 # Service names
 SERVICE_RUN_ANALYSIS = "run_analysis"
 SERVICE_CLEAR_DATA = "clear_data"
+SERVICE_UPDATE_DASHBOARD = "update_dashboard"
 
 # Agressiviteit van de COP-gewogen herverdeling van de warmtevraag.
 #

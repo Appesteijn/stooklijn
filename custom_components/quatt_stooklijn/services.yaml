@@ -9,3 +9,9 @@ clear_data:
   name: Clear Analysis Data
   description: >-
     Clears all analysis results and resets all sensors to their initial state.
+
+update_dashboard:
+  name: Restore dashboard
+  description: >-
+    Overwrites the Quatt Warmteanalyse dashboard with the version shipped by the
+    integration. Any changes you made to that dashboard are lost.

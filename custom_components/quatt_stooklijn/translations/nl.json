@@ -101,6 +101,10 @@
     "run_analysis": {
       "name": "Warmteanalyse uitvoeren",
       "description": "Voert de volledige analysepipeline uit: haalt data op en berekent stooklijnen, COP en warmteverliescoëfficiënt."
+    },
+    "update_dashboard": {
+      "name": "Dashboard terugzetten",
+      "description": "Overschrijft het Quatt Warmteanalyse-dashboard met de versie die met de integratie meekomt. Eigen aanpassingen aan dat dashboard gaan daarbij verloren."
     }
   },
   "entity": {
@@ -112,6 +116,19 @@
           "completed": "Voltooid",
           "no_data": "Voltooid — nog geen stookdata",
           "error": "Fout"
+        }
+      }
+    }
+  },
+  "issues": {
+    "dashboard_update_available": {
+      "title": "Nieuwe versie van het Quatt Warmteanalyse-dashboard",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Het meegeleverde dashboard terugzetten?",
+            "description": "Deze update bevat een verbeterd dashboard, maar dat van jou wijkt af van de versie die de integratie er zelf voor het laatst op zette — daarom is het met rust gelaten.\n\nBevestigen vervangt jouw dashboard door het nieuwe. **Kaarten of aanpassingen die je zelf hebt toegevoegd gaan verloren.** Wil je het jouwe houden? Negeer deze melding dan; er wordt niets overschreven."
+          }
         }
       }
     }

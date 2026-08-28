@@ -109,6 +109,10 @@
     "run_analysis": {
       "name": "Run Warmteanalyse",
       "description": "Runs the full analysis pipeline: fetches data, calculates heating curves, COP, and heat loss."
+    },
+    "update_dashboard": {
+      "name": "Restore dashboard",
+      "description": "Overwrites the Quatt Warmteanalyse dashboard with the version shipped by the integration. Any changes you made to that dashboard are lost."
     }
   },
   "entity": {
@@ -120,6 +124,19 @@
           "completed": "Completed",
           "no_data": "Completed — no heating data yet",
           "error": "Error"
+        }
+      }
+    }
+  },
+  "issues": {
+    "dashboard_update_available": {
+      "title": "New version of the Quatt Warmteanalyse dashboard",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Restore the shipped dashboard?",
+            "description": "This update ships an improved dashboard, but yours differs from the version the integration last wrote — so it was left untouched.\n\nConfirming replaces your dashboard with the new one. **Any cards or changes you added to it are lost.** Prefer to keep yours? Then ignore this notice; nothing will be overwritten."
+          }
         }
       }
     }

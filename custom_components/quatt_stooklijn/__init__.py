@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import voluptuous as vol
-import yaml
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 
 from .ch_max_water import ChMaxWaterController
+from .dashboard import DashboardManager
 from .sources import ENTITY_PREFIX, MIRROR_SPECS, OVERVIEW_SLUG, SourceRegistry
 from .const import (
     CONF_CH_MAX_WATER_ENABLED,
@@ -26,6 +25,7 @@ from .const import (
     DOMAIN,
     SERVICE_CLEAR_DATA,
     SERVICE_RUN_ANALYSIS,
+    SERVICE_UPDATE_DASHBOARD,
 )
 from .coordinator import (
     QuattStooklijnCoordinator,
@@ -33,9 +33,6 @@ from .coordinator import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-_DASHBOARD_URL = "quatt-warmteanalyse"
-_DASHBOARD_YAML = Path(__file__).parent / "dashboard.yaml"
 
 
 async def _async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -106,37 +103,11 @@ async def _async_migrate_source_entity_ids(
 
 
 async def _async_setup_dashboard(hass: HomeAssistant) -> None:
-    """Create the Quatt Warmteanalyse dashboard if it doesn't exist yet."""
-    try:
-        lovelace = hass.data.get("lovelace")
-        if lovelace is None:
-            return
+    """Maak het meegeleverde dashboard aan, of werk het bij als dat veilig kan.
 
-        dashboards = getattr(lovelace, "dashboards", None) or {}
-        if _DASHBOARD_URL in dashboards:
-            return  # Already exists
-
-        dashboards_collection = getattr(lovelace, "dashboards_collection", None)
-        if dashboards_collection is None:
-            return
-
-        await dashboards_collection.async_create_item({
-            "url_path": _DASHBOARD_URL,
-            "require_admin": False,
-            "icon": "mdi:chart-line",
-            "title": "Quatt Warmteanalyse",
-            "show_in_sidebar": True,
-            "mode": "storage",
-        })
-
-        dashboard_obj = dashboards.get(_DASHBOARD_URL)
-        if dashboard_obj is not None and _DASHBOARD_YAML.exists():
-            config = yaml.safe_load(_DASHBOARD_YAML.read_text())
-            await dashboard_obj.async_save(config)
-            _LOGGER.info("Quatt Warmteanalyse dashboard aangemaakt")
-
-    except Exception as err:  # noqa: BLE001
-        _LOGGER.warning("Kon dashboard niet automatisch aanmaken: %s", err)
+    De afweging zit in ``dashboard.py``; hier alleen de aanroep.
+    """
+    await DashboardManager(hass).async_setup()
 
 
 # Unique-ID suffixen van entiteiten die alleen bestaan als sound_level_enabled=True.
@@ -310,6 +281,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             schema=vol.Schema({}),
         )
 
+    if not hass.services.has_service(DOMAIN, SERVICE_UPDATE_DASHBOARD):
+
+        async def handle_update_dashboard(call: ServiceCall) -> None:
+            """Zet het meegeleverde dashboard terug, ook over eigen aanpassingen heen."""
+            await DashboardManager(hass).async_force_update()
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_UPDATE_DASHBOARD,
+            handle_update_dashboard,
+            schema=vol.Schema({}),
+        )
+
     return True
 
 
@@ -325,5 +309,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not hass.data[DOMAIN]:
         hass.services.async_remove(DOMAIN, SERVICE_RUN_ANALYSIS)
         hass.services.async_remove(DOMAIN, SERVICE_CLEAR_DATA)
+        hass.services.async_remove(DOMAIN, SERVICE_UPDATE_DASHBOARD)
 
     return unload_ok

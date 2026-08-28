@@ -101,6 +101,10 @@
     "run_analysis": {
       "name": "Wärmeanalyse ausführen",
       "description": "Führt die vollständige Analysepipeline aus: ruft Daten ab und berechnet Heizkurven, COP und Wärmeverlustkoeffizient."
+    },
+    "update_dashboard": {
+      "name": "Dashboard zurücksetzen",
+      "description": "Überschreibt das Quatt-Warmteanalyse-Dashboard mit der mitgelieferten Version. Eigene Änderungen an diesem Dashboard gehen dabei verloren."
     }
   },
   "entity": {
@@ -112,6 +116,19 @@
           "completed": "Abgeschlossen",
           "no_data": "Abgeschlossen — noch keine Heizdaten",
           "error": "Fehler"
+        }
+      }
+    }
+  },
+  "issues": {
+    "dashboard_update_available": {
+      "title": "Neue Version des Quatt-Warmteanalyse-Dashboards",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Das mitgelieferte Dashboard wiederherstellen?",
+            "description": "Dieses Update enthält ein verbessertes Dashboard, deines weicht jedoch von der Version ab, die die Integration zuletzt geschrieben hat — deshalb wurde es nicht angerührt.\n\nBeim Bestätigen wird dein Dashboard durch das neue ersetzt. **Selbst hinzugefügte Karten und Änderungen gehen verloren.** Willst du deines behalten? Dann ignoriere diese Meldung; es wird nichts überschrieben."
+          }
         }
       }
     }
