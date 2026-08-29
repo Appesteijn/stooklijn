@@ -1552,6 +1552,12 @@ class QuattCopPerformanceSensor(
     _attr_name = "COP Prestatie"
     _attr_icon = "mdi:gauge-full"
     _attr_state_class = SensorStateClass.MEASUREMENT
+    # De dagreeks is honderden regels en verandert alleen bij een analyse. Zonder
+    # dit gaat hij bij elke state-write mee de recorder in, terwijl een grafiek
+    # hem rechtstreeks uit het attribuut leest.
+    _unrecorded_attributes = frozenset(
+        {"stookdagen", "recente_dagen", "referentiecurve"}
+    )
 
     def __init__(
         self,
@@ -1597,6 +1603,16 @@ class QuattCopPerformanceSensor(
         perf = data.cop_performance
         if perf.latest_ratio is None:
             return None
+
+        venster = perf.daily[-30:]
+        sinds = None
+        if perf.latest_date:
+            try:
+                laatste = datetime.fromisoformat(perf.latest_date).date()
+                sinds = (dt_util.now().date() - laatste).days
+            except (TypeError, ValueError):
+                sinds = None
+
         return {
             "laatste_dag": perf.latest_date,
             "laatste_ratio": perf.latest_ratio,
@@ -1606,6 +1622,17 @@ class QuattCopPerformanceSensor(
             "referentiecurve": {str(k): v for k, v in sorted(perf.reference.items())},
             "referentie_stookdagen": perf.reference_days,
             "beoordeelde_dagen": len(perf.daily),
+            # Het venster achter rolling_30d, expliciet. Dat zijn de laatste 30
+            # *stookdagen* en niet de laatste 30 kalenderdagen: buiten het
+            # stookseizoen staat dit getal maanden stil, en zonder deze datums
+            # leest het als een actuele maand.
+            "venster_van": venster[0]["date"] if venster else None,
+            "venster_tot": venster[-1]["date"] if venster else None,
+            "venster_stookdagen": len(venster),
+            "dagen_sinds_laatste_stookdag": sinds,
+            # De volledige reeks voor de grafiek. Staat in
+            # _unrecorded_attributes, dus dit kost de recorder niets.
+            "stookdagen": perf.daily,
             # Alleen de recente dagen: de volledige reeks is honderden dagen en
             # hoort niet elke state-write mee de recorder in.
             "recente_dagen": perf.daily[-14:],

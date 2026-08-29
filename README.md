@@ -267,6 +267,7 @@ Each carries `source_entity`, `source_integration`, `candidates` and `switched_a
 | `max_aanvoertemperatuur_instelling` | °C | Value last written to the heat pump's max supply temperature (only when supply-temperature control is enabled) |
 | `geluidsniveau` | — | Current compressor sound level (`uit` / `building87` / `silent` / `library` / `normal`) — only when sound level compensation is enabled |
 | `compressorstarts` | starts/uur | Compressor starts in the last hour — see [Short cycling](#short-cycling) |
+| `cop_prestatie` | — | Efficiency against this installation's own norm at the same outdoor temperature — see [Judging a change](#judging-a-change) |
 
 Both error sensors return no value while the pump is idle (flow below 30 L/h): comparing advice against actual supply temperature is meaningless without circulation.
 
@@ -638,6 +639,41 @@ On a duo **both units are counted separately and added up**. Quatt alternates th
 start and stop independently of each other — following only the first would count roughly half,
 and an installation whose units take turns cycling would read as a calm one. The `per_unit`
 attribute shows the split, which also tells you whether one unit is doing all the work.
+
+## Judging a change
+
+`sensor.quatt_warmteanalyse_cop_prestatie` answers the question a raw COP cannot: **did that
+change actually help?** The daily COP mostly follows the weather — on one measured installation
+1.85 at −5 °C and 4.55 at +13 °C — so comparing two periods directly compares two weeks of
+weather, not two settings.
+
+This sensor divides each heating day's COP by what this installation normally achieved at that
+same outdoor temperature. 1.00 is business as usual, higher is better. The norm is a binned
+median over every heating day on record, so it is the installation's own history, not a
+manufacturer figure.
+
+Use it by running one setting for a period, then the other, and comparing. Individual days
+scatter about 12%, so read the average and not the last day.
+
+### What it cannot tell you
+
+- **It does not say which advice to follow.** The stooklijn and MPC sensors only advise; unless
+  supply-temperature control is enabled, neither one steers, and the number reflects whatever
+  the heat pump's own controller did. To compare them you have to actually run each for a while.
+- **Weather-neutral is not season-neutral.** The norm bins on outdoor temperature, which removes
+  the weather but not the season. At 13 °C in November the house still wants heat and the pump
+  runs steadily; at 13 °C in May it barely does and cycles instead. Same bin, different
+  behaviour — so the tail of a heating season sits structurally below 1. Compare periods within
+  the same part of the season.
+- **The window counts heating days, not calendar days.** Out of season the number freezes on the
+  last 30 heating days, which may be months old. The card shows that date range and says so.
+- **A long one-sided period becomes its own norm.** Because the reference is a median over the
+  same days, a stretch spent entirely at one temperature pulls that bin towards itself and the
+  ratio drifts back to 1 regardless of how it performed.
+
+The **MPC** tab plots the ratio per heating day over time with outdoor temperature alongside,
+plus a scatter of ratio against temperature. Those two pictures show all four caveats at a
+glance — the summer gaps, the seasonal slope, and where the norm is thin.
 
 ## Performance & Caching
 

@@ -1272,23 +1272,41 @@ views:
 
               {% set dag = state_attr(cp, 'laatste_ratio') %}
 
+              {% set van = state_attr(cp, 'venster_van') %}
+
+              {% set tot = state_attr(cp, 'venster_tot') %}
+
+              {% set sinds = state_attr(cp, 'dagen_sinds_laatste_stookdag') | int(0) %}
+
               ### {{ ratio }} — rendement t.o.v. de eigen norm
 
               1,00 is zoals deze installatie het bij die buitentemperatuur altijd deed.
-              Hoger is beter. Dit is het 30-daags gemiddelde; losse dagen schommelen
-              ongeveer 12%.
+              Hoger is beter. Losse dagen schommelen ongeveer 12%, dus stuur op het
+              gemiddelde en niet op de laatste dag.
 
               | | Waarde |
 
               |:--|--:|
 
-              | 30 dagen | **{{ ratio }}** |
+              | Laatste 30 stookdagen{% if van %} ({{ van }} → {{ tot }}){% endif %} | **{{ ratio }}** |
 
-              | 7 dagen | {{ d7 }} |
+              | Laatste 7 stookdagen | {{ d7 }} |
 
               | Laatste stookdag ({{ state_attr(cp, 'laatste_dag') }}) | {{ dag }} |
 
               | Norm gebouwd uit | {{ state_attr(cp, 'referentie_stookdagen') }} stookdagen |
+
+              {% if sinds > 14 %}
+
+              > **Buiten het stookseizoen.** De laatste stookdag was {{ sinds }} dagen geleden.
+              Dit getal gaat over die periode en verandert niet tot de verwarming weer aan gaat.
+
+              {% endif %}
+
+              De norm bint op buitentemperatuur, niet op seizoen. Aan het eind van het
+              stookseizoen vraagt het huis bij dezelfde buitentemperatuur minder, draait de pomp
+              korter en komt de verhouding structureel iets onder 1 uit. Vergelijk daarom
+              periodes binnen hetzelfde seizoensdeel.
 
               {% else %}
 
@@ -1360,6 +1378,121 @@ views:
               columns: full
               rows: auto
 
+      # ── Rendement per stookdag: de reeks achter het ene getal ──
+      #
+      # Eén getal kan twee dingen niet tonen: dat het venster buiten het
+      # stookseizoen maanden stilstaat, en dat de verhouding meebeweegt met de
+      # buitentemperatuur. Beide staan hier naast elkaar, inclusief de zomergaten.
+      - type: grid
+        column_span: 2
+        cards:
+          - type: custom:apexcharts-card
+            header:
+              title: Rendement per stookdag
+              show: true
+            graph_span: 400d
+            span:
+              end: day
+            update_interval: 01:00:00
+            yaxis:
+              - id: ratio
+                min: 0.6
+                max: 1.4
+                decimals: 2
+                apex_config:
+                  title:
+                    text: verhouding
+              - id: temp
+                opposite: true
+                decimals: 0
+                apex_config:
+                  title:
+                    text: "°C"
+            apex_config:
+              chart:
+                height: 300
+              markers:
+                size: [3, 0]
+              stroke:
+                width: [0, 2]
+              annotations:
+                yaxis:
+                  - "y": 1
+                    borderColor: "#4CAF50"
+                    label:
+                      text: eigen norm
+              legend:
+                position: bottom
+              grid:
+                padding:
+                  right: 55
+            series:
+              - entity: sensor.quatt_warmteanalyse_cop_prestatie
+                name: Verhouding per stookdag
+                yaxis_id: ratio
+                color: "#7E57C2"
+                type: line
+                stroke_width: 0
+                data_generator: |
+                  const d = hass.states['sensor.quatt_warmteanalyse_cop_prestatie']?.attributes?.stookdagen || [];
+                  return d.map(p => [new Date(p.date + 'T12:00:00').getTime(), p.ratio]);
+              - entity: sensor.quatt_warmteanalyse_cop_prestatie
+                name: Buitentemperatuur die dag
+                yaxis_id: temp
+                color: "#B0BEC5"
+                type: line
+                stroke_width: 2
+                data_generator: |
+                  const d = hass.states['sensor.quatt_warmteanalyse_cop_prestatie']?.attributes?.stookdagen || [];
+                  return d.map(p => [new Date(p.date + 'T12:00:00').getTime(), p.temp]);
+            grid_options:
+              columns: full
+              rows: auto
+
+      # ── Verhouding tegen buitentemperatuur: de seizoensrand zichtbaar ──
+      #
+      # Zakt de wolk richting de rechterkant onder de lijn, dan is dat de zachte
+      # staart van het seizoen en geen achteruitgang van de installatie.
+      - type: grid
+        column_span: 2
+        cards:
+          - type: custom:apexcharts-card
+            header:
+              title: Verhouding tegen buitentemperatuur
+              show: true
+            update_interval: 01:00:00
+            apex_config:
+              chart:
+                height: 260
+                type: scatter
+              xaxis:
+                type: numeric
+                decimalsInFloat: 0
+                title:
+                  text: buitentemperatuur (°C)
+              yaxis:
+                decimalsInFloat: 2
+                title:
+                  text: verhouding
+              annotations:
+                yaxis:
+                  - "y": 1
+                    borderColor: "#4CAF50"
+              markers:
+                size: 4
+              legend:
+                show: false
+            series:
+              - entity: sensor.quatt_warmteanalyse_cop_prestatie
+                name: Stookdag
+                type: scatter
+                data_generator: |
+                  const d = hass.states['sensor.quatt_warmteanalyse_cop_prestatie']?.attributes?.stookdagen || [];
+                  return d.map(p => [p.temp, p.ratio]);
+            grid_options:
+              columns: full
+              rows: auto
+
       # ── Aanvoertemperatuur vergelijking (volle breedte) ──
       - type: grid
         column_span: 2
@@ -1408,7 +1541,7 @@ views:
                 dashArray: [0, 4]
               annotations:
                 yaxis:
-                  - y: 0
+                  - "y": 0
                     borderColor: "#999"
                     strokeDashArray: 4
                     borderWidth: 1
@@ -1838,13 +1971,13 @@ views:
                 curve: smooth
               annotations:
                 yaxis:
-                  - y: 2
+                  - "y": 2
                     borderColor: "#FF9800"
                     strokeDashArray: 4
-                  - y: -2
+                  - "y": -2
                     borderColor: "#FF9800"
                     strokeDashArray: 4
-                  - y: 0
+                  - "y": 0
                     borderColor: "#4CAF50"
                     strokeDashArray: 0
               legend:
