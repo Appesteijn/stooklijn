@@ -31,9 +31,12 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .analysis.thermal_model import OnlineRCModel, simulate_6h, simulate_coast_time
+from homeassistant.helpers.storage import Store
+
 from .const import (
     CONF_CH_MAX_WATER_ENABLED,
     CONF_COMFORT_FLOOR_TEMP,
+    CONF_COMPRESSOR_ENTITY,
     CONF_FLOW_ENTITY,
     CONF_DEMAND_SHIFT_GAMMA,
     CONF_INDOOR_TEMP_ENTITY,
@@ -52,6 +55,9 @@ from .const import (
     CONF_WEATHER_ENTITY,
     COAST_MAX_HOURS,
     COAST_STEP_MINUTES,
+    COMPRESSOR_REFRESH_INTERVAL,
+    COMPRESSOR_STORAGE_KEY,
+    COMPRESSOR_STORAGE_VERSION,
     DEFAULT_COMFORT_FLOOR_TEMP,
     DEFAULT_SOLAR_ENTITY,
     DEFAULT_WEATHER_ENTITY,
@@ -66,6 +72,7 @@ from .const import (
     SOLAR_RADIATION_DEFAULT_FACTOR,
 )
 from .discovery import (
+    ROLE_COMPRESSOR,
     ROLE_FLOW_RATE,
     ROLE_RETURN_TEMP,
     ROLE_INDOOR_TEMP,
@@ -89,6 +96,7 @@ from .sources import (
     SourceRegistry,
     async_source_entity,
 )
+from .cycling import CycleTracker
 from .thermal_store import ThermalModelStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -372,6 +380,7 @@ async def async_setup_entry(
     entities.extend(
         QuattSourceMirrorSensor(hass, entry, registry, spec) for spec in MIRROR_SPECS
     )
+    entities.append(QuattCompressorStartsSensor(hass, entry))
     entities.append(QuattSourceOverviewSensor(hass, entry, registry))
 
     async_add_entities(entities)
@@ -2685,3 +2694,140 @@ class QuattSoundLevelSensor(SensorEntity):
         if (new := event.data.get("new_state")) is not None:
             self._level = new.attributes.get("current_level")
             self.async_write_ha_state()
+
+
+class QuattCompressorStartsSensor(SensorEntity):
+    """Compressorstarts per uur — de maat voor kortcyclen.
+
+    De state is het aantal starts in het afgelopen uur, bewust voortschrijdend
+    en niet per kalenderdag. Een teller die om middernacht op nul gaat zegt om
+    half één niets, terwijl juist de nacht — lage vraag, hoge aanvoertemperatuur
+    — de periode is waarin het kortcyclen begint.
+
+    Als grafiek naast de buitentemperatuur beantwoordt deze sensor de vraag
+    waarvoor hij bestaat: veel starts terwijl het buiten niet warm is, betekent
+    dat de warmtepomp meer levert dan het huis vraagt en zichzelf uitzet. Dan
+    staat de stooklijn te hoog.
+
+    De geschiedenis wordt in een eigen store bewaard. De recorder gooit ruwe
+    states na tien dagen weg, en de vraag of een ingreep geholpen heeft
+    beantwoord je door twee koudeperioden te vergelijken die maanden uit elkaar
+    liggen.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Compressorstarts"
+    _attr_icon = "mdi:restart"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "starts/uur"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_compressor_starts"
+        # Entity-ID vastpinnen — zie de toelichting bij MirrorSpec.slug.
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            f"{ENTITY_PREFIX}_compressorstarts",
+            hass=hass,
+        )
+        self._attr_device_info = get_device_info(entry.entry_id)
+        self._store = Store(
+            hass, COMPRESSOR_STORAGE_VERSION, COMPRESSOR_STORAGE_KEY
+        )
+        self._tracker = CycleTracker()
+        self._loaded = False
+
+    # -- bron --------------------------------------------------------------
+
+    @property
+    def _source_entity(self) -> str | None:
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_COMPRESSOR,
+            config=cfg, conf_key=CONF_COMPRESSOR_ENTITY,
+        )
+
+    def _current_frequency(self) -> float | None:
+        entity_id = self._source_entity
+        if not entity_id:
+            return None
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable", ""):
+            return None
+        try:
+            return float(state.state)
+        except (TypeError, ValueError):
+            return None
+
+    # -- lifecycle ---------------------------------------------------------
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+
+        stored = await self._store.async_load()
+        self._tracker = CycleTracker.from_list((stored or {}).get("runs"))
+        self._tracker.prune(dt_util.utcnow())
+        self._loaded = True
+
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                candidate_entities(
+                    self.hass, self._entry.entry_id, (ROLE_COMPRESSOR,)
+                ),
+                self._handle_state_change,
+            )
+        )
+        # Ook zonder toestandswisseling opnieuw rekenen: het uursvenster
+        # schuift door, dus zonder tik blijft de state hangen op het aantal van
+        # het moment waarop de compressor voor het laatst iets deed.
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass, self._handle_tick, COMPRESSOR_REFRESH_INTERVAL
+            )
+        )
+        self.async_write_ha_state()
+
+    async def _handle_state_change(self, event) -> None:
+        await self._async_process(persist=True)
+
+    async def _handle_tick(self, _now=None) -> None:
+        await self._async_process(persist=False)
+
+    async def _async_process(self, *, persist: bool) -> None:
+        if not self._loaded:
+            return
+        now = dt_util.utcnow()
+        started = self._tracker.update(self._current_frequency(), now)
+        self._tracker.prune(now)
+        if persist or started:
+            await self._store.async_save({"runs": self._tracker.to_list()})
+        self.async_write_ha_state()
+
+    # -- weergave ----------------------------------------------------------
+
+    @property
+    def available(self) -> bool:
+        return self._source_entity is not None
+
+    @property
+    def native_value(self) -> int | None:
+        if not self._loaded:
+            return None
+        return self._tracker.starts_in_last(1, dt_util.utcnow())
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        now = dt_util.utcnow()
+        t = self._tracker
+        laatste = t.last_start
+        return {
+            "starts_laatste_uur": t.starts_in_last(1, now),
+            "starts_laatste_etmaal": t.starts_in_last(24, now),
+            "starts_per_dag_7d": t.starts_per_day(7, now),
+            "gemiddelde_looptijd_min": t.average_runtime_minutes(24, now),
+            "draait_nu": t.running,
+            "laatste_start": laatste.isoformat() if laatste else None,
+            "beurten_bewaard": len(t.runs),
+            "bron": self._source_entity,
+        }

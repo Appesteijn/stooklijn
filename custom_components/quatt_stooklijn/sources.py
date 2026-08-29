@@ -40,6 +40,7 @@ import homeassistant.util.dt as dt_util
 # const.py importeert zelf niets, dus dit levert geen kringverwijzing op.
 from .const import (
     CONF_BOILER_HEAT_ENTITY,
+    CONF_COMPRESSOR_ENTITY,
     CONF_CONTROL_SETPOINT_ENTITY,
     CONF_COP_ENTITY,
     CONF_FLOW_ENTITY,
@@ -54,6 +55,7 @@ from .const import (
 from .discovery import (
     QUATT_PLATFORM,
     ROLE_BOILER_HEAT,
+    ROLE_COMPRESSOR,
     ROLE_CONTROL_SETPOINT,
     ROLE_COP,
     ROLE_FLOW_RATE,
@@ -128,6 +130,8 @@ MIRROR_SPECS: tuple[MirrorSpec, ...] = (
     MirrorSpec(ROLE_BOILER_HEAT, "Ketelvermogen", "W", "power", "mdi:fire",
                "ketelvermogen"),
     MirrorSpec(ROLE_COP, "COP", None, None, "mdi:chart-line", "cop"),
+    MirrorSpec(ROLE_COMPRESSOR, "Compressorfrequentie", "Hz", "frequency",
+               "mdi:sine-wave", "compressorfrequentie"),
 )
 
 # Object-id van de overzichtssensor, om dezelfde reden vastgelegd.
@@ -157,6 +161,7 @@ ROLE_CONF_KEYS: dict[str, str] = {
     ROLE_POWER_INPUT: CONF_POWER_INPUT_ENTITY,
     ROLE_BOILER_HEAT: CONF_BOILER_HEAT_ENTITY,
     ROLE_COP: CONF_COP_ENTITY,
+    ROLE_COMPRESSOR: CONF_COMPRESSOR_ENTITY,
 }
 
 

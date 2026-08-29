@@ -46,6 +46,7 @@ them verbatim when you ask for a change. Dutch and English are used interchangea
 - **Power House feedforward** — Publishes the measured house heat demand (W) for OpenQuatt's external heat demand input
 - **Source abstraction** — Every measurement is exposed through a mirror sensor with a stable entity ID. Dashboards and automations keep working while the underlying source (Quatt, OpenQuatt, or your own sensor) switches or drops out
 - **Runs without the cloud** — The Quatt Insights API is optional. With it off, the analysis continues on Home Assistant's own long-term statistics plus the integration's stored history
+- **Kortcyclen zichtbaar** — Counts compressor starts per hour and plots them against outdoor temperature; many starts while it is cold is the signature of a heating curve set too high
 - **Dashboard included** — Pre-built Lovelace dashboard with five tabs, including a Systeem view showing which integration delivers each measurement
 
 ## Requirements
@@ -98,7 +99,7 @@ Leave a field empty and auto-detection picks the entity at runtime. That is usua
 
 ## Data sources
 
-The integration does not read sensors directly. It resolves eleven logical **roles** — supply temp, return temp, outside temp, room temp, control setpoint, room setpoint, flow rate, total power, power input, boiler heat, COP — and each role is filled by the first candidate that actually delivers a number.
+The integration does not read sensors directly. It resolves twelve logical **roles** — supply temp, return temp, outside temp, room temp, control setpoint, room setpoint, flow rate, total power, power input, boiler heat, COP, compressor frequency — and each role is filled by the first candidate that actually delivers a number.
 
 ### Candidate order
 
@@ -112,7 +113,7 @@ If the active source stops delivering — `unavailable`, `unknown`, or a non-num
 
 ### Choosing sources yourself
 
-Every one of the eleven roles has its own field in **Configure**. Leave it empty for auto-detection, or point it at any sensor you like — including one that belongs to neither integration. Set the outside temperature to your own weather station and the analysis will use it.
+Every one of the twelve roles has its own field in **Configure**. Leave it empty for auto-detection, or point it at any sensor you like — including one that belongs to neither integration. Set the outside temperature to your own weather station and the analysis will use it.
 
 ### Mirror sensors
 
@@ -191,7 +192,7 @@ The dashboard has five tabs:
 | **Analyse** | Heat loss scatter + trendlines, COP vs temperature, heat demand table, data availability |
 | **Advies** | Quatt parameter recommendations, stooklijn breakpoints, OpenQuatt integration |
 | **MPC** | Thermal model status, 6-hour forecast, supply temperature comparison, error sensors |
-| **Systeem** | Data sources per measurement, supply-temperature limiting, 48-hour aligned charts: power, MPC deviation, flow & outdoor temp; sound level status when enabled |
+| **Systeem** | Data sources per measurement, supply-temperature limiting, compressor starts, 48-hour aligned charts: power, starts vs outdoor temp, MPC deviation, flow & outdoor temp; sound level status when enabled |
 
 ### Adapting the dashboard to your setup
 
@@ -249,7 +250,7 @@ Almost every Home Assistant installation has this: the built-in [Met.no integrat
 | `buitentemperatuur` | °C | `ketelvermogen` | W |
 | `kamertemperatuur` | °C | `debiet` | L/h |
 | `thermostaat_setpoint` | °C | `cop` | — |
-| `kamer_setpoint` | °C | | |
+| `kamer_setpoint` | °C | `compressorfrequentie` | Hz |
 
 Each carries `source_entity`, `source_integration`, `candidates` and `switched_at` as attributes.
 
@@ -265,6 +266,7 @@ Each carries `source_entity`, `source_integration`, `candidates` and `switched_a
 | `veilige_uitlooptijd` | min | How long the house can coast with the heat pump off before hitting the comfort floor |
 | `max_aanvoertemperatuur_instelling` | °C | Value last written to the heat pump's max supply temperature (only when supply-temperature control is enabled) |
 | `geluidsniveau` | — | Current compressor sound level (`uit` / `building87` / `silent` / `library` / `normal`) — only when sound level compensation is enabled |
+| `compressorstarts` | starts/uur | Compressor starts in the last hour — see [Short cycling](#short-cycling) |
 
 Both error sensors return no value while the pump is idle (flow below 30 L/h): comparing advice against actual supply temperature is meaningless without circulation.
 
@@ -599,6 +601,39 @@ Live sensors + weer → [MPC forecast] → optimale aanvoertemperatuur
                    (statisch)       compensatie             (output sensoren)
                                    (compressor sturing)
 ```
+
+## Short cycling
+
+`sensor.quatt_warmteanalyse_compressorstarts` counts how often the compressor started in the
+last hour. Together with the average run time it answers one question: **is the heat pump
+delivering more than the house asks for?**
+
+A heat pump that cannot modulate below its minimum output has only one way to deliver less
+heat — switch off and back on. Every start costs efficiency, so a curve set too high shows up
+as many short runs rather than as a high supply temperature.
+
+The number only means something in the cold. Above roughly 10 °C the house needs so little
+that cycling is unavoidable and says nothing about your settings. Below that, several starts
+per hour points at a stooklijn that is set too high; the **Advies** tab shows what the
+measured curve would be instead.
+
+The **Systeem** tab plots starts per hour against outdoor temperature, which is the picture to
+look at: the two lines moving in opposite directions is the signature of a curve set too high.
+
+Some details that matter for trusting the number:
+
+- It counts the **compressor frequency** going from standstill to running, not thermal power.
+  During a defrost cycle the compressor keeps running while thermal power drops to zero —
+  counting on power would invent starts at exactly the temperatures where the question
+  matters most.
+- A stop shorter than a minute is treated as a **gap in the measurements**, not a stop.
+  Without that, one flaky sensor turns a single run into ten starts.
+- `unavailable` means *unknown*, not *off*. A source dropping out never counts as a start.
+- The history lives in the integration's own store, not just the recorder — so two cold spells
+  months apart can be compared, which is how you tell whether a change to the curve helped.
+
+On a duo the first heat pump is followed. That is the leading unit: the second only joins at
+high demand, while cycling happens at low demand.
 
 ## Performance & Caching
 

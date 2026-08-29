@@ -1,5 +1,7 @@
 """Constants for the Quatt Stooklijn integration."""
 
+from datetime import timedelta
+
 DOMAIN = "quatt_stooklijn"
 
 # Config keys
@@ -44,6 +46,7 @@ CONF_BOILER_HEAT_ENTITY = "boiler_heat_entity"
 CONF_CONTROL_SETPOINT_ENTITY = "control_setpoint_entity"
 CONF_ROOM_SETPOINT_ENTITY = "room_setpoint_entity"
 CONF_COP_ENTITY = "cop_entity"
+CONF_COMPRESSOR_ENTITY = "compressor_entity"
 
 # How many days of detailed hourly data to fetch from Quatt API
 API_FETCH_DAYS = 30
@@ -232,3 +235,34 @@ CONF_CH_MAX_WATER_INTERVAL = "ch_max_water_interval"
 DEFAULT_CH_MAX_WATER_SOURCE = "stooklijn"   # "stooklijn" | "mpc"
 DEFAULT_CH_MAX_WATER_HYSTERESIS = 1.0       # °C
 DEFAULT_CH_MAX_WATER_INTERVAL = 30          # minuten
+
+
+# --- Compressorstarts ------------------------------------------------------
+#
+# Kortcyclen is af te lezen aan het aantal starts per uur. De diagnose die
+# gebruikers zoeken is "veel starts terwijl het buiten niet warm is": dan levert
+# de warmtepomp meer dan het huis vraagt en zet ze zichzelf uit.
+
+# Boven deze compressorfrequentie geldt de warmtepomp als draaiend. Niet exact
+# nul: de sensor rapporteert bij stilstand af en toe een restwaarde, en zonder
+# marge telt die ruis mee als start.
+COMPRESSOR_ON_HZ = 1.0
+
+# Een stop korter dan dit is geen stop maar een meethiaat — een gemiste update
+# of een seconde ruis. Zonder deze drempel telt één haperende sensor als tien
+# starts.
+COMPRESSOR_MIN_OFF_SECONDS = 60
+
+# Hoe lang de geschiedenis wordt bewaard. De recorder gooit ruwe states na tien
+# dagen weg; deze integratie bewaart zelf, zodat een heel stookseizoen te
+# vergelijken valt.
+COMPRESSOR_KEEP_DAYS = 400
+
+# Eigen store, los van de recorder — zie de toelichting in cycling.py.
+COMPRESSOR_STORAGE_VERSION = 1
+COMPRESSOR_STORAGE_KEY = f"{DOMAIN}.compressor_starts"
+
+# Ook zonder toestandswisseling herrekenen: het uursvenster schuift door, dus
+# zonder tik blijft de state hangen op het aantal van het moment waarop de
+# compressor voor het laatst iets deed.
+COMPRESSOR_REFRESH_INTERVAL = timedelta(minutes=5)

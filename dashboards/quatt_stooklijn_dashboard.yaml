@@ -1684,6 +1684,128 @@ views:
               columns: full
               rows: auto
 
+      # ── Compressorstarts: kortcyclen zichtbaar maken ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: markdown
+            title: Compressorstarts
+            content: >
+              {% set s = 'sensor.quatt_warmteanalyse_compressorstarts' %}
+
+              {% set nu = states(s) | int(none) %}
+
+              {% if nu is not none %}
+
+              {% set etmaal = state_attr(s, 'starts_laatste_etmaal') | int(0) %}
+
+              {% set looptijd = state_attr(s, 'gemiddelde_looptijd_min') %}
+
+              {% set perdag = state_attr(s, 'starts_per_dag_7d') %}
+
+              {% set buiten = states('sensor.quatt_warmteanalyse_buitentemperatuur') | float(none) %}
+
+              ### {{ nu }} starts in het afgelopen uur
+
+              | | Waarde |
+
+              |:--|--:|
+
+              | Laatste uur | **{{ nu }}** |
+
+              | Laatste etmaal | {{ etmaal }} |
+
+              | Gemiddeld per dag (7 dagen) | {% if perdag is not none %}{{ perdag }}{% else %}*nog te weinig historie*{% endif %} |
+
+              | Gemiddelde looptijd | {% if looptijd is not none %}{{ looptijd }} min{% else %}*—*{% endif %} |
+
+              | Draait nu | {% if state_attr(s, 'draait_nu') %}ja{% else %}nee{% endif %} |
+
+              {% if nu >= 3 and buiten is not none and buiten < 10 %}
+
+              > **{{ nu }} starts per uur bij {{ buiten | round(1) }} °C buiten.** Kortcyclen bij
+              koud weer betekent dat de warmtepomp meer levert dan het huis vraagt en zichzelf
+              uitzet. Dat wijst op een te hoge stooklijn: kijk op het tabblad **Advies** of de
+              geadviseerde aanvoertemperatuur lager ligt dan wat er nu ingesteld staat.
+
+              {% elif nu >= 3 %}
+
+              > Veel starts, maar het is {{ buiten | round(1) if buiten is not none else '?' }} °C
+              buiten. Bij weinig warmtevraag is kortcyclen normaal — de pomp kan niet lager
+              moduleren dan haar minimum. Pas onder ongeveer 10 °C zegt dit getal iets over de
+              stooklijn.
+
+              {% endif %}
+
+              {% if looptijd is not none and looptijd < 10 %}
+
+              > Een gemiddelde looptijd van {{ looptijd }} minuten is kort. Elke start kost
+              rendement; langer en rustiger draaien levert een hogere COP op.
+
+              {% endif %}
+
+              {% else %}
+
+              *Nog geen meting. Deze sensor telt vanaf nu; de compressorfrequentie moet een bron
+              hebben — zie de kaart Databronnen.*
+
+              {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
+
+      # ── Starts per uur tegen buitentemperatuur (48 uur) ──
+      #
+      # Dit is het plaatje waar de sensor voor bestaat. Veel starts terwijl de
+      # buitentemperatuur laag is, betekent dat de stooklijn te hoog staat.
+      - type: grid
+        column_span: 2
+        cards:
+          - type: custom:apexcharts-card
+            header:
+              title: Compressorstarts per uur & buitentemperatuur (48 uur)
+              show: true
+            graph_span: 48h
+            yaxis:
+              - id: starts
+                min: 0
+                decimals: 0
+                apex_config:
+                  title:
+                    text: "starts/uur"
+              - id: temp
+                opposite: true
+                decimals: 0
+                apex_config:
+                  title:
+                    text: "°C"
+            apex_config:
+              chart:
+                height: 240
+              stroke:
+                curve: stepline
+              legend:
+                show: true
+              grid:
+                padding:
+                  right: 55
+            series:
+              - entity: sensor.quatt_warmteanalyse_compressorstarts
+                name: Starts per uur
+                yaxis_id: starts
+                color: "#E91E63"
+                stroke_width: 2
+                type: area
+                opacity: 0.15
+              - entity: sensor.quatt_warmteanalyse_buitentemperatuur
+                name: Buitentemperatuur
+                yaxis_id: temp
+                color: "#78909C"
+                stroke_width: 2
+            grid_options:
+              columns: full
+              rows: auto
+
       # ── Aanvoer-fout (MPC error) — smoothness indicator (48 uur) ──
       - type: grid
         column_span: 2
