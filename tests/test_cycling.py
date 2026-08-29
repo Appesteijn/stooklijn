@@ -374,6 +374,63 @@ class TestSensorMeetTijd:
         )
 
 
+class TestOpslagSchrijven:
+    """De opslag hoort alleen te bewegen als een beurtgrens beweegt.
+
+    Een bron die de modulatie meldt wisselt tijdens één beurt tientallen keren
+    van waarde. Dat zijn geen nieuwe feiten om te bewaren: wat de store draagt
+    zijn de start- en stoptijden. Schrijven op elke state-change maakte er tien
+    tot twintig identieke schrijfacties per beurt van.
+    """
+
+    @staticmethod
+    def _grenzen(tracker):
+        from custom_components.quatt_stooklijn.sensor import (
+            QuattCompressorStartsSensor,
+        )
+
+        return QuattCompressorStartsSensor._grenzen(tracker)
+
+    def test_start_verschuift_de_grens(self):
+        t = CycleTracker()
+        voor = self._grenzen(t)
+        t.update(30.0, _op(0))
+        assert self._grenzen(t) != voor
+
+    def test_stop_verschuift_de_grens(self):
+        t = CycleTracker()
+        t.update(30.0, _op(0))
+        voor = self._grenzen(t)
+        t.update(0.0, _op(10))
+        assert self._grenzen(t) != voor
+
+    def test_moduleren_binnen_een_beurt_verschuift_niets(self):
+        """22 → 41 → 45 → 30 Hz is één beurt, geen vier gebeurtenissen."""
+        t = CycleTracker()
+        t.update(22.0, _op(0))
+        voor = self._grenzen(t)
+        for minuut, hz in [(0.2, 41.0), (0.4, 45.0), (1.0, 44.0), (1.5, 30.0)]:
+            t.update(hz, _op(minuut))
+        assert self._grenzen(t) == voor
+
+    def test_stilstand_blijven_melden_verschuift_niets(self):
+        t = CycleTracker()
+        t.update(0.0, _op(0))
+        voor = self._grenzen(t)
+        for minuut in (1, 2, 3):
+            t.update(0.0, _op(minuut))
+        assert self._grenzen(t) == voor
+
+    def test_hervatten_na_een_hiaat_verschuift_de_grens(self):
+        """Een korte onderbreking heropent de beurt; dat moet bewaard worden."""
+        t = CycleTracker()
+        t.update(30.0, _op(0))
+        t.update(0.0, _op(10))
+        voor = self._grenzen(t)
+        t.update(30.0, _op(10.2))
+        assert self._grenzen(t) != voor
+
+
 class TestOnbekendeMeting:
     """`unavailable` is geen stilstand.
 

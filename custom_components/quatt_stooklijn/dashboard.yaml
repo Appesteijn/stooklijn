@@ -1280,9 +1280,15 @@ views:
 
               ### {{ ratio }} — rendement t.o.v. de eigen norm
 
-              1,00 is zoals deze installatie het bij die buitentemperatuur altijd deed.
-              Hoger is beter. Losse dagen schommelen ongeveer 12%, dus stuur op het
-              gemiddelde en niet op de laatste dag.
+              De norm is je eigen verleden: de stookdagen die deze installatie zelf
+              gedraaid heeft. Geen fabrieksopgave en geen vergelijking met andere huizen.
+              1,00 betekent dus precies zoals jij het bij die buitentemperatuur altijd
+              deed, en hoger is beter.
+
+              Gebruik dit om te zien of een aanpassing geholpen heeft: noteer het
+              gemiddelde over 30 stookdagen voordat je iets verandert, en kijk er een
+              maand later weer naar. Eén losse dag zegt niets — die schommelt ongeveer
+              12% op en neer.
 
               | | Waarde |
 
@@ -1303,10 +1309,14 @@ views:
 
               {% endif %}
 
-              De norm bint op buitentemperatuur, niet op seizoen. Aan het eind van het
-              stookseizoen vraagt het huis bij dezelfde buitentemperatuur minder, draait de pomp
-              korter en komt de verhouding structureel iets onder 1 uit. Vergelijk daarom
-              periodes binnen hetzelfde seizoensdeel.
+              De norm kijkt alleen naar de buitentemperatuur en weet niet welke maand het
+              is. Maar 12 °C in november is iets anders dan 12 °C in mei: in mei is het huis
+              al warm en helpt de zon mee, dus heeft de pomp weinig te doen en draait ze in
+              korte runs. Dat kost rendement. Omdat de norm beide soorten dagen door
+              elkaar middelt, komen voorjaarsdagen bijna altijd onder 1 uit zonder dat er
+              iets mis is. Vergelijk dus voorjaar met voorjaar en najaar met najaar. Dat
+              geldt ook voor de vóór-en-na-vergelijking hierboven: valt die maand net over
+              de rand van het seizoen, dan meet je het seizoen en niet je aanpassing.
 
               {% else %}
 
@@ -1363,6 +1373,37 @@ views:
               > In {{ state_attr(ws, 'uren_boven_plafond') }} uur komt de verdeling boven
               *Rated maximum house power*. Daar kapt de firmware af en gaat de
               energie-neutraliteit alsnog verloren — kies dan een lagere γ.
+
+              {% endif %}
+
+              {% set scan = state_attr(ws, 'gamma_scan') or [] %}
+
+              {% set advies = state_attr(ws, 'gamma_advies') %}
+
+              {% if scan %}
+
+              #### Wat een andere γ zou doen
+
+              {% if advies is not none %}
+
+              Op de verwachting van dit moment haalt **γ = {{ advies }}** vrijwel de volle
+              winst zonder dat een grens ingrijpt: **{{ (state_attr(ws, 'gamma_advies_besparing') * 100) | round(1) }}%**
+              minder stroom voor dezelfde warmte. Hoger mag, maar kost meer kamerdrift dan
+              het aan besparing oplevert.
+
+              {% else %}
+
+              Geen enkele γ levert hier iets op zonder dat het firmwareplafond of de
+              comfortgrens het resultaat bepaalt. Laat hem dan op 0 staan.
+
+              {% endif %}
+
+              {% set ns = namespace(tbl='| γ | Besparing | Kamerdrift | |\n|:--|--:|--:|:--|\n') %}{% for p in scan %}{% if ((p.gamma * 10) | round | int) % 5 == 0 or p.gamma == advies %}{% set merk = 'plafond' if p.uren_boven_plafond > 0 else ('begrensd' if p.drift_begrenzing < 1 else ('← advies' if p.gamma == advies else '')) %}{% set ns.tbl = ns.tbl + '| ' + ('**' + p.gamma|string + '**' if p.gamma == advies else p.gamma|string) + ' | ' + ((p.besparing * 100)|round(1)|string + '%' if p.besparing is not none else '—') + ' | ' + ('%.2f'|format(p.drift_k) + ' K' if p.drift_k is not none else '—') + ' | ' + merk + ' |\n' %}{% endif %}{% endfor %}{{ ns.tbl }}
+
+              Dit is een dagkoers, geen instelling: een dag met veel temperatuurzwaai geeft
+              een heel ander optimum dan een strakke koude dag. En het is een schatting uit
+              de COP-curve — of het echt geholpen heeft lees je een maand later af aan het
+              rendement hierboven.
 
               {% endif %}
 
@@ -1461,18 +1502,28 @@ views:
               title: Verhouding tegen buitentemperatuur
               show: true
             update_interval: 01:00:00
+            graph_span: 36h
             apex_config:
               chart:
                 height: 260
               xaxis:
-                type: numeric
-                decimalsInFloat: 0
+                min: EVAL:Date.now() - 36 * 3600000
+                max: EVAL:Date.now()
                 title:
                   text: buitentemperatuur (°C)
+                labels:
+                  formatter: >-
+                    EVAL:function(val) { return Math.round(20 - (new
+                    Date().getTime() - val) / 3600000) + '°C'; }
               yaxis:
                 decimalsInFloat: 2
                 title:
                   text: verhouding
+              tooltip:
+                x:
+                  formatter: >-
+                    EVAL:function(val) { return Math.round(20 - (new
+                    Date().getTime() - val) / 3600000) + '°C'; }
               annotations:
                 yaxis:
                   - "y": 1
@@ -1488,7 +1539,8 @@ views:
                 stroke_width: 0
                 data_generator: |
                   const d = hass.states['sensor.quatt_warmteanalyse_cop_prestatie']?.attributes?.stookdagen || [];
-                  return d.map(p => [p.temp, p.ratio]);
+                  const now = Date.now();
+                  return d.filter(p => p.temp < 20).map(p => [now - (20 - p.temp) * 3600000, p.ratio]);
             grid_options:
               columns: full
               rows: auto

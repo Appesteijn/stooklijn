@@ -59,6 +59,133 @@ class DemandShiftResult:
     drift_limit_factor: float = 1.0
 
 
+@dataclass
+class GammaPunt:
+    """Wat één gamma-waarde over dit venster zou opleveren."""
+
+    gamma: float
+    besparing: float | None = None
+    drift_k: float | None = None
+    uren_boven_plafond: int = 0
+    drift_begrenzing: float = 1.0
+
+    @property
+    def schoon(self) -> bool:
+        """Rekent het model hier nog, of bepaalt een grens het resultaat?
+
+        Boven het firmwareplafond kapt Power House af en gaat de energie-
+        neutraliteit verloren; grijpt de driftlimiter in, dan is de verschuiving
+        teruggeschaald en zegt de besparing niet meer wat gamma zou doen. In
+        beide gevallen is het getal geen voorspelling meer maar een uitkomst van
+        de begrenzing.
+        """
+        return self.uren_boven_plafond == 0 and self.drift_begrenzing >= 1.0
+
+
+@dataclass
+class GammaScan:
+    """De reeks doorgerekende gamma's, plus welke eruit te kiezen."""
+
+    punten: list[GammaPunt] = field(default_factory=list)
+    advies: float | None = None
+    advies_besparing: float | None = None
+
+
+# Hoeveel van de best haalbare winst een lagere gamma nog moet pakken om de
+# voorkeur te krijgen. Gamma kost comfort — elke stap trekt de kamer verder weg
+# van het setpoint — dus een half procentpunt extra besparing is die stap niet
+# waard. Bij gelijke opbrengst wint de rustigste instelling.
+ADVIES_DREMPEL = 0.95
+
+
+def scan_gamma(
+    forecast_temps: list[float],
+    reference_curve: dict[float, float],
+    ua: float | None,
+    t_zero: float | None,
+    *,
+    ceiling_w: float | None = None,
+    thermal_mass_wh_k: float | None = None,
+    max_drift_k: float | None = None,
+    grove_stap: float = 0.5,
+    fijne_stap: float = 0.1,
+) -> GammaScan:
+    """Reken het hele bereik van gamma door en wijs de bruikbaarste aan.
+
+    Gamma is niet uit te rekenen maar wel af te lezen: de opbrengst loopt niet
+    netjes door. Ergens houdt extra agressiviteit op winst op te leveren, en
+    even daarboven neemt een begrenzing het over — de driftlimiter schaalt de
+    verschuiving terug, of uren komen boven het firmwareplafond. Rond díe knik
+    wordt fijner gerekend dan aan de uiteinden, want daar valt de keuze.
+
+    Het advies is de láágste gamma die nog vrijwel de volle winst pakt, niet de
+    hoogste opbrengst: zie ADVIES_DREMPEL.
+
+    Bewust zonder Home Assistant: het gedrag dat ertoe doet — waar de knik ligt
+    en welke gamma eruit komt — hoort testbaar te zijn zonder draaiende HA.
+    """
+
+    def meet(gamma: float) -> GammaPunt:
+        r = calculate_demand_shift(
+            forecast_temps,
+            reference_curve,
+            ua,
+            t_zero,
+            gamma,
+            ceiling_w=ceiling_w,
+            thermal_mass_wh_k=thermal_mass_wh_k,
+            max_drift_k=max_drift_k,
+        )
+        return GammaPunt(
+            gamma=round(gamma, 2),
+            besparing=r.expected_saving,
+            drift_k=r.worst_drift_k,
+            uren_boven_plafond=r.hours_above_ceiling,
+            drift_begrenzing=r.drift_limit_factor,
+        )
+
+    if grove_stap <= 0 or fijne_stap <= 0:
+        return GammaScan()
+
+    grof = [
+        meet(round(grove_stap * i, 2))
+        for i in range(1, int(GAMMA_MAX / grove_stap) + 1)
+    ]
+    bruikbaar = [p for p in grof if p.schoon and p.besparing is not None]
+    if not bruikbaar:
+        return GammaScan(punten=grof)
+
+    # De knik ligt rond de gamma met de hoogste schone opbrengst: net eronder
+    # loopt de winst nog op, net erboven vlakt hij af of grijpt een grens in.
+    top = max(bruikbaar, key=lambda p: (p.besparing or 0.0, -p.gamma))
+    onder = max(fijne_stap, top.gamma - grove_stap)
+    boven = min(GAMMA_MAX, top.gamma + grove_stap)
+
+    punten = {p.gamma: p for p in grof}
+    stappen = int(round((boven - onder) / fijne_stap))
+    for i in range(stappen + 1):
+        g = round(onder + i * fijne_stap, 2)
+        if g not in punten and 0 < g <= GAMMA_MAX:
+            punten[g] = meet(g)
+
+    reeks = [punten[g] for g in sorted(punten)]
+    schoon = [p for p in reeks if p.schoon and p.besparing is not None]
+    if not schoon:
+        return GammaScan(punten=reeks)
+
+    beste = max(p.besparing or 0.0 for p in schoon)
+    if beste <= 0:
+        return GammaScan(punten=reeks)
+
+    # Laagste gamma die de drempel haalt — rustiger bij vrijwel dezelfde winst.
+    keuze = next(
+        p for p in schoon if (p.besparing or 0.0) >= beste * ADVIES_DREMPEL
+    )
+    return GammaScan(
+        punten=reeks, advies=keuze.gamma, advies_besparing=keuze.besparing
+    )
+
+
 def _cop_for_weighting(curve: dict[float, float], temp: float) -> float | None:
     """COP bij deze temperatuur, geklemd op de randen van de curve.
 

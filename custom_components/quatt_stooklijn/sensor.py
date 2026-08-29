@@ -2576,10 +2576,15 @@ class QuattShiftedHeatDemandSensor(QuattHeatDemandSensor):
         except (TypeError, ValueError):
             return DEFAULT_DEMAND_SHIFT_GAMMA
 
-    def _shift(self):
-        """Bereken de herverdeling, of ``None`` als een ingang ontbreekt."""
-        from .analysis.demand_shift import calculate_demand_shift
+    def _ingangen(self) -> dict | None:
+        """De ingangen van de herverdeling, hooguit één keer per update gebouwd.
 
+        ``native_value`` en ``extra_state_attributes`` worden allebei bij elke
+        state-write aangeroepen, en de gamma-scan rekent het venster nog een stuk
+        of vijftien keer door. De forecast opbouwen hoort daar niet in mee te
+        schalen, dus dat gebeurt hier één keer en wordt bewaard zolang de
+        coördinator dezelfde data draagt en de buitentemperatuur niet bewoog.
+        """
         data = self.coordinator.data
         if data is None:
             return None
@@ -2595,6 +2600,13 @@ class QuattShiftedHeatDemandSensor(QuattHeatDemandSensor):
         if zero_point is None or t_outdoor is None:
             return None
 
+        # Vergelijken op identiteit, niet op inhoud: het data-object wordt bij
+        # elke refresh vervangen, en een diepe vergelijking is duurder dan de
+        # berekening die we ermee willen uitsparen.
+        bewaard = getattr(self, "_ingang_cache", None)
+        if bewaard is not None and bewaard[0] is data and bewaard[1] == t_outdoor:
+            return bewaard[2]
+
         # Eigen venster, niet dat van de displayforecast: de winst zit in de
         # dagzwaai en die past niet in zes uur. Zie DEMAND_SHIFT_HOURS.
         fc_temps, _solar, _meta = self._mpc.build_forecast_arrays(
@@ -2608,15 +2620,55 @@ class QuattShiftedHeatDemandSensor(QuattHeatDemandSensor):
         params = self._mpc.thermal_params
         c_whk = params.get("C_whk") if params.get("converged") else None
 
+        ingangen = {
+            "forecast_temps": fc_temps,
+            "reference_curve": data.cop_performance.reference,
+            "ua": float(hlc),
+            "t_zero": zero_point[0],
+            "ceiling_w": self._ceiling_w(openquatt),
+            "thermal_mass_wh_k": c_whk,
+            "max_drift_k": DEMAND_SHIFT_MAX_DRIFT_K,
+        }
+        self._ingang_cache = (data, t_outdoor, ingangen)
+        return ingangen
+
+    def _shift(self):
+        """Bereken de herverdeling, of ``None`` als een ingang ontbreekt."""
+        from .analysis.demand_shift import calculate_demand_shift
+
+        ingangen = self._ingangen()
+        if ingangen is None:
+            return None
         return calculate_demand_shift(
-            fc_temps,
-            self.coordinator.data.cop_performance.reference,
-            float(hlc),
-            zero_point[0],
+            ingangen["forecast_temps"],
+            ingangen["reference_curve"],
+            ingangen["ua"],
+            ingangen["t_zero"],
             self._gamma,
-            ceiling_w=self._ceiling_w(openquatt),
-            thermal_mass_wh_k=c_whk,
-            max_drift_k=DEMAND_SHIFT_MAX_DRIFT_K,
+            ceiling_w=ingangen["ceiling_w"],
+            thermal_mass_wh_k=ingangen["thermal_mass_wh_k"],
+            max_drift_k=ingangen["max_drift_k"],
+        )
+
+    def _scan(self):
+        """Wat élke gamma over dit venster zou opleveren.
+
+        Draait ook als gamma op 0 staat — juist dan: zonder doorgerekende reeks
+        is er geen grond om hem hoger te zetten.
+        """
+        from .analysis.demand_shift import scan_gamma
+
+        ingangen = self._ingangen()
+        if ingangen is None:
+            return None
+        return scan_gamma(
+            ingangen["forecast_temps"],
+            ingangen["reference_curve"],
+            ingangen["ua"],
+            ingangen["t_zero"],
+            ceiling_w=ingangen["ceiling_w"],
+            thermal_mass_wh_k=ingangen["thermal_mass_wh_k"],
+            max_drift_k=ingangen["max_drift_k"],
         )
 
     def _ceiling_w(self, openquatt: dict[str, str] | None) -> float | None:
@@ -2638,6 +2690,7 @@ class QuattShiftedHeatDemandSensor(QuattHeatDemandSensor):
         shift = self._shift()
         if shift is None:
             return None
+        scan = self._scan()
         return {
             "gamma": shift.gamma,
             # Wat `warmtevraag` op dit moment publiceert. Bij gamma=0 gelijk.
@@ -2661,6 +2714,23 @@ class QuattShiftedHeatDemandSensor(QuattHeatDemandSensor):
             # de verschuiving evenredig is teruggeschaald.
             "drift_begrenzing": shift.drift_limit_factor,
             "gekoppeld": False,
+            # De hele reeks doorgerekend, zodat gamma af te lezen is in plaats
+            # van te gokken. Geldt voor dit venster: een dag met veel zwaai
+            # levert een andere uitkomst dan een strakke koude dag, dus dit is
+            # een dagkoers en geen instelling.
+            "gamma_scan": [
+                {
+                    "gamma": p.gamma,
+                    "besparing": p.besparing,
+                    "drift_k": p.drift_k,
+                    "uren_boven_plafond": p.uren_boven_plafond,
+                    "drift_begrenzing": p.drift_begrenzing,
+                    "bruikbaar": p.schoon,
+                }
+                for p in (scan.punten if scan else [])
+            ],
+            "gamma_advies": scan.advies if scan else None,
+            "gamma_advies_besparing": scan.advies_besparing if scan else None,
         }
 
 
@@ -2873,24 +2943,45 @@ class QuattCompressorStartsSensor(SensorEntity):
         self.async_write_ha_state()
 
     async def _handle_state_change(self, event) -> None:
-        await self._async_process(persist=True)
+        await self._async_process()
 
     async def _handle_tick(self, _now=None) -> None:
-        await self._async_process(persist=False)
+        await self._async_process()
 
-    async def _async_process(self, *, persist: bool) -> None:
+    @staticmethod
+    def _grenzen(tracker) -> tuple[int, bool]:
+        """Vingerafdruk van de beurtgrenzen: aantal beurten en of er één loopt.
+
+        Elke mutatie die update() kan doen verandert precies één van de twee: een
+        start voegt een beurt toe, een stop sluit de lopende, en het hervatten na
+        een meethiaat opent de laatste weer.
+        """
+        return len(tracker.runs), tracker.running
+
+    async def _async_process(self) -> None:
+        """Verwerk een meting; schrijf alleen weg als er een grens verschoof.
+
+        Eerder ging er een opslagschrijfactie uit bij élke state-change van de
+        bron. Dat viel niet op zolang de bron per beurt twee of drie keer van
+        waarde wisselde, maar een bron die de modulatie meldt — OpenQuatt doet
+        dat elke tien seconden — maakt daar tien tot twintig schrijfacties van,
+        allemaal met identieke inhoud. Wat bewaard moet blijven zijn de
+        beurtgrenzen, dus daar hangt het schrijven nu aan.
+        """
         if not self._loaded:
             return
         now = dt_util.utcnow()
-        started = False
+        gewijzigd = False
         for role, tracker in self._trackers.items():
+            voor = self._grenzen(tracker)
             waarde, gemeten_op = self._meting_van(role)
-            started |= tracker.update(waarde, gemeten_op or now)
+            tracker.update(waarde, gemeten_op or now)
+            gewijzigd |= self._grenzen(tracker) != voor
             # Opruimen en uitlezen gaan wél op de echte klok: het venster van
             # "laatste 24 uur" hangt aan nu, niet aan wanneer de bron voor het
             # laatst iets deed.
             tracker.prune(now)
-        if persist or started:
+        if gewijzigd:
             await self._store.async_save(
                 {
                     sleutel: self._trackers[role].to_list()

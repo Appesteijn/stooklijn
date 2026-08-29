@@ -10,8 +10,10 @@ import numpy as np
 import pytest
 
 from custom_components.quatt_stooklijn.analysis.demand_shift import (
+    ADVIES_DREMPEL,
     GAMMA_MAX,
     calculate_demand_shift,
+    scan_gamma,
 )
 
 # De gemeten curve van deze installatie (11 bins, oktober–april).
@@ -154,7 +156,9 @@ class TestVensterlengte:
         )
 
         assert DEMAND_SHIFT_HOURS > MPC_FORECAST_HOURS
-        src = inspect.getsource(QuattShiftedHeatDemandSensor._shift)
+        # De vensterkeuze zit in _ingangen: die bouwt de forecast één keer op
+        # voor zowel _shift als de gamma-scan.
+        src = inspect.getsource(QuattShiftedHeatDemandSensor._ingangen)
         assert "DEMAND_SHIFT_HOURS" in src
 
     def test_uren_zonder_vraag_blijven_nul(self):
@@ -257,3 +261,83 @@ class TestMpcKoppeling:
 
         for naam in ("thermal_model", "thermal_params", "build_forecast_arrays"):
             assert hasattr(QuattMpcSensor, naam), f"ontbreekt: {naam}"
+
+
+class TestGammaScan:
+    """Gamma is niet uit te rekenen maar wel af te lezen.
+
+    Zonder doorgerekende reeks moet je blind een getal kiezen en een maand
+    wachten om te zien of het iets deed. De scan zet de opbrengst, de drift en
+    de begrenzingen naast elkaar zodat de keuze zichtbaar wordt.
+    """
+
+    def _scan(self, **kw):
+        return scan_gamma(DAG, CURVE, UA, T0, **kw)
+
+    def test_loopt_het_hele_bereik_af(self):
+        scan = self._scan()
+        assert scan.punten
+        assert min(p.gamma for p in scan.punten) > 0
+        assert max(p.gamma for p in scan.punten) == pytest.approx(GAMMA_MAX)
+
+    def test_gamma_nul_zit_er_niet_in(self):
+        """Nul is de uit-stand, geen kandidaat: die levert per definitie niets."""
+        assert all(p.gamma > 0 for p in self._scan().punten)
+
+    def test_rond_de_knik_wordt_fijner_gerekend(self):
+        """Aan de uiteinden de grove stap, rond het optimum de fijne."""
+        scan = self._scan(grove_stap=0.5, fijne_stap=0.1)
+        gammas = sorted(p.gamma for p in scan.punten)
+        afstanden = [
+            round(b - a, 2) for a, b in zip(gammas, gammas[1:], strict=False)
+        ]
+        assert 0.1 in afstanden, "nergens fijn gerekend"
+        assert 0.5 in afstanden, "overal fijn gerekend, dat is geen verfijning"
+
+    def test_opbrengst_loopt_op_met_gamma(self):
+        punten = [p for p in self._scan().punten if p.schoon]
+        besparingen = [p.besparing for p in punten]
+        assert besparingen == sorted(besparingen)
+
+    def test_advies_pakt_vrijwel_de_volle_winst(self):
+        scan = self._scan()
+        beste = max(p.besparing for p in scan.punten if p.schoon)
+        assert scan.advies_besparing >= beste * ADVIES_DREMPEL
+
+    def test_advies_is_de_rustigste_die_dat_haalt(self):
+        """Gamma kost comfort, dus bij gelijke winst wint de laagste."""
+        scan = self._scan()
+        beste = max(p.besparing for p in scan.punten if p.schoon)
+        lager = [
+            p
+            for p in scan.punten
+            if p.schoon and p.gamma < scan.advies and p.besparing is not None
+        ]
+        assert all(p.besparing < beste * ADVIES_DREMPEL for p in lager)
+
+    def test_plafond_maakt_een_punt_onbruikbaar(self):
+        """Boven het firmwareplafond kapt Power House af.
+
+        De besparing die het model daar berekent gaat over energie die de
+        firmware niet levert, dus het punt telt niet mee als kandidaat.
+        """
+        scan = self._scan(ceiling_w=1500.0)
+        vuil = [p for p in scan.punten if p.uren_boven_plafond > 0]
+        assert vuil, "plafond te hoog gekozen, geen enkel punt raakt het"
+        assert all(not p.schoon for p in vuil)
+        if scan.advies is not None:
+            assert scan.advies not in [p.gamma for p in vuil]
+
+    def test_ingrijpende_driftlimiter_maakt_een_punt_onbruikbaar(self):
+        scan = self._scan(thermal_mass_wh_k=800.0, max_drift_k=0.05)
+        begrensd = [p for p in scan.punten if p.drift_begrenzing < 1.0]
+        assert begrensd, "limiter greep nergens in"
+        assert all(not p.schoon for p in begrensd)
+
+    def test_zonder_bruikbaar_punt_geen_advies(self):
+        scan = scan_gamma([], CURVE, UA, T0)
+        assert scan.advies is None
+        assert scan.advies_besparing is None
+
+    def test_onzinnige_stap_geeft_een_lege_scan(self):
+        assert self._scan(grove_stap=0).punten == []
