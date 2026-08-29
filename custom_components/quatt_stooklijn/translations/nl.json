@@ -125,9 +125,13 @@
       "title": "Nieuwe versie van het Quatt Warmteanalyse-dashboard",
       "fix_flow": {
         "step": {
-          "confirm": {
-            "title": "Het meegeleverde dashboard terugzetten?",
-            "description": "Deze update bevat een verbeterd dashboard, maar dat van jou wijkt af van de versie die de integratie er zelf voor het laatst op zette — daarom is het met rust gelaten.\n\nBevestigen vervangt jouw dashboard door het nieuwe. **Kaarten of aanpassingen die je zelf hebt toegevoegd gaan verloren.** Wil je het jouwe houden? Negeer deze melding dan; er wordt niets overschreven."
+          "init": {
+            "title": "Dashboardupdate beschikbaar",
+            "description": "Deze update bevat een verbeterd dashboard, maar dat van jou wijkt af van de versie die de integratie er zelf voor het laatst op zette — daarom is het met rust gelaten.\n\nKies wat er moet gebeuren. In beide gevallen komt deze melding voor deze versie niet meer terug.",
+            "menu_options": {
+              "update": "Het nieuwe dashboard overnemen (mijn eigen aanpassingen gaan verloren)",
+              "keep": "Mijn dashboard houden en niet meer vragen"
+            }
           }
         }
       }

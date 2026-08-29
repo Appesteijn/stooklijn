@@ -120,21 +120,43 @@ class DashboardManager:
 
     # -- opslag van de vingerafdruk ----------------------------------------
 
+    async def _async_state(self) -> dict[str, Any]:
+        """Wat we onthouden: onze laatste vingerafdruk en een afgewezen aanbod."""
+        return await self._store.async_load() or {}
+
     async def async_last_written(self) -> str | None:
         """De vingerafdruk van wat wij het laatst wegschreven, indien bekend."""
-        data = await self._store.async_load()
-        if not data:
-            return None
-        return data.get("fingerprint")
+        return (await self._async_state()).get("fingerprint")
 
     async def _async_remember(self, config: Any) -> None:
+        """Leg vast dat wij dit hebben weggeschreven.
+
+        Een eerder afgewezen aanbod vervalt daarmee: wat er nu staat komt weer
+        van ons, dus er valt niets meer af te wijzen.
+        """
         from homeassistant.util import dt as dt_util
 
-        await self._store.async_save(
-            {
-                "fingerprint": fingerprint(config),
-                "written_at": dt_util.utcnow().isoformat(),
-            }
+        state = await self._async_state()
+        state["fingerprint"] = fingerprint(config)
+        state["written_at"] = dt_util.utcnow().isoformat()
+        state.pop("declined", None)
+        await self._store.async_save(state)
+
+    async def async_decline_update(self) -> None:
+        """Onthoud dat de gebruiker deze versie niet wil.
+
+        Zonder dit komt de melding elke herstart terug, en dan is "nee" geen
+        antwoord maar uitstel. Het aanbod wordt vastgelegd op de vingerafdruk
+        van de meegeleverde versie: komt er later een nieuwere, dan is dat een
+        nieuw aanbod en vragen we het opnieuw.
+        """
+        shipped = await self._hass.async_add_executor_job(_load_shipped)
+        state = await self._async_state()
+        state["declined"] = fingerprint(shipped)
+        await self._store.async_save(state)
+        self._async_clear_issue()
+        _LOGGER.info(
+            "Dashboardupdate afgewezen; deze versie wordt niet opnieuw aangeboden"
         )
 
     # -- toegang tot het dashboard zelf ------------------------------------
@@ -211,7 +233,8 @@ class DashboardManager:
         try:
             shipped = await self._hass.async_add_executor_job(_load_shipped)
             live = await self._async_live_config()
-            last_written = await self.async_last_written()
+            state = await self._async_state()
+            last_written = state.get("fingerprint")
             decision = decide(live, shipped, last_written)
 
             if decision == CREATE:
@@ -233,6 +256,13 @@ class DashboardManager:
                 if last_written != fingerprint(shipped):
                     await self._async_remember(shipped)
                 self._async_clear_issue()
+
+            elif state.get("declined") == fingerprint(shipped):
+                # De gebruiker heeft dit aanbod al afgewezen. Niets doen, en
+                # vooral niet opnieuw vragen.
+                _LOGGER.debug(
+                    "Dashboardupdate eerder afgewezen; niet opnieuw aangeboden"
+                )
 
             else:  # ASK
                 _LOGGER.info(

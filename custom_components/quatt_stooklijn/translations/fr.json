@@ -125,9 +125,13 @@
       "title": "Nouvelle version du tableau de bord Quatt Warmteanalyse",
       "fix_flow": {
         "step": {
-          "confirm": {
-            "title": "Restaurer le tableau de bord fourni ?",
-            "description": "Cette mise à jour contient un tableau de bord amélioré, mais le vôtre diffère de la version que l'intégration a écrite en dernier — il n'a donc pas été touché.\n\nConfirmer remplace votre tableau de bord par le nouveau. **Les cartes et modifications que vous avez ajoutées seront perdues.** Vous préférez garder le vôtre ? Ignorez cet avis ; rien ne sera écrasé."
+          "init": {
+            "title": "Mise à jour du tableau de bord disponible",
+            "description": "Cette mise à jour contient un tableau de bord amélioré, mais le vôtre diffère de la version que l'intégration a écrite en dernier — il n'a donc pas été touché.\n\nChoisissez ce qui doit se passer. Dans les deux cas, cet avis ne réapparaîtra pas pour cette version.",
+            "menu_options": {
+              "update": "Prendre le nouveau tableau de bord (mes modifications seront perdues)",
+              "keep": "Garder mon tableau de bord et ne plus demander"
+            }
           }
         }
       }

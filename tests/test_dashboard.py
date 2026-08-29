@@ -301,3 +301,119 @@ class TestManifestAfhankelijkheden:
         assert sleutels[:2] == ["domain", "name"], f"begint met {sleutels[:2]}"
         rest = sleutels[2:]
         assert rest == sorted(rest), f"niet alfabetisch vanaf sleutel 3: {rest}"
+
+
+class TestAfwijzen:
+    """"Nee" moet een antwoord zijn, geen uitstel.
+
+    De reparatiemelding opent meteen de flow. Met een bevestigingsformulier is
+    Submit de enige knop, en die overschrijft het dashboard — wie zijn eigen
+    versie wil houden kan het dialoog dan alleen wegklikken, waarna de melding
+    bij de volgende herstart terugkomt. Vandaar een menu met twee uitkomsten en
+    een onthouden afwijzing.
+    """
+
+    @pytest.mark.asyncio
+    async def test_afwijzen_legt_de_meegeleverde_versie_vast(self, monkeypatch):
+        import custom_components.quatt_stooklijn.dashboard as mod
+
+        monkeypatch.setattr(mod, "_load_shipped", lambda: NIEUW)
+        mgr, dash, _ = _manager(EIGEN, None)
+        await mgr.async_decline_update()
+        dash.async_save.assert_not_called(), "afwijzen mag niets schrijven"
+        assert mgr._store.async_save.await_args[0][0]["declined"] == fingerprint(NIEUW)
+
+    @pytest.mark.asyncio
+    async def test_na_afwijzen_komt_de_melding_niet_terug(self, monkeypatch):
+        """De kern: dit is het gedrag bij elke volgende herstart."""
+        import custom_components.quatt_stooklijn.dashboard as mod
+
+        monkeypatch.setattr(mod, "_load_shipped", lambda: NIEUW)
+        mgr, dash, _ = _manager(EIGEN, None)
+        mgr._store.async_load = AsyncMock(return_value={"declined": fingerprint(NIEUW)})
+        assert await mgr.async_setup() == ASK
+        mgr._async_raise_issue.assert_not_called()
+        dash.async_save.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_een_nieuwere_versie_wordt_opnieuw_aangeboden(self, monkeypatch):
+        """Afwijzen geldt voor één aanbod, niet voor altijd.
+
+        Anders zet één klik het dashboard voorgoed stil.
+        """
+        import custom_components.quatt_stooklijn.dashboard as mod
+
+        NOG_NIEUWER = {"views": [{"title": "Overzicht", "cards": [{"type": "gauge"}]}]}
+        monkeypatch.setattr(mod, "_load_shipped", lambda: NOG_NIEUWER)
+        mgr, _, _ = _manager(EIGEN, None)
+        mgr._store.async_load = AsyncMock(return_value={"declined": fingerprint(NIEUW)})
+        assert await mgr.async_setup() == ASK
+        mgr._async_raise_issue.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_schrijven_wist_een_eerdere_afwijzing(self, monkeypatch):
+        """Wat er dan staat komt weer van ons; er valt niets meer af te wijzen."""
+        import custom_components.quatt_stooklijn.dashboard as mod
+
+        monkeypatch.setattr(mod, "_load_shipped", lambda: NIEUW)
+        mgr, _, _ = _manager(EIGEN, None)
+        mgr._store.async_load = AsyncMock(return_value={"declined": fingerprint(NIEUW)})
+        await mgr.async_force_update()
+        bewaard = mgr._store.async_save.await_args[0][0]
+        assert "declined" not in bewaard
+        assert bewaard["fingerprint"] == fingerprint(NIEUW)
+
+
+class TestReparatiestroom:
+    """De flow moet de gebruiker écht een keuze geven."""
+
+    def test_beide_uitkomsten_bestaan_als_stap(self):
+        from custom_components.quatt_stooklijn.repairs import (
+            DashboardUpdateRepairFlow,
+        )
+
+        for stap in ("async_step_init", "async_step_update", "async_step_keep"):
+            assert hasattr(DashboardUpdateRepairFlow, stap), f"ontbreekt: {stap}"
+
+    def test_init_toont_een_menu_en_geen_kaal_formulier(self):
+        """Een leeg formulier geeft alleen Submit — precies de val die dit
+        oploste."""
+        import inspect
+
+        from custom_components.quatt_stooklijn.repairs import (
+            DashboardUpdateRepairFlow,
+        )
+
+        src = inspect.getsource(DashboardUpdateRepairFlow.async_step_init)
+        assert "async_show_menu" in src
+        assert "update" in src and "keep" in src
+
+    def test_beide_keuzes_sluiten_de_melding_af(self):
+        """Met async_abort zou de melding blijven staan; alleen een afgeronde
+        flow laat HA het issue opruimen."""
+        import inspect
+
+        from custom_components.quatt_stooklijn.repairs import (
+            DashboardUpdateRepairFlow,
+        )
+
+        for stap in ("async_step_update", "async_step_keep"):
+            src = inspect.getsource(getattr(DashboardUpdateRepairFlow, stap))
+            assert "async_create_entry" in src, f"{stap} rondt de flow niet af"
+
+    def test_de_menukeuzes_hebben_een_vertaling(self):
+        """Zonder vertaling toont HA de kale sleutelnaam als knoptekst."""
+        import json
+        from pathlib import Path
+
+        basis = Path(__file__).parent.parent / "custom_components" / "quatt_stooklijn"
+        bestanden = [basis / "strings.json"] + sorted(
+            (basis / "translations").glob("*.json")
+        )
+        for bestand in bestanden:
+            d = json.loads(bestand.read_text(encoding="utf-8"))
+            opties = d["issues"]["dashboard_update_available"]["fix_flow"]["step"][
+                "init"
+            ]["menu_options"]
+            assert set(opties) == {"update", "keep"}, f"{bestand.name}: {set(opties)}"
+            assert all(v.strip() for v in opties.values()), bestand.name

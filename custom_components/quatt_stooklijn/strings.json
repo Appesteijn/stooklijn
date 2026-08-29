@@ -133,9 +133,13 @@
       "title": "New version of the Quatt Warmteanalyse dashboard",
       "fix_flow": {
         "step": {
-          "confirm": {
-            "title": "Restore the shipped dashboard?",
-            "description": "This update ships an improved dashboard, but yours differs from the version the integration last wrote — so it was left untouched.\n\nConfirming replaces your dashboard with the new one. **Any cards or changes you added to it are lost.** Prefer to keep yours? Then ignore this notice; nothing will be overwritten."
+          "init": {
+            "title": "Dashboard update available",
+            "description": "This update ships an improved dashboard, but yours differs from the version the integration last wrote — so it was left untouched.\n\nChoose what should happen. Either way this notice will not come back for this version.",
+            "menu_options": {
+              "update": "Take the new dashboard (my own changes to it are lost)",
+              "keep": "Keep my dashboard and stop asking"
+            }
           }
         }
       }

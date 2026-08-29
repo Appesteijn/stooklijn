@@ -125,9 +125,13 @@
       "title": "Neue Version des Quatt-Warmteanalyse-Dashboards",
       "fix_flow": {
         "step": {
-          "confirm": {
-            "title": "Das mitgelieferte Dashboard wiederherstellen?",
-            "description": "Dieses Update enthält ein verbessertes Dashboard, deines weicht jedoch von der Version ab, die die Integration zuletzt geschrieben hat — deshalb wurde es nicht angerührt.\n\nBeim Bestätigen wird dein Dashboard durch das neue ersetzt. **Selbst hinzugefügte Karten und Änderungen gehen verloren.** Willst du deines behalten? Dann ignoriere diese Meldung; es wird nichts überschrieben."
+          "init": {
+            "title": "Dashboard-Update verfügbar",
+            "description": "Dieses Update enthält ein verbessertes Dashboard, deines weicht jedoch von der Version ab, die die Integration zuletzt geschrieben hat — deshalb wurde es nicht angerührt.\n\nWähle, was passieren soll. In beiden Fällen erscheint diese Meldung für diese Version nicht erneut.",
+            "menu_options": {
+              "update": "Das neue Dashboard übernehmen (eigene Änderungen gehen verloren)",
+              "keep": "Mein Dashboard behalten und nicht mehr fragen"
+            }
           }
         }
       }

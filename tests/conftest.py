@@ -189,6 +189,21 @@ def _stub_ha():
     lovelace_const.ConfigNotFound = type("ConfigNotFound", (Exception,), {})
     lovelace_mod.const = lovelace_const
 
+    # Repairs: de basisklasse van de reparatiestroom, met de twee helpers die
+    # de flow gebruikt om zichzelf te tonen en af te ronden.
+    flow_mod = _ensure_module("homeassistant.data_entry_flow")
+    flow_mod.FlowResult = dict
+    repairs_mod = _ensure_module("homeassistant.components.repairs")
+    repairs_mod.RepairsFlow = type(
+        "RepairsFlow",
+        (),
+        {
+            "hass": None,
+            "async_show_menu": lambda self, **kw: {"type": "menu", **kw},
+            "async_create_entry": lambda self, **kw: {"type": "create_entry", **kw},
+        },
+    )
+
     # dt_util
     dt_mod = sys.modules["homeassistant.util.dt"]
     dt_mod.utcnow = lambda: datetime.now(timezone.utc)

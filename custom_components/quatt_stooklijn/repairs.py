@@ -5,15 +5,17 @@ is, maar het dashboard van de gebruiker afwijkt van wat wij er zelf op gezet
 hebben. Dan overschrijven we niet uit onszelf — zie de toelichting in
 ``dashboard.py`` — maar vragen we het.
 
-De stap is bewust een bevestiging met een waarschuwing erin: bevestigen kost de
-gebruiker zijn eigen aanpassingen aan dit dashboard.
+Bewust een menu en geen bevestigingsformulier. Een reparatiemelding met
+``is_fixable`` opent meteen de flow, en een formulier met een leeg schema geeft
+de gebruiker maar één knop: Submit. Wie zijn eigen dashboard wil houden kan het
+dialoog dan alleen wegklikken, waarna de melding bij de volgende herstart
+terugkomt — "nee" is dan geen antwoord maar uitstel. Met een menu zijn beide
+uitkomsten een echte keuze, en beide sluiten de melding af.
 """
 
 from __future__ import annotations
 
 from typing import Any
-
-import voluptuous as vol
 
 from homeassistant.components.repairs import RepairsFlow
 from homeassistant.core import HomeAssistant
@@ -23,21 +25,26 @@ from .dashboard import DashboardManager
 
 
 class DashboardUpdateRepairFlow(RepairsFlow):
-    """Vraagt of het meegeleverde dashboard teruggezet mag worden."""
+    """Laat de gebruiker kiezen: de nieuwe versie, of zijn eigen dashboard."""
 
     async def async_step_init(
         self, user_input: dict[str, str] | None = None
     ) -> FlowResult:
-        return await self.async_step_confirm()
+        return self.async_show_menu(menu_options=["update", "keep"])
 
-    async def async_step_confirm(
+    async def async_step_update(
         self, user_input: dict[str, str] | None = None
     ) -> FlowResult:
-        if user_input is not None:
-            await DashboardManager(self.hass).async_force_update()
-            return self.async_create_entry(data={})
+        """Neem de meegeleverde versie over; eigen aanpassingen gaan verloren."""
+        await DashboardManager(self.hass).async_force_update()
+        return self.async_create_entry(data={})
 
-        return self.async_show_form(step_id="confirm", data_schema=vol.Schema({}))
+    async def async_step_keep(
+        self, user_input: dict[str, str] | None = None
+    ) -> FlowResult:
+        """Houd het eigen dashboard en bied deze versie niet opnieuw aan."""
+        await DashboardManager(self.hass).async_decline_update()
+        return self.async_create_entry(data={})
 
 
 async def async_create_fix_flow(
