@@ -226,3 +226,65 @@ class TestMeegeleverdBestand:
         from custom_components.quatt_stooklijn.dashboard import _load_shipped
 
         assert fingerprint(_load_shipped()) == fingerprint(_load_shipped())
+
+
+class TestManifestAfhankelijkheden:
+    """Elke component die we importeren hoort in het manifest te staan.
+
+    Dit is precies wat hassfest controleert, en dat draait pas in CI — na de
+    push, na de tag. v0.9.4 liep daarop stuk: ``dashboard.py`` importeert
+    ``ConfigNotFound`` uit ``homeassistant.components.lovelace``, en tot dan toe
+    raakte de code lovelace alleen aan via de string ``hass.data["lovelace"]``,
+    wat een statische controle nooit ziet.
+
+    Platforms die we zélf leveren tellen niet mee: daarvoor is ``sensor.py``
+    bestaan het bewijs, niet een regel in het manifest.
+    """
+
+    @staticmethod
+    def _manifest():
+        import json
+        from pathlib import Path
+
+        pad = (
+            Path(__file__).parent.parent
+            / "custom_components"
+            / "quatt_stooklijn"
+            / "manifest.json"
+        )
+        return json.loads(pad.read_text(encoding="utf-8")), pad.parent
+
+    def test_geimporteerde_componenten_zijn_gedeclareerd(self):
+        import re
+
+        manifest, map_ = self._manifest()
+        gedeclareerd = set(manifest.get("dependencies", [])) | set(
+            manifest.get("after_dependencies", [])
+        )
+
+        patroon = re.compile(r"homeassistant\.components\.([a-z_]+)")
+        ontbreekt: dict[str, set[str]] = {}
+        for bestand in map_.rglob("*.py"):
+            for component in patroon.findall(bestand.read_text(encoding="utf-8")):
+                if component in gedeclareerd:
+                    continue
+                # Eigen platform? Dan hoort het er niet in.
+                if (map_ / f"{component}.py").exists():
+                    continue
+                ontbreekt.setdefault(component, set()).add(bestand.name)
+
+        assert not ontbreekt, (
+            "niet gedeclareerd in manifest.json (dependencies of "
+            f"after_dependencies): { {k: sorted(v) for k, v in ontbreekt.items()} }"
+        )
+
+    def test_lovelace_is_optioneel(self):
+        """after_dependencies, niet dependencies.
+
+        Zonder lovelace draait de integratie prima — er wordt dan alleen geen
+        dashboard aangemaakt. Als harde dependency zou de integratie niet meer
+        laden op een installatie zonder lovelace.
+        """
+        manifest, _ = self._manifest()
+        assert "lovelace" in manifest.get("after_dependencies", [])
+        assert "lovelace" not in manifest.get("dependencies", [])
