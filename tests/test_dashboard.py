@@ -288,3 +288,16 @@ class TestManifestAfhankelijkheden:
         manifest, _ = self._manifest()
         assert "lovelace" in manifest.get("after_dependencies", [])
         assert "lovelace" not in manifest.get("dependencies", [])
+
+    def test_sleutels_staan_in_de_volgorde_die_hassfest_eist(self):
+        """domain, name, daarna alfabetisch.
+
+        Ook dit kostte een release: het manifest stond toevallig al goed, en
+        ``after_dependencies`` erbij zetten op de plek waar het logisch leek
+        (naast ``dependencies``) brak de volgorde.
+        """
+        manifest, _ = self._manifest()
+        sleutels = list(manifest)
+        assert sleutels[:2] == ["domain", "name"], f"begint met {sleutels[:2]}"
+        rest = sleutels[2:]
+        assert rest == sorted(rest), f"niet alfabetisch vanaf sleutel 3: {rest}"
