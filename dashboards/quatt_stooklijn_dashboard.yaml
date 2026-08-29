@@ -1464,7 +1464,6 @@ views:
             apex_config:
               chart:
                 height: 260
-                type: scatter
               xaxis:
                 type: numeric
                 decimalsInFloat: 0
@@ -1485,7 +1484,8 @@ views:
             series:
               - entity: sensor.quatt_warmteanalyse_cop_prestatie
                 name: Stookdag
-                type: scatter
+                type: line
+                stroke_width: 0
                 data_generator: |
                   const d = hass.states['sensor.quatt_warmteanalyse_cop_prestatie']?.attributes?.stookdagen || [];
                   return d.map(p => [p.temp, p.ratio]);

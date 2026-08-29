@@ -217,6 +217,36 @@ class TestMeegeleverdBestand:
         )
         assert kaarten > 40, f"onverwacht weinig kaarten: {kaarten}"
 
+    def test_apexcharts_series_hebben_een_geldig_type(self):
+        """apexcharts-card 2.2.3 kent per series alleen line, column en area.
+
+        Dit is nu drie keer misgegaan. v0.2.37 draaide een eerdere poging terug
+        ("type: scatter niet geldig in apexcharts-card 2.2.3"), v0.2.38 zette het
+        vaste patroon neer — type: line met stroke_width: 0, punten zonder lijn —
+        en v0.9.9 zette er alsnog weer een type: scatter in. De kaart faalt dan
+        met een rode Configuration error en verdwijnt uit beeld, maar niets in de
+        tests merkte het: YAML-geldigheid en het aantal kaarten kloppen gewoon.
+
+        Een scatter maak je met chart-opties, niet met een series-type.
+        """
+        from custom_components.quatt_stooklijn.dashboard import _load_shipped
+
+        toegestaan = {"line", "column", "area"}
+        fout = []
+        for view in _load_shipped()["views"]:
+            for sectie in view.get("sections", []):
+                for kaart in sectie.get("cards", []):
+                    for genest in [kaart, *kaart.get("cards", [])]:
+                        if genest.get("type") != "custom:apexcharts-card":
+                            continue
+                        titel = genest.get("header", {}).get("title", "(zonder titel)")
+                        for serie in genest.get("series", []):
+                            soort = serie.get("type")
+                            if soort is not None and soort not in toegestaan:
+                                fout.append(f"{titel}: type: {soort}")
+
+        assert not fout, "ongeldig series-type: " + "; ".join(fout)
+
     def test_afdruk_van_het_meegeleverde_bestand_is_stabiel(self):
         """Twee keer inlezen hoort dezelfde afdruk te geven.
 
