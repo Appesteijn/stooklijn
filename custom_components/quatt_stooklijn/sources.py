@@ -40,6 +40,7 @@ import homeassistant.util.dt as dt_util
 # const.py importeert zelf niets, dus dit levert geen kringverwijzing op.
 from .const import (
     CONF_BOILER_HEAT_ENTITY,
+    CONF_COMPRESSOR_2_ENTITY,
     CONF_COMPRESSOR_ENTITY,
     CONF_CONTROL_SETPOINT_ENTITY,
     CONF_COP_ENTITY,
@@ -56,6 +57,7 @@ from .discovery import (
     QUATT_PLATFORM,
     ROLE_BOILER_HEAT,
     ROLE_COMPRESSOR,
+    ROLE_COMPRESSOR_2,
     ROLE_CONTROL_SETPOINT,
     ROLE_COP,
     ROLE_FLOW_RATE,
@@ -130,6 +132,9 @@ MIRROR_SPECS: tuple[MirrorSpec, ...] = (
     MirrorSpec(ROLE_BOILER_HEAT, "Ketelvermogen", "W", "power", "mdi:fire",
                "ketelvermogen"),
     MirrorSpec(ROLE_COP, "COP", None, None, "mdi:chart-line", "cop"),
+    # Alleen hp1 wordt gespiegeld. ROLE_COMPRESSOR_2 hoort er bewust niet bij:
+    # op een solo-installatie blijft die leeg, en een lege spiegel zou daar als
+    # gemiste bron in de Databronnen-kaart komen te staan.
     MirrorSpec(ROLE_COMPRESSOR, "Compressorfrequentie", "Hz", "frequency",
                "mdi:sine-wave", "compressorfrequentie"),
 )
@@ -162,6 +167,7 @@ ROLE_CONF_KEYS: dict[str, str] = {
     ROLE_BOILER_HEAT: CONF_BOILER_HEAT_ENTITY,
     ROLE_COP: CONF_COP_ENTITY,
     ROLE_COMPRESSOR: CONF_COMPRESSOR_ENTITY,
+    ROLE_COMPRESSOR_2: CONF_COMPRESSOR_2_ENTITY,
 }
 
 

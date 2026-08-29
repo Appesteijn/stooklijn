@@ -47,6 +47,7 @@ CONF_CONTROL_SETPOINT_ENTITY = "control_setpoint_entity"
 CONF_ROOM_SETPOINT_ENTITY = "room_setpoint_entity"
 CONF_COP_ENTITY = "cop_entity"
 CONF_COMPRESSOR_ENTITY = "compressor_entity"
+CONF_COMPRESSOR_2_ENTITY = "compressor_2_entity"
 
 # How many days of detailed hourly data to fetch from Quatt API
 API_FETCH_DAYS = 30

@@ -16,6 +16,7 @@ from .const import (
     CONF_BOILER_EFFICIENCY,
     CONF_BOILER_HEAT_ENTITY,
     CONF_CONTROL_SETPOINT_ENTITY,
+    CONF_COMPRESSOR_2_ENTITY,
     CONF_COMPRESSOR_ENTITY,
     CONF_COP_ENTITY,
     CONF_DEMAND_SHIFT_GAMMA,
@@ -72,6 +73,7 @@ from .discovery import (
     ROLE_CH_MAX_WATER,
     ROLE_CONTROL_SETPOINT,
     ROLE_COMPRESSOR,
+    ROLE_COMPRESSOR_2,
     ROLE_COP,
     ROLE_FLOW_RATE,
     ROLE_INDOOR_TEMP,
@@ -419,10 +421,16 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_COP_ENTITY, _current(CONF_COP_ENTITY, ROLE_COP)
                     ): _entity("sensor"),
                     # Compressorfrequentie: hieruit worden de starts geteld.
-                    # Bij een duo volstaat hp1 — zie ROLE_COMPRESSOR.
+                    # Twee velden, want een duo wisselt de units om en om af en
+                    # start dus onafhankelijk — zie ROLE_COMPRESSOR. Op een solo
+                    # blijft het tweede veld leeg.
                     _prefill(
                         CONF_COMPRESSOR_ENTITY,
                         _current(CONF_COMPRESSOR_ENTITY, ROLE_COMPRESSOR),
+                    ): _entity("sensor"),
+                    _prefill(
+                        CONF_COMPRESSOR_2_ENTITY,
+                        _current(CONF_COMPRESSOR_2_ENTITY, ROLE_COMPRESSOR_2),
                     ): _entity("sensor"),
                     # Uit = draaien op recorder + eigen stores. De opgebouwde
                     # insights-cache blijft meedoen, hij groeit alleen niet meer.

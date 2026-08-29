@@ -622,6 +622,8 @@ look at: the two lines moving in opposite directions is the signature of a curve
 
 Some details that matter for trusting the number:
 
+- Both heat pumps of a duo are tracked independently; a start of the second while the first
+  runs is its own start, not a continuation.
 - It counts the **compressor frequency** going from standstill to running, not thermal power.
   During a defrost cycle the compressor keeps running while thermal power drops to zero —
   counting on power would invent starts at exactly the temperatures where the question
@@ -632,8 +634,10 @@ Some details that matter for trusting the number:
 - The history lives in the integration's own store, not just the recorder — so two cold spells
   months apart can be compared, which is how you tell whether a change to the curve helped.
 
-On a duo the first heat pump is followed. That is the leading unit: the second only joins at
-high demand, while cycling happens at low demand.
+On a duo **both units are counted separately and added up**. Quatt alternates them, so they
+start and stop independently of each other — following only the first would count roughly half,
+and an installation whose units take turns cycling would read as a calm one. The `per_unit`
+attribute shows the split, which also tells you whether one unit is doing all the work.
 
 ## Performance & Caching
 

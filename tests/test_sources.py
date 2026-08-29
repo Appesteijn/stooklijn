@@ -411,7 +411,21 @@ class TestRolConfiguratie:
     """
 
     def test_elke_spiegelrol_heeft_een_config_sleutel(self):
-        assert set(ROLE_CONF_KEYS) == set(MIRROR_ROLES)
+        ontbreekt = set(MIRROR_ROLES) - set(ROLE_CONF_KEYS)
+        assert not ontbreekt, f"niet instelbaar: {sorted(ontbreekt)}"
+
+    def test_alleen_bewust_gekozen_rollen_zijn_instelbaar_zonder_spiegel(self):
+        """Insluiting, geen gelijkheid — maar wel met een korte lijst.
+
+        Een rol mag instelbaar zijn zonder gespiegeld te worden, en compressor_2
+        is dat: op een solo-installatie blijft die leeg, en een lege spiegel zou
+        daar als gemiste bron in de Databronnen-kaart komen te staan. Wat hier
+        bewaakt wordt is dat zo'n uitzondering bewust is en niet het gevolg van
+        een vergeten MirrorSpec.
+        """
+        from custom_components.quatt_stooklijn.discovery import ROLE_COMPRESSOR_2
+
+        assert set(ROLE_CONF_KEYS) - set(MIRROR_ROLES) == {ROLE_COMPRESSOR_2}
 
     def test_config_sleutels_zijn_uniek(self):
         sleutels = list(ROLE_CONF_KEYS.values())

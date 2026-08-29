@@ -61,18 +61,24 @@ ROLE_CH_MAX_WATER = "ch_max_water"
 ROLE_CONTROL_SETPOINT = "control_setpoint"
 ROLE_ROOM_SETPOINT = "room_setpoint"
 ROLE_COP = "cop"
-# Compressorfrequentie van de eerste warmtepomp. Hieruit worden de starts
-# geteld: de overgang van 0 naar boven nul is één start.
+# Compressorfrequentie per warmtepomp. Hieruit worden de starts geteld: de
+# overgang van stilstand naar draaien is één start.
 #
 # Bewust de frequentie en niet het thermisch vermogen. Tijdens een ontdooicyclus
 # blijft de compressor draaien (omgekeerd), terwijl het thermisch vermogen naar
 # nul of negatief zakt — op vermogen tellen levert dus valse starts op, precies
 # bij de buitentemperaturen waar de vraag "pendelt hij?" het meest speelt.
 #
-# Bij een duo wordt hp1 gevolgd. Dat is de leidende unit: hp2 komt er pas bij
-# hoge vraag bij, terwijl kortcyclen juist bij lage vraag optreedt en dus op hp1
-# zichtbaar is.
+# Twee rollen, en niet hp2 als terugval op hp1. Een duo wisselt de units slim om
+# en om af, dus ze starten en stoppen onafhankelijk van elkaar. Wie alleen hp1
+# volgt telt daardoor ruwweg de helft, en ziet een installatie die om beurten
+# kortcyclet aan voor een rustig draaiende. Beide tellen mee, opgeteld.
+#
+# Op een solo blijft de tweede rol leeg. Daarom staat hij niet in MIRROR_SPECS:
+# een ontbrekende spiegel zou op elke solo-installatie als gemiste bron in de
+# Databronnen-kaart komen te staan.
 ROLE_COMPRESSOR = "compressor"
+ROLE_COMPRESSOR_2 = "compressor_2"
 # Power House-modelparameters. Alleen OpenQuatt kent deze; de Quatt-integratie
 # heeft geen equivalent, dus ze staan bewust niet in QUATT_KEYS of
 # FALLBACK_ENTITIES. Ze zijn ook geen meting maar een instelknop — de spiegels
@@ -116,10 +122,8 @@ QUATT_KEYS: dict[str, tuple[str, ...]] = {
     ROLE_COP: ("computedQuattCop",),
     # Alleen de heatPumps.N-vorm is geverifieerd tegen een draaiende
     # Quatt-integratie; de hp1./hp2.-vorm hierboven komt uit oudere versies.
-    ROLE_COMPRESSOR: (
-        "heatPumps.0.compressorFrequency",
-        "heatPumps.1.compressorFrequency",
-    ),
+    ROLE_COMPRESSOR: ("heatPumps.0.compressorFrequency",),
+    ROLE_COMPRESSOR_2: ("heatPumps.1.compressorFrequency",),
 }
 
 # Terugvalnamen als auto-detectie niets vindt (Quatt-integratie afwezig, of een
@@ -179,6 +183,10 @@ FALLBACK_ENTITIES: dict[str, tuple[str, ...]] = {
         "sensor.heatpump_1_compressor_frequency",
         "sensor.openquatt_hp1_compressor_frequency",
     ),
+    ROLE_COMPRESSOR_2: (
+        "sensor.heatpump_2_compressor_frequency",
+        "sensor.openquatt_hp2_compressor_frequency",
+    ),
 }
 
 # Rol → OpenQuatt entity-namen, in volgorde van voorkeur.
@@ -206,10 +214,8 @@ OPENQUATT_NAMES: dict[str, tuple[str, ...]] = {
     ROLE_CONTROL_SETPOINT: ("OT - Control Setpoint",),
     ROLE_ROOM_SETPOINT: ("Room Setpoint (Selected)", "OT - Room Setpoint"),
     ROLE_COP: ("Total COP",),
-    ROLE_COMPRESSOR: (
-        "HP1 - Compressor frequency",
-        "HP2 - Compressor frequency",
-    ),
+    ROLE_COMPRESSOR: ("HP1 - Compressor frequency",),
+    ROLE_COMPRESSOR_2: ("HP2 - Compressor frequency",),
     # "Maximum heating outdoor temperature" heet in de firmware nog
     # house_zero_power_temp_c; ESPHome bouwt de entity-ID uit de *naam*, dus dit
     # is de stabiele sleutel — niet de id en niet number.openquatt_house_zero_*.

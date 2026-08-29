@@ -1721,6 +1721,16 @@ views:
 
               | Draait nu | {% if state_attr(s, 'draait_nu') %}ja{% else %}nee{% endif %} |
 
+              {% set pu = state_attr(s, 'per_unit') or {} %}
+
+              {% if pu.get('hp2', {}).get('bron') %}
+
+              Verdeling over het etmaal: **hp1 {{ pu.hp1.starts_laatste_etmaal }}**,
+              **hp2 {{ pu.hp2.starts_laatste_etmaal }}**. De units wisselen om en om af, dus
+              beide tellen mee; een scheve verdeling betekent dat er één het meeste werk doet.
+
+              {% endif %}
+
               {% if nu >= 3 and buiten is not none and buiten < 10 %}
 
               > **{{ nu }} starts per uur bij {{ buiten | round(1) }} °C buiten.** Kortcyclen bij

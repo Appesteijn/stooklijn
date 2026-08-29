@@ -239,3 +239,94 @@ class TestOnbekendeMeting:
     def test_na_uitval_telt_een_echte_stop_gewoon_weer(self):
         t = _speel([(0, 30.0), (5, None), (10, 30.0), (20, 0.0), (30, 30.0)])
         assert t.starts_in_last(24, _op(31)) == 2
+
+
+class TestTweeUnits:
+    """Een duo wisselt de warmtepompen slim om en om af.
+
+    Dit is de correctie op de eerste opzet, die hp1 als leidende unit volgde met
+    hp2 als terugval. Dat is verkeerd: ze starten en stoppen onafhankelijk, dus
+    hp1 volgen telt ruwweg de helft — en een installatie die om beurten
+    kortcyclet ziet er dan uit als een rustig draaiende. Precies andersom dus
+    dan de sensor bedoeld is.
+    """
+
+    @staticmethod
+    def _afwisselend(beurten: int, duur: float = 20.0):
+        """hp1, hp2, hp1, hp2 … elk met een eigen aan/uit-reeks."""
+        hp1, hp2 = CycleTracker(), CycleTracker()
+        for i in range(beurten):
+            t = hp1 if i % 2 == 0 else hp2
+            t.update(30.0, _op(i * duur))
+            t.update(0.0, _op(i * duur + duur * 0.8))
+        return hp1, hp2
+
+    def test_alleen_hp1_volgen_telt_ongeveer_de_helft(self):
+        hp1, hp2 = self._afwisselend(8)
+        nu = _op(8 * 20)
+        alleen_hp1 = hp1.starts_in_last(24, nu)
+        samen = alleen_hp1 + hp2.starts_in_last(24, nu)
+        assert alleen_hp1 == 4
+        assert samen == 8, "beide units horen mee te tellen"
+
+    def test_gelijktijdig_draaien_telt_twee_starts(self):
+        """Bij hoge vraag draaien ze samen; dat zijn twee aparte starts."""
+        hp1, hp2 = CycleTracker(), CycleTracker()
+        hp1.update(30.0, T0)
+        hp2.update(30.0, _op(1))
+        nu = _op(5)
+        assert hp1.starts_in_last(1, nu) + hp2.starts_in_last(1, nu) == 2
+
+    def test_overname_is_geen_voortzetting(self):
+        """hp1 stopt, hp2 neemt over — voor het huis doorlopend, per unit twee
+        beurten. Het aantal starts hoort dat te laten zien."""
+        hp1, hp2 = CycleTracker(), CycleTracker()
+        hp1.update(30.0, T0)
+        hp1.update(0.0, _op(30))
+        hp2.update(30.0, _op(30))
+        nu = _op(60)
+        assert hp1.starts_in_last(24, nu) + hp2.starts_in_last(24, nu) == 2
+
+    def test_solo_installatie_telt_gewoon_door(self):
+        """De tweede tracker blijft leeg en mag niets bederven."""
+        hp1 = _speel([(0, 30.0), (20, 0.0), (60, 30.0)])
+        hp2 = CycleTracker()
+        nu = _op(70)
+        assert hp1.starts_in_last(24, nu) + hp2.starts_in_last(24, nu) == 2
+        assert hp2.average_runtime_minutes(24, nu) is None
+
+    def test_de_tweede_rol_is_apart_en_geen_terugval(self):
+        """Zou hp2 als terugval op hp1 staan, dan telde de bronlaag hem nooit
+        apart en was de helft van de starts onzichtbaar."""
+        from custom_components.quatt_stooklijn.discovery import (
+            OPENQUATT_NAMES,
+            QUATT_KEYS,
+            ROLE_COMPRESSOR,
+            ROLE_COMPRESSOR_2,
+        )
+
+        assert ROLE_COMPRESSOR != ROLE_COMPRESSOR_2
+        for tabel in (QUATT_KEYS, OPENQUATT_NAMES):
+            een, twee = tabel[ROLE_COMPRESSOR], tabel[ROLE_COMPRESSOR_2]
+            assert not set(een) & set(twee), "hp2 mag geen kandidaat van hp1 zijn"
+
+    def test_beide_units_zijn_instelbaar(self):
+        from custom_components.quatt_stooklijn.discovery import (
+            ROLE_COMPRESSOR,
+            ROLE_COMPRESSOR_2,
+        )
+        from custom_components.quatt_stooklijn.sources import ROLE_CONF_KEYS
+
+        assert ROLE_CONF_KEYS[ROLE_COMPRESSOR] != ROLE_CONF_KEYS[ROLE_COMPRESSOR_2]
+
+    def test_de_sensor_luistert_naar_beide(self):
+        """Alleen op hp1 abonneren betekent dat starts van hp2 pas bij de
+        vijfminutentik opgemerkt worden — en korte beurten dus gemist."""
+        import inspect
+
+        from custom_components.quatt_stooklijn.sensor import (
+            QuattCompressorStartsSensor,
+        )
+
+        src = inspect.getsource(QuattCompressorStartsSensor.async_added_to_hass)
+        assert "ROLE_COMPRESSOR_2" in src

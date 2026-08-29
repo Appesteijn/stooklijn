@@ -36,6 +36,7 @@ from homeassistant.helpers.storage import Store
 from .const import (
     CONF_CH_MAX_WATER_ENABLED,
     CONF_COMFORT_FLOOR_TEMP,
+    CONF_COMPRESSOR_2_ENTITY,
     CONF_COMPRESSOR_ENTITY,
     CONF_FLOW_ENTITY,
     CONF_DEMAND_SHIFT_GAMMA,
@@ -73,6 +74,7 @@ from .const import (
 )
 from .discovery import (
     ROLE_COMPRESSOR,
+    ROLE_COMPRESSOR_2,
     ROLE_FLOW_RATE,
     ROLE_RETURN_TEMP,
     ROLE_INDOOR_TEMP,
@@ -97,6 +99,12 @@ from .sources import (
     async_source_entity,
 )
 from .cycling import CycleTracker
+
+# Rol → sleutel in de opslag. Vastgelegd: de sleutels staan op schijf.
+_COMPRESSOR_STORE_KEYS = {
+    ROLE_COMPRESSOR: "runs_hp1",
+    ROLE_COMPRESSOR_2: "runs_hp2",
+}
 from .thermal_store import ThermalModelStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -2699,10 +2707,16 @@ class QuattSoundLevelSensor(SensorEntity):
 class QuattCompressorStartsSensor(SensorEntity):
     """Compressorstarts per uur — de maat voor kortcyclen.
 
-    De state is het aantal starts in het afgelopen uur, bewust voortschrijdend
-    en niet per kalenderdag. Een teller die om middernacht op nul gaat zegt om
-    half één niets, terwijl juist de nacht — lage vraag, hoge aanvoertemperatuur
-    — de periode is waarin het kortcyclen begint.
+    De state is het aantal starts in het afgelopen uur, opgeteld over beide
+    warmtepompen en bewust voortschrijdend in plaats van per kalenderdag. Een
+    teller die om middernacht op nul gaat zegt om half één niets, terwijl juist
+    de nacht — lage vraag, hoge aanvoertemperatuur — de periode is waarin het
+    kortcyclen begint.
+
+    Beide units tellen apart mee. Een duo wisselt ze slim om en om af, dus ze
+    starten en stoppen onafhankelijk; wie alleen hp1 volgt telt ruwweg de helft
+    en ziet een installatie die om beurten kortcyclet aan voor een rustig
+    draaiende. Op een solo blijft de tweede tracker leeg.
 
     Als grafiek naast de buitentemperatuur beantwoordt deze sensor de vraag
     waarvoor hij bestaat: veel starts terwijl het buiten niet warm is, betekent
@@ -2734,21 +2748,34 @@ class QuattCompressorStartsSensor(SensorEntity):
         self._store = Store(
             hass, COMPRESSOR_STORAGE_VERSION, COMPRESSOR_STORAGE_KEY
         )
-        self._tracker = CycleTracker()
+        # Eén tracker per unit. Ze delen niets: een start van hp2 terwijl hp1
+        # draait is een eigen start, geen voortzetting.
+        self._trackers: dict[str, CycleTracker] = {
+            ROLE_COMPRESSOR: CycleTracker(),
+            ROLE_COMPRESSOR_2: CycleTracker(),
+        }
         self._loaded = False
 
     # -- bron --------------------------------------------------------------
 
-    @property
-    def _source_entity(self) -> str | None:
+    def _source_for(self, role: str) -> str | None:
         cfg = {**self._entry.data, **self._entry.options}
+        conf_key = (
+            CONF_COMPRESSOR_ENTITY
+            if role == ROLE_COMPRESSOR
+            else CONF_COMPRESSOR_2_ENTITY
+        )
         return async_source_entity(
-            self.hass, self._entry.entry_id, ROLE_COMPRESSOR,
-            config=cfg, conf_key=CONF_COMPRESSOR_ENTITY,
+            self.hass, self._entry.entry_id, role,
+            config=cfg, conf_key=conf_key,
         )
 
-    def _current_frequency(self) -> float | None:
-        entity_id = self._source_entity
+    @property
+    def _source_entity(self) -> str | None:
+        return self._source_for(ROLE_COMPRESSOR)
+
+    def _frequency_of(self, role: str) -> float | None:
+        entity_id = self._source_for(role)
         if not entity_id:
             return None
         state = self.hass.states.get(entity_id)
@@ -2764,16 +2791,20 @@ class QuattCompressorStartsSensor(SensorEntity):
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
 
-        stored = await self._store.async_load()
-        self._tracker = CycleTracker.from_list((stored or {}).get("runs"))
-        self._tracker.prune(dt_util.utcnow())
+        stored = await self._store.async_load() or {}
+        for role, sleutel in _COMPRESSOR_STORE_KEYS.items():
+            tracker = CycleTracker.from_list(stored.get(sleutel))
+            tracker.prune(dt_util.utcnow())
+            self._trackers[role] = tracker
         self._loaded = True
 
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass,
                 candidate_entities(
-                    self.hass, self._entry.entry_id, (ROLE_COMPRESSOR,)
+                    self.hass,
+                    self._entry.entry_id,
+                    (ROLE_COMPRESSOR, ROLE_COMPRESSOR_2),
                 ),
                 self._handle_state_change,
             )
@@ -2798,10 +2829,17 @@ class QuattCompressorStartsSensor(SensorEntity):
         if not self._loaded:
             return
         now = dt_util.utcnow()
-        started = self._tracker.update(self._current_frequency(), now)
-        self._tracker.prune(now)
+        started = False
+        for role, tracker in self._trackers.items():
+            started |= tracker.update(self._frequency_of(role), now)
+            tracker.prune(now)
         if persist or started:
-            await self._store.async_save({"runs": self._tracker.to_list()})
+            await self._store.async_save(
+                {
+                    sleutel: self._trackers[role].to_list()
+                    for role, sleutel in _COMPRESSOR_STORE_KEYS.items()
+                }
+            )
         self.async_write_ha_state()
 
     # -- weergave ----------------------------------------------------------
@@ -2810,24 +2848,61 @@ class QuattCompressorStartsSensor(SensorEntity):
     def available(self) -> bool:
         return self._source_entity is not None
 
+    def _sum(self, fn) -> int:
+        return sum(fn(t) for t in self._trackers.values())
+
     @property
     def native_value(self) -> int | None:
         if not self._loaded:
             return None
-        return self._tracker.starts_in_last(1, dt_util.utcnow())
+        now = dt_util.utcnow()
+        return self._sum(lambda t: t.starts_in_last(1, now))
 
     @property
     def extra_state_attributes(self) -> dict:
         now = dt_util.utcnow()
-        t = self._tracker
-        laatste = t.last_start
+        alle = list(self._trackers.values())
+
+        # Gemiddelde looptijd over beide units samen, gewogen naar het aantal
+        # beurten. Los middelen van twee gemiddelden zou een unit die één keer
+        # draaide even zwaar laten wegen als een die er vijftig deed.
+        duren = [
+            r.minutes
+            for t in alle
+            for r in t.runs
+            if r.start >= now - timedelta(hours=24) and r.minutes is not None
+        ]
+        looptijd = round(sum(duren) / len(duren), 1) if duren else None
+
+        starts = [t.last_start for t in alle if t.last_start]
+        per_dag = [t.starts_per_day(7, now) for t in alle]
+
         return {
-            "starts_laatste_uur": t.starts_in_last(1, now),
-            "starts_laatste_etmaal": t.starts_in_last(24, now),
-            "starts_per_dag_7d": t.starts_per_day(7, now),
-            "gemiddelde_looptijd_min": t.average_runtime_minutes(24, now),
-            "draait_nu": t.running,
-            "laatste_start": laatste.isoformat() if laatste else None,
-            "beurten_bewaard": len(t.runs),
-            "bron": self._source_entity,
+            "starts_laatste_uur": self._sum(lambda t: t.starts_in_last(1, now)),
+            "starts_laatste_etmaal": self._sum(lambda t: t.starts_in_last(24, now)),
+            "starts_per_dag_7d": (
+                round(sum(p for p in per_dag if p is not None), 1)
+                if any(p is not None for p in per_dag)
+                else None
+            ),
+            "gemiddelde_looptijd_min": looptijd,
+            "draait_nu": any(t.running for t in alle),
+            "laatste_start": max(starts).isoformat() if starts else None,
+            "beurten_bewaard": self._sum(lambda t: len(t.runs)),
+            # Per unit, zodat zichtbaar is of er één de dienst uitmaakt of dat
+            # ze netjes afwisselen.
+            "per_unit": {
+                "hp1": {
+                    "starts_laatste_etmaal": self._trackers[
+                        ROLE_COMPRESSOR
+                    ].starts_in_last(24, now),
+                    "bron": self._source_for(ROLE_COMPRESSOR),
+                },
+                "hp2": {
+                    "starts_laatste_etmaal": self._trackers[
+                        ROLE_COMPRESSOR_2
+                    ].starts_in_last(24, now),
+                    "bron": self._source_for(ROLE_COMPRESSOR_2),
+                },
+            },
         }
