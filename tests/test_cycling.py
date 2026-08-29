@@ -213,6 +213,166 @@ class TestSensorBedrading:
         assert ROLE_COMPRESSOR in ROLE_CONF_KEYS
         assert any(m.role == ROLE_COMPRESSOR for m in MIRROR_SPECS)
 
+    def test_hp2_wordt_bewaakt_en_niet_alleen_uitgelezen(self):
+        """De listener moet hp2 dekken, niet alleen hp1.
+
+        Dit is de fout van 2026-08-29. De registry kende alleen de rollen met een
+        spiegel, en compressor_2 heeft er bewust geen. candidate_entities() haalt
+        de te volgen entiteiten uit diezelfde registry, dus hp2 belandde nooit in
+        de state-change listener. Uitlezen ging nog wel — async_source_entity()
+        valt terug op de losse resolver — waardoor de sensor een bron toonde en
+        er niets kapot leek. Alleen kwam elke hp2-overgang pas binnen op de tick
+        van COMPRESSOR_REFRESH_INTERVAL: looptijden tot vijf minuten te kort,
+        starts te laat gestempeld, en korte beurten volledig gemist.
+
+        Gemeten geval: hp2 sloeg aan om 14:25:54, de sensor merkte het om
+        14:29:47. hp1 werd in dezelfde installatie binnen 9 ms opgepikt.
+        """
+        from unittest.mock import MagicMock
+
+        from homeassistant.helpers import entity_registry as er
+
+        from custom_components.quatt_stooklijn.const import DOMAIN
+        from custom_components.quatt_stooklijn.discovery import (
+            ROLE_COMPRESSOR,
+            ROLE_COMPRESSOR_2,
+        )
+        from custom_components.quatt_stooklijn.sensor import candidate_entities
+        from custom_components.quatt_stooklijn.sources import SourceRegistry
+
+        hp1 = "sensor.heatpump_1_compressor_frequency"
+        hp2 = "sensor.heatpump_2_compressor_frequency"
+        entries = [
+            er.RegistryEntry(
+                entity_id=hp1,
+                unique_id="CIC-abc123:heatpump_1:heatPumps.0.compressorFrequency",
+                platform="quatt",
+            ),
+            er.RegistryEntry(
+                entity_id=hp2,
+                unique_id="CIC-abc123:heatpump_2:heatPumps.1.compressorFrequency",
+                platform="quatt",
+            ),
+        ]
+
+        class _State:
+            def __init__(self, state):
+                self.state = state
+
+        standen = {hp1: "0", hp2: "30"}
+        hass = MagicMock()
+        hass._test_entity_registry = er.FakeRegistry(entries)
+        hass.states.get = lambda eid: (
+            _State(standen[eid]) if eid in standen else None
+        )
+
+        entry_id = "entry-1"
+        registry = SourceRegistry(hass, {})
+        registry.async_evaluate()
+        hass.data = {DOMAIN: {f"{entry_id}_sources": registry}}
+
+        gevolgd = candidate_entities(
+            hass, entry_id, (ROLE_COMPRESSOR, ROLE_COMPRESSOR_2)
+        )
+
+        assert hp1 in gevolgd
+        assert hp2 in gevolgd, "hp2 wordt niet bewaakt; alleen de tick ziet hem"
+
+
+class TestMeettijd:
+    """Beurtgrenzen horen op het moment van de meting, niet van het verwerken.
+
+    Een melding komt niet altijd meteen binnen: na een herstart, of wanneer een
+    bron alleen op de periodieke tick wordt gelezen. Wie dan op de klok van het
+    verwerken stempelt, kort de beurt in met precies die vertraging — en dat is
+    de fout die op 2026-08-29 een looptijd van 16,0 minuten als 12,1 boekte.
+    """
+
+    def test_late_stop_telt_vanaf_de_meting(self):
+        t = CycleTracker()
+        t.update(30.0, _op(0))
+        # De stop gold op minuut 16, maar wij zien hem pas op minuut 20.
+        t.update(0.0, _op(16))
+        assert t.runs[-1].minutes == pytest.approx(16.0)
+
+    def test_late_start_telt_vanaf_de_meting(self):
+        t = CycleTracker()
+        t.update(30.0, _op(4))
+        t.update(0.0, _op(20))
+        assert t.runs[-1].start == _op(4)
+        assert t.runs[-1].minutes == pytest.approx(16.0)
+
+    def test_meting_uit_het_verleden_keert_de_volgorde_niet_om(self):
+        """Een last_changed ouder dan wat al vastligt mag niets breken.
+
+        Na een herstart of een bronwissel kan de meettijd achterlopen op de
+        laatst geboekte grens. Een beurt die eindigt vóór ze begon is geen
+        meting maar een boekhoudfout, dus de grens wordt meegeschoven.
+        """
+        t = CycleTracker()
+        t.update(30.0, _op(10))
+        t.update(0.0, _op(5))
+        assert t.runs[-1].minutes is not None
+        assert t.runs[-1].minutes >= 0
+
+    def test_herhaalde_meting_met_dezelfde_tijd_verandert_niets(self):
+        """Blijft de bron op 30 Hz staan, dan blijft last_changed stilstaan.
+
+        Elke tick levert dan dezelfde tijd aan; dat mag geen tweede start geven
+        en de lopende beurt niet afsluiten.
+        """
+        t = CycleTracker()
+        t.update(30.0, _op(0))
+        for _ in range(5):
+            t.update(30.0, _op(0))
+        assert t.starts_in_last(24, _op(30)) == 1
+        assert t.running
+
+
+class TestSensorMeetTijd:
+    def test_meting_van_geeft_de_last_changed_mee(self):
+        """De sensor moet de tijd van de bron doorgeven, niet de eigen klok."""
+        from unittest.mock import MagicMock
+
+        from custom_components.quatt_stooklijn.sensor import (
+            QuattCompressorStartsSensor,
+        )
+
+        class _State:
+            state = "30.0"
+            last_changed = T0
+
+        stub = MagicMock()
+        stub._source_for.return_value = "sensor.hp"
+        stub.hass.states.get.return_value = _State()
+
+        waarde, gemeten_op = QuattCompressorStartsSensor._meting_van(stub, "compressor")
+        assert waarde == 30.0
+        assert gemeten_op == T0
+
+    @pytest.mark.parametrize("stand", ["unavailable", "unknown", ""])
+    def test_onbruikbare_stand_geeft_geen_waarde_en_geen_tijd(self, stand):
+        from unittest.mock import MagicMock
+
+        from custom_components.quatt_stooklijn.sensor import (
+            QuattCompressorStartsSensor,
+        )
+
+        class _State:
+            last_changed = T0
+
+            def __init__(self, s):
+                self.state = s
+
+        stub = MagicMock()
+        stub._source_for.return_value = "sensor.hp"
+        stub.hass.states.get.return_value = _State(stand)
+
+        assert QuattCompressorStartsSensor._meting_van(stub, "compressor") == (
+            None,
+            None,
+        )
+
 
 class TestOnbekendeMeting:
     """`unavailable` is geen stilstand.

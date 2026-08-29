@@ -2052,13 +2052,25 @@ class QuattSourceOverviewSensor(SensorEntity):
     @property
     def extra_state_attributes(self) -> dict:
         summary = self._registry.summary()
-        missing = [role for role, info in summary.items() if info["entity"] is None]
+        # Een rol zonder ook maar één kandidaat is niet "gemist" maar afwezig:
+        # op een solo-installatie bestaat hp2 domweg niet, en die als gat tonen
+        # stuurt iedere solo-eigenaar op zoek naar een bron die er niet hoort te
+        # zijn. Zo'n rol telt daarom in het geheel niet mee — ook niet als
+        # opgelost, want dan zou het aantal juist te rooskleurig worden.
+        van_toepassing = {
+            role: info
+            for role, info in summary.items()
+            if info["entity"] is not None or info["candidates"]
+        }
+        missing = [
+            role for role, info in van_toepassing.items() if info["entity"] is None
+        ]
         cfg = {**self._entry.data, **self._entry.options}
         return {
             "roles": summary,
             "missing_roles": missing,
-            "roles_total": len(summary),
-            "roles_resolved": len(summary) - len(missing),
+            "roles_total": len(van_toepassing),
+            "roles_resolved": len(van_toepassing) - len(missing),
             # Hoort hier omdat het dezelfde vraag beantwoordt als de rest van
             # deze sensor: waar komt de data vandaan. Staat dit uit, dan komen
             # nieuwe dagen uit de recorder en groeit de insights-cache niet meer.
@@ -2801,17 +2813,31 @@ class QuattCompressorStartsSensor(SensorEntity):
     def _source_entity(self) -> str | None:
         return self._source_for(ROLE_COMPRESSOR)
 
-    def _frequency_of(self, role: str) -> float | None:
+    def _meting_van(self, role: str) -> tuple[float | None, datetime | None]:
+        """De frequentie én het moment waarop die waarde ging gelden.
+
+        De tijd hoort erbij omdat de tracker beurtgrenzen zet op het tijdstip
+        van de meting, niet van het verwerken. ``last_changed`` is precies dat:
+        het moment waarop de bron van waarde wisselde. Zonder die tijd werd een
+        beurt afgemeten vanaf het moment dat wij ernaar keken, en dat is bij een
+        late melding — na een herstart, of op de tick in plaats van op een
+        state-change — te laat.
+
+        Het blijft een ondergrens: moduleert de compressor van 30 naar 45 Hz,
+        dan schuift ``last_changed`` mee. Zagen we de beurt daarvóór al, dan
+        maakt dat niets uit; is deze meting de eerste, dan telt de beurt vanaf
+        de modulatie. Beter dan de waarnemingstijd, niet perfect.
+        """
         entity_id = self._source_for(role)
         if not entity_id:
-            return None
+            return None, None
         state = self.hass.states.get(entity_id)
         if state is None or state.state in ("unknown", "unavailable", ""):
-            return None
+            return None, None
         try:
-            return float(state.state)
+            return float(state.state), getattr(state, "last_changed", None)
         except (TypeError, ValueError):
-            return None
+            return None, None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -2858,7 +2884,11 @@ class QuattCompressorStartsSensor(SensorEntity):
         now = dt_util.utcnow()
         started = False
         for role, tracker in self._trackers.items():
-            started |= tracker.update(self._frequency_of(role), now)
+            waarde, gemeten_op = self._meting_van(role)
+            started |= tracker.update(waarde, gemeten_op or now)
+            # Opruimen en uitlezen gaan wél op de echte klok: het venster van
+            # "laatste 24 uur" hangt aan nu, niet aan wanneer de bron voor het
+            # laatst iets deed.
             tracker.prune(now)
         if persist or started:
             await self._store.async_save(

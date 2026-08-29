@@ -24,6 +24,7 @@ from custom_components.quatt_stooklijn.sources import (
     MIRROR_SPECS,
     OVERVIEW_SLUG,
     ROLE_CONF_KEYS,
+    TRACKED_ROLES,
     SOURCE_OPENQUATT,
     SOURCE_OTHER,
     SOURCE_QUATT,
@@ -258,7 +259,7 @@ class TestSourceRegistry:
         registry.async_evaluate()
 
         summary = registry.summary()
-        assert set(summary) == set(MIRROR_ROLES)
+        assert set(summary) == set(TRACKED_ROLES)
         for info in summary.values():
             assert set(info) == {"entity", "integration", "candidates", "switched_at"}
 
@@ -426,6 +427,22 @@ class TestRolConfiguratie:
         from custom_components.quatt_stooklijn.discovery import ROLE_COMPRESSOR_2
 
         assert set(ROLE_CONF_KEYS) - set(MIRROR_ROLES) == {ROLE_COMPRESSOR_2}
+
+    def test_elke_instelbare_rol_wordt_ook_gevolgd(self):
+        """Instelbaar zijn zonder gevolgd te worden is een stille fout.
+
+        Wie een bron kan kiezen mag erop rekenen dat die bron ook bewaakt wordt.
+        compressor_2 was wél instelbaar maar stond niet in de registry, en
+        candidate_entities() haalt de te volgen entiteiten daaruit — dus kwam er
+        voor hp2 nooit een state-change binnen. Geen foutmelding, alleen stille
+        vertraging tot de volgende tick (2026-08-29).
+        """
+        ontbreekt = set(ROLE_CONF_KEYS) - set(TRACKED_ROLES)
+        assert not ontbreekt, f"instelbaar maar niet gevolgd: {sorted(ontbreekt)}"
+
+    def test_gevolgde_rollen_omvatten_de_spiegels(self):
+        assert set(MIRROR_ROLES) <= set(TRACKED_ROLES)
+        assert len(TRACKED_ROLES) == len(set(TRACKED_ROLES))
 
     def test_config_sleutels_zijn_uniek(self):
         sleutels = list(ROLE_CONF_KEYS.values())

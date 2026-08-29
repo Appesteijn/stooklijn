@@ -147,6 +147,22 @@ ENTITY_PREFIX = "quatt_warmteanalyse"
 
 MIRROR_ROLES: tuple[str, ...] = tuple(spec.role for spec in MIRROR_SPECS)
 
+# Rollen die de registry bijhoudt. Ruimer dan MIRROR_ROLES, want volgen en
+# spiegelen zijn twee verschillende dingen.
+#
+# ROLE_COMPRESSOR_2 hoort hier wél bij. De compressorstarts-sensor leest hem uit
+# en bouwt zijn state-change listener op via candidate_entities(), en die haalt
+# de te volgen entiteiten hiervandaan. Stond de rol niet in de registry, dan
+# leverde dat geen foutmelding maar stilte: de bron werd nog wel uitgelezen —
+# async_source_entity() valt terug op de losse resolver — maar niet bewaakt, dus
+# hp2 kwam alleen nog binnen op de tick van COMPRESSOR_REFRESH_INTERVAL. Dat gaf
+# looptijden tot vijf minuten te kort, starts tot vijf minuten te laat gestempeld
+# en beurten korter dan de tick die volledig gemist werden — precies het
+# kortcyclus-regime waarvoor die sensor bestaat (gevonden 2026-08-29).
+#
+# Een spiegel krijgt hp2 nog steeds niet; zie de toelichting bij MIRROR_SPECS.
+TRACKED_ROLES: tuple[str, ...] = (*MIRROR_ROLES, ROLE_COMPRESSOR_2)
+
 # Rol → config-sleutel waarmee de gebruiker de bron zelf kiest.
 #
 # Een ingestelde entity gaat vóór alle detectie (zie async_resolve_candidates),
@@ -267,7 +283,7 @@ class SourceRegistry:
         self._hass = hass
         self._config = config
         self._roles: dict[str, RoleSource] = {
-            role: RoleSource(role=role) for role in MIRROR_ROLES
+            role: RoleSource(role=role) for role in TRACKED_ROLES
         }
         self._listeners: list = []
 

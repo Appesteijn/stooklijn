@@ -91,8 +91,22 @@ class CycleTracker:
             return self.runs[-1]
         return None
 
+    @property
+    def _laatste_grens(self) -> datetime | None:
+        """Het jongste tijdstip dat al vastligt: een stop, anders een start."""
+        if not self.runs:
+            return None
+        laatste = self.runs[-1]
+        return laatste.stop if laatste.stop is not None else laatste.start
+
     def update(self, value: float | None, now: datetime) -> bool:
-        """Verwerk één meting. Geeft True terug als dit een nieuwe start was.
+        """Verwerk één meting op het moment waarop zij gold.
+
+        ``now`` is het tijdstip van de *meting*, niet van het verwerken. De
+        aanroeper geeft de ``last_changed`` van de bron mee, zodat een beurt
+        blijft kloppen als de melding laat binnenkomt — na een herstart, of via
+        de periodieke tick in plaats van een state-change. Op de waarnemingstijd
+        stempelen maakte beurten korter dan ze waren.
 
         ``None`` betekent "we weten het niet" — de bron staat op *unavailable*
         of *unknown* — en niet "de compressor staat uit". Dat verschil is het
@@ -103,6 +117,14 @@ class CycleTracker:
         """
         if value is None:
             return False
+
+        # Een meettijd uit het verleden mag de volgorde niet omkeren: bij een
+        # herstart of een bronwissel kan een last_changed ouder zijn dan wat er
+        # al vastligt, en een beurt die eindigt vóór ze begon is geen meting
+        # maar een boekhoudfout.
+        grens = self._laatste_grens
+        if grens is not None and now < grens:
+            now = grens
 
         running = is_running(value)
         open_run = self._open
