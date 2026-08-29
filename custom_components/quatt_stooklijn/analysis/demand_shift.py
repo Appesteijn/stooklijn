@@ -147,6 +147,17 @@ def scan_gamma(
     if grove_stap <= 0 or fijne_stap <= 0:
         return GammaScan()
 
+    # Geen vraag in het venster: buiten het stookseizoen valt er niets te
+    # verschuiven en levert elke gamma exact nul op. Zonder deze uitstap rekent
+    # hij het hele bereik door, verfijnt hij rond een willekeurig punt — bij
+    # gelijke opbrengst wint immers de laagste gamma — en levert hij een tabel
+    # met veertien nullen op die suggereert dat er iets te kiezen valt.
+    nulmeting = calculate_demand_shift(
+        forecast_temps, reference_curve, ua, t_zero, 0.0
+    )
+    if not nulmeting.flat or sum(nulmeting.flat) <= 0:
+        return GammaScan()
+
     grof = [
         meet(round(grove_stap * i, 2))
         for i in range(1, int(GAMMA_MAX / grove_stap) + 1)

@@ -341,3 +341,21 @@ class TestGammaScan:
 
     def test_onzinnige_stap_geeft_een_lege_scan(self):
         assert self._scan(grove_stap=0).punten == []
+
+    def test_zonder_warmtevraag_geen_scan(self):
+        """Buiten het stookseizoen valt er niets te kiezen.
+
+        Elke gamma levert dan exact nul op. Zou hij toch het hele bereik
+        doorrekenen, dan wint bij gelijke opbrengst de laagste gamma, verfijnt
+        hij rond een willekeurig punt en komt er een tabel met veertien nullen
+        uit die suggereert dat er iets te beslissen valt. Gemeten op 30 augustus
+        2026: veertien punten, allemaal 0.
+        """
+        zomer = [t_zero + 2.0 for t_zero in [T0] * 24]
+        scan = scan_gamma(zomer, CURVE, UA, T0)
+        assert scan.punten == []
+        assert scan.advies is None
+
+    def test_met_warmtevraag_wel_een_scan(self):
+        """De tegenproef, zodat de uitstap niet stilletjes alles uitschakelt."""
+        assert scan_gamma(DAG, CURVE, UA, T0).punten

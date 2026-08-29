@@ -1380,7 +1380,12 @@ views:
 
               {% set advies = state_attr(ws, 'gamma_advies') %}
 
-              {% if scan %}
+              {% if not scan %}
+
+              *Geen warmtevraag in het venster, dus niets te verschuiven. Zodra er weer
+              gestookt wordt verschijnt hier wat elke γ zou opleveren.*
+
+              {% else %}
 
               #### Wat een andere γ zou doen
 
