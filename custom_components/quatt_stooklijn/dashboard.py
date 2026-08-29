@@ -190,10 +190,25 @@ class DashboardManager:
         return True
 
     async def _async_create(self, config: Any) -> bool:
-        """Maak het dashboard aan en vul het."""
+        """Maak het dashboard aan en vul het.
+
+        Bestaat het dashboard al maar heeft het nog geen inhoud, dan wordt het
+        alleen gevuld. Dat is geen theoretisch geval: raakt HA tussen het
+        aanmaken en het wegschrijven de weg kwijt, dan blijft er een lege
+        registratie achter. ``async_load`` gooit daar ``ConfigNotFound`` en dus
+        komen we hier opnieuw langs — maar ``async_create_item`` weigert een
+        tweede registratie op hetzelfde url_path ("Panel url path needs to be
+        unique"). Zonder deze controle blijft zo'n installatie voor altijd op
+        een leeg dashboard staan, met alleen een waarschuwing in het log.
+        """
+        if self._dashboard_obj() is not None:
+            return await self._async_write(config)
+
         lovelace = self._hass.data.get("lovelace")
         collection = _lovelace_part(lovelace, "dashboards_collection")
         if collection is None:
+            # Lovelace is er (nog) niet. Niets onthouden, dan wordt het bij de
+            # volgende start gewoon opnieuw geprobeerd.
             return False
         await collection.async_create_item(
             {

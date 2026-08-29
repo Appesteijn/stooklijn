@@ -417,3 +417,83 @@ class TestReparatiestroom:
             ]["menu_options"]
             assert set(opties) == {"update", "keep"}, f"{bestand.name}: {set(opties)}"
             assert all(v.strip() for v in opties.values()), bestand.name
+
+
+class TestNieuweGebruiker:
+    """Wat er gebeurt bij iemand die nog geen dashboard heeft.
+
+    Dit pad is niet met de hand te testen op een installatie die het dashboard
+    al heeft, dus het hoort hier vastgelegd te staan.
+    """
+
+    @pytest.mark.asyncio
+    async def test_dashboard_wordt_aangemaakt_en_gevuld(self, monkeypatch):
+        import custom_components.quatt_stooklijn.dashboard as mod
+
+        monkeypatch.setattr(mod, "_load_shipped", lambda: NIEUW)
+        mgr, dash, collection = _manager(None, None, bestaat=False)
+        # Zodra het aangemaakt is, geeft HA het dashboard-object terug — de
+        # collectie-listener registreert het nog binnen async_create_item.
+        hass_data = mgr._hass.data["lovelace"]
+
+        async def _create(_payload):
+            hass_data["dashboards"]["quatt-warmteanalyse"] = dash
+
+        collection.async_create_item = AsyncMock(side_effect=_create)
+
+        assert await mgr.async_setup() == CREATE
+        collection.async_create_item.assert_awaited_once()
+        dash.async_save.assert_awaited_once_with(NIEUW)
+        # En de herkomst staat meteen vast, dus de volgende update gaat vanzelf.
+        assert mgr._store.async_save.await_args[0][0]["fingerprint"] == fingerprint(
+            NIEUW
+        )
+
+    @pytest.mark.asyncio
+    async def test_leeg_dashboard_wordt_niet_opnieuw_aangemaakt(self, monkeypatch):
+        """Registratie zonder inhoud: alleen vullen, niet nog eens aanmaken.
+
+        async_create_item weigert een tweede registratie op hetzelfde url_path.
+        Zonder deze afhandeling blijft zo'n installatie voor altijd op een leeg
+        dashboard staan, met enkel een waarschuwing in het log.
+        """
+        import custom_components.quatt_stooklijn.dashboard as mod
+
+        monkeypatch.setattr(mod, "_load_shipped", lambda: NIEUW)
+        mgr, dash, collection = _manager(None, None)  # bestaat, maar leeg
+        from homeassistant.components.lovelace.const import ConfigNotFound
+
+        dash.async_load = AsyncMock(side_effect=ConfigNotFound)
+
+        assert await mgr.async_setup() == CREATE
+        collection.async_create_item.assert_not_called()
+        dash.async_save.assert_awaited_once_with(NIEUW)
+
+    @pytest.mark.asyncio
+    async def test_zonder_lovelace_gebeurt_er_niets_en_crasht_niets(self, monkeypatch):
+        """En er wordt niets onthouden, zodat de volgende start het opnieuw
+        probeert in plaats van te denken dat het gelukt is."""
+        import custom_components.quatt_stooklijn.dashboard as mod
+
+        monkeypatch.setattr(mod, "_load_shipped", lambda: NIEUW)
+        mgr, dash, _ = _manager(None, None, bestaat=False)
+        mgr._hass.data = {}
+
+        assert await mgr.async_setup() == CREATE
+        dash.async_save.assert_not_called()
+        mgr._store.async_save.assert_not_called()
+
+    def test_lovelace_staat_als_after_dependency_in_het_manifest(self):
+        """Zonder dat kan de integratie geladen worden vóór lovelace, en dan
+        valt er niets aan te maken."""
+        import json
+        from pathlib import Path
+
+        pad = (
+            Path(__file__).parent.parent
+            / "custom_components"
+            / "quatt_stooklijn"
+            / "manifest.json"
+        )
+        manifest = json.loads(pad.read_text(encoding="utf-8"))
+        assert "lovelace" in manifest.get("after_dependencies", [])
