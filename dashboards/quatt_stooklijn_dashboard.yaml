@@ -1413,115 +1413,69 @@ views:
               columns: full
               rows: auto
 
-      # ── Rendement per stookdag: de reeks achter het ene getal ──
+      # ── Aanvoertemperatuur vergelijking (volle breedte) ──
       #
-      # Eén getal kan twee dingen niet tonen: dat het venster buiten het
-      # stookseizoen maanden stilstaat, en waar de norm ophoudt en de beoordeling
-      # begint. De reeks splitst op de norm-grens, zodat te zien is welke dagen
-      # de norm dragen en welke eraan getoetst worden.
+      # Voorwaardelijk, en dat is geen cosmetiek. mini-graph-card haalt per
+      # entity de historie op en blijft in een laadspinner hangen als een van
+      # zijn reeksen er geen heeft. Buiten het stookseizoen staan beide
+      # adviessensoren op 'unknown' — bewust: onder 30 L/h vergelijk je een
+      # aanvoeradvies met stilstaand water — en dan draaide deze kaart maanden
+      # achtereen een spinner in plaats van te zeggen dat er niets te tonen is.
       - type: grid
         column_span: 2
         cards:
-          - type: custom:apexcharts-card
-            header:
-              title: Rendement per stookdag
-              show: true
-            graph_span: 400d
-            span:
-              end: day
-            update_interval: 01:00:00
-            yaxis:
-              - id: ratio
-                min: 0.6
-                max: 1.4
-                decimals: 2
-                apex_config:
-                  title:
-                    text: verhouding
-              - id: temp
-                opposite: true
-                decimals: 0
-                apex_config:
-                  title:
-                    text: "°C"
-            apex_config:
-              chart:
-                height: 300
-              markers:
-                size: [3, 3, 0]
-              stroke:
-                width: [0, 0, 2]
-              annotations:
-                yaxis:
-                  - "y": 1
-                    borderColor: "#4CAF50"
-                    label:
-                      text: eigen norm
-              legend:
-                position: bottom
-              grid:
-                padding:
-                  right: 55
-            series:
-              - entity: sensor.quatt_warmteanalyse_cop_prestatie
-                name: Norm-periode
-                yaxis_id: ratio
-                color: "#B39DDB"
-                type: line
-                stroke_width: 0
-                data_generator: |
-                  const a = hass.states['sensor.quatt_warmteanalyse_cop_prestatie']?.attributes || {};
-                  const grens = a.norm_grens;
-                  return (a.stookdagen || [])
-                    .filter(p => !grens || p.date < grens)
-                    .map(p => [new Date(p.date + 'T12:00:00').getTime(), p.ratio]);
-              - entity: sensor.quatt_warmteanalyse_cop_prestatie
-                name: Beoordeeld
-                yaxis_id: ratio
-                color: "#7E57C2"
-                type: line
-                stroke_width: 0
-                data_generator: |
-                  const a = hass.states['sensor.quatt_warmteanalyse_cop_prestatie']?.attributes || {};
-                  const grens = a.norm_grens;
-                  return (a.stookdagen || [])
-                    .filter(p => grens && p.date >= grens)
-                    .map(p => [new Date(p.date + 'T12:00:00').getTime(), p.ratio]);
-              - entity: sensor.quatt_warmteanalyse_cop_prestatie
-                name: Buitentemperatuur die dag
-                yaxis_id: temp
-                color: "#B0BEC5"
-                type: line
-                stroke_width: 2
-                data_generator: |
-                  const d = hass.states['sensor.quatt_warmteanalyse_cop_prestatie']?.attributes?.stookdagen || [];
-                  return d.map(p => [new Date(p.date + 'T12:00:00').getTime(), p.temp]);
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
+                state_not: unknown
+              - condition: state
+                entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
+                state_not: unavailable
+            card:
+              type: custom:mini-graph-card
+              name: Aanvoertemperatuur — Advies vs Werkelijk (24 uur)
+              hours_to_show: 24
+              points_per_hour: 4
+              line_width: 1.5
+              show:
+                labels: true
+                points: false
+              entities:
+                - entity: sensor.quatt_warmteanalyse_aanvoertemperatuur
+                  name: Werkelijk
+                  color: "#90A4AE"
+                - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
+                  name: Stooklijn advies
+                  color: "#2196F3"
+                - entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
+                  name: MPC advies
+                  color: "#4CAF50"
             grid_options:
               columns: full
               rows: auto
+          # Exact de tegenhanger van de conditie hierboven, inclusief
+          # 'unavailable' — anders valt er tijdens een herstart een gat waarin
+          # geen van beide kaarten staat.
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
+                state:
+                  - unknown
+                  - unavailable
+            card:
+              type: markdown
+              content: >
+                **Aanvoertemperatuur — Advies vs Werkelijk**
 
-      # ── Aanvoertemperatuur vergelijking (volle breedte) ──
-      - type: grid
-        column_span: 2
-        cards:
-          - type: custom:mini-graph-card
-            name: Aanvoertemperatuur — Advies vs Werkelijk (24 uur)
-            hours_to_show: 24
-            points_per_hour: 4
-            line_width: 1.5
-            show:
-              labels: true
-              points: false
-            entities:
-              - entity: sensor.quatt_warmteanalyse_aanvoertemperatuur
-                name: Werkelijk
-                color: "#90A4AE"
-              - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-                name: Stooklijn advies
-                color: "#2196F3"
-              - entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
-                name: MPC advies
-                color: "#4CAF50"
+
+                Geen vergelijking op dit moment: het debiet is
+                {{ states('sensor.quatt_warmteanalyse_debiet') | float(0) | round(0) }} L/h.
+                Onder de 30 L/h circuleert er niets en houden de adviessensoren
+                zich stil — een aanvoeradvies afzetten tegen stilstaand water
+                zegt niets. Zodra de pomp weer draait staat de grafiek hier
+                vanzelf.
             grid_options:
               columns: full
               rows: auto

@@ -1565,8 +1565,10 @@ class QuattCopPerformanceSensor(
     _attr_icon = "mdi:gauge-full"
     _attr_state_class = SensorStateClass.MEASUREMENT
     # De dagreeks is honderden regels en verandert alleen bij een analyse. Zonder
-    # dit gaat hij bij elke state-write mee de recorder in, terwijl een grafiek
-    # hem rechtstreeks uit het attribuut leest.
+    # dit gaat hij bij elke state-write mee de recorder in. Het meegeleverde
+    # dashboard tekent hem niet meer — de reeks bleek als plaatje niets toe te
+    # voegen aan het getal — maar hij blijft gepubliceerd als ruwe data voor wie
+    # er zelf een grafiek op wil zetten.
     _unrecorded_attributes = frozenset(
         {"stookdagen", "recente_dagen", "referentiecurve"}
     )

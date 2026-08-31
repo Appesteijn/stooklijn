@@ -698,8 +698,8 @@ that would be mostly seasonal drift.
   days out of the norm, the metric falls back to the whole history and says so on the card — the
   number then reads low. It resolves itself as history accumulates.
 
-The **MPC** tab plots the ratio per heating day over time with outdoor temperature alongside,
-split into the days that carry the norm and the days being judged against it.
+The full per-day series stays available in the `stookdagen` attribute (excluded from the
+recorder), so you can chart it yourself if you want to see the scatter behind the number.
 
 ## Performance & Caching
 
