@@ -30,7 +30,11 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .analysis.thermal_model import OnlineRCModel, simulate_6h, simulate_coast_time
+from .analysis.thermal_model import (
+    OnlineRCModel,
+    simulate_coast_time,
+    simulate_forward,
+)
 from homeassistant.helpers.storage import Store
 
 from .const import (
@@ -39,12 +43,8 @@ from .const import (
     CONF_COMPRESSOR_2_ENTITY,
     CONF_COMPRESSOR_ENTITY,
     CONF_FLOW_ENTITY,
-    CONF_DEMAND_SHIFT_GAMMA,
     CONF_INDOOR_TEMP_ENTITY,
     CONF_QUATT_CLOUD_ENABLED,
-    DEFAULT_DEMAND_SHIFT_GAMMA,
-    DEMAND_SHIFT_HOURS,
-    DEMAND_SHIFT_MAX_DRIFT_K,
     FORECAST_RETRY_DELAYS,
     DEFAULT_QUATT_CLOUD_ENABLED,
     CONF_POWER_ENTITY,
@@ -372,9 +372,6 @@ async def async_setup_entry(
     entities.append(QuattOpenQuattCurveSensor(coordinator, entry))
     entities.append(QuattPowerHouseCalibrationSensor(hass, coordinator, entry))
     entities.append(QuattHeatDemandSensor(hass, coordinator, entry))
-    entities.append(
-        QuattShiftedHeatDemandSensor(hass, coordinator, entry, mpc_sensor)
-    )
 
     if {**entry.data, **entry.options}.get(CONF_SOUND_LEVEL_ENABLED, False):
         entities.append(QuattSoundLevelSensor(entry))
@@ -741,6 +738,12 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:brain"
+    # De vooruitblik is een tabel van MPC_FORECAST_HOURS rijen met ruim tien
+    # velden per rij, en deze sensor schrijft bij elke state-change van
+    # buitentemp, zon, flow of retour. Dat hoort niet elke keer de recorder in;
+    # het dashboard leest het attribuut rechtstreeks. Bij zes uur was dat al
+    # verspilling, bij twaalf het dubbele.
+    _unrecorded_attributes = frozenset({"forecast"})
 
     def __init__(
         self,
@@ -1171,7 +1174,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
 
     @property
     def extra_state_attributes(self) -> dict | None:
-        """Attribuut met 6-uurs voorspelling + huidige inputs."""
+        """Attribuut met de vooruitblik (MPC_FORECAST_HOURS uur) + huidige inputs."""
         t_outdoor = get_float_state(self.hass, self._outdoor_entity)
         t_return = get_float_state(self.hass, self._return_temp_entity)
         flow_lph = get_float_state(self.hass, self._flow_entity)
@@ -1205,19 +1208,20 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         ]
         fc_solar_gain_w = [wm2 * solar_factor for wm2 in fc_solar_wm2]
 
-        # Build 6-hour forecast
+        # Bouw de vooruitblik over MPC_FORECAST_HOURS uur
         forecast_out: list[dict] = []
         if model.is_converged and fc_temps:
             # Online model: forward simulation (input = W/m², model applies g_solar internally)
             t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
             if t_indoor is not None:
-                sim = simulate_6h(
+                sim = simulate_forward(
                     model,
                     t_indoor_now=t_indoor,
                     t_return=t_return or 28.0,
                     flow_lph=effective_flow,
                     forecast_t_outdoor=fc_temps,
                     forecast_q_solar=fc_solar_wm2,
+                    max_hours=MPC_FORECAST_HOURS,
                 )
                 for i, step in enumerate(sim):
                     entry = {**step, **fc_meta[i]} if i < len(fc_meta) else step
@@ -1267,7 +1271,11 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             "solar_radiation_wm2": round(current_rad_wm2),
             "model_source": model_source,
             **{f"model_{k}": v for k, v in model_params.items()},
-            "forecast_6h": forecast_out,
+            # Horizon-neutrale naam: heette forecast_6h toen de simulatie op zes
+            # uur vastzat. Het aantal uren staat ernaast, zodat een template niet
+            # opnieuw op de sleutelnaam hoeft te vertrouwen als hij weer wijzigt.
+            "forecast": forecast_out,
+            "forecast_uren": len(forecast_out),
         }
 
     def _build_batch_forecast(
@@ -1278,7 +1286,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         fc_solar: list[float],
         fc_meta: list[dict],
     ) -> list[dict]:
-        """Build 6h forecast using batch stooklijn model (fallback)."""
+        """Vooruitblik uit de batch-stooklijn — terugval als het RC-model nog
+        niet geconvergeerd is. Volgt de lengte van ``fc_temps``."""
         if self.coordinator.data is None:
             return []
         heat_loss = self.coordinator.data.heat_loss_hp
@@ -1541,11 +1550,14 @@ class QuattCopPerformanceSensor(
     De kale dag-COP volgt vooral het weer — op deze installatie 1,85 bij −5 °C
     en 4,55 bij +13 °C — en is daarom onbruikbaar om een regelwijziging aan te
     toetsen. Deze sensor deelt de gemeten dag-COP door wat de installatie bij
-    díe temperatuur normaal presteerde. 1,00 is zoals altijd, hoger is beter.
+    díe temperatuur en in díe seizoenshelft normaal presteerde. 1,00 is zoals
+    altijd, hoger is beter.
 
     Bedoeld om over een heel seizoen op te sturen, niet per dag: de dag-tot-dag
-    spreiding is ongeveer ±12%, dus het voortschrijdend gemiddelde is de maat
-    die telt. Beide staan in de attributen.
+    spreiding is ongeveer ±12%. De losse dag staat daarom niet meer in de
+    attributen — een getal tonen met "dit betekent niets" eronder is netto
+    negatief. Wat er wél staat is het venster, en het verschil vóór en ná de
+    norm-grens met de toets of dat verschil boven de ruis uitkomt.
     """
 
     _attr_has_entity_name = True
@@ -1601,7 +1613,7 @@ class QuattCopPerformanceSensor(
         if data is None:
             return None
         perf = data.cop_performance
-        if perf.latest_ratio is None:
+        if perf.rolling_30d is None:
             return None
 
         venster = perf.daily[-30:]
@@ -1615,13 +1627,46 @@ class QuattCopPerformanceSensor(
 
         return {
             "laatste_dag": perf.latest_date,
-            "laatste_ratio": perf.latest_ratio,
-            "rolling_7d": perf.rolling_7d,
             "rolling_30d": perf.rolling_30d,
-            # De norm zelf, zodat te zien is waar hij tegen afgezet wordt.
-            "referentiecurve": {str(k): v for k, v in sorted(perf.reference.items())},
+            # De norm zelf, zodat te zien is waar hij tegen afgezet wordt. Per
+            # seizoenshelft, want najaar en voorjaar hebben elk hun eigen bins.
+            "referentiecurve": {
+                seizoen: {str(k): v for k, v in sorted(bins.items())}
+                for seizoen, bins in perf.reference.items()
+            },
             "referentie_stookdagen": perf.reference_days,
             "beoordeelde_dagen": len(perf.daily),
+            # False = de beoordeelde dagen zitten zelf in de norm en een
+            # verbetering wordt deels tegen zichzelf afgezet. Zonder deze vlag
+            # leest het getal betrouwbaarder dan het is.
+            "norm_bevroren": perf.norm_frozen,
+            "norm_grens": perf.baseline_date,
+            "norm_grens_handmatig": perf.baseline_explicit,
+            "norm_grens_gevraagd": perf.baseline_requested,
+            # Vóór en ná de grens — het eigenlijke antwoord op "heeft die
+            # aanpassing geholpen".
+            # voor_dagen/na_dagen tellen alleen de dagen die op seizoenspositie
+            # tegen elkaar te zetten zijn; na_dagen_totaal is alles ná de grens.
+            # Het verschil tussen die twee is het antwoord op "waarom staat er
+            # nog geen oordeel terwijl er wel gestookt is".
+            "voor_dagen": perf.before.days,
+            "voor_gemiddelde": perf.before.mean,
+            "na_dagen": perf.after.days,
+            "na_dagen_totaal": perf.after_days_total,
+            "na_gemiddelde": perf.after.mean,
+            "verschil_pct": perf.delta_pct,
+            # De gemeten dagspreiding, en of het verschil daarbovenuit komt.
+            # Zonder dit zou elke toevallige uitschieting als resultaat lezen.
+            "dagspreiding_pct": perf.spread_pct,
+            "verschil_significant": perf.delta_significant,
+            # Liggen vóór en ná in hetzelfde deel van het stookseizoen? Zo niet,
+            # dan zit er seizoen in het verschil en is het geen oordeel over de
+            # aanpassing — zie SEASON_MATCH_DAYS in cop_performance.py.
+            "verschil_vergelijkbaar": perf.delta_comparable,
+            "voor_van": perf.before.date_from,
+            "voor_tot": perf.before.date_to,
+            "na_van": perf.after.date_from,
+            "na_tot": perf.after.date_to,
             # Het venster achter rolling_30d, expliciet. Dat zijn de laatste 30
             # *stookdagen* en niet de laatste 30 kalenderdagen: buiten het
             # stookseizoen staat dit getal maanden stil, en zonder deze datums
@@ -2530,208 +2575,6 @@ class QuattHeatDemandSensor(
             bool(rated is not None and value is not None and value > rated)
         )
         return attrs
-
-
-class QuattShiftedHeatDemandSensor(QuattHeatDemandSensor):
-    """Schaduwsensor: dezelfde warmtevraag, herverdeeld naar de beste COP-uren.
-
-    **Deze sensor is nergens aan gekoppeld.** Hij publiceert wat er gepubliceerd
-    *zou* worden als de herverdeling aan stond, zodat γ over een stookseizoen op
-    data gekozen kan worden in plaats van op gevoel. Precies zoals de MPC-sensor
-    zelf is ingevoerd: eerst meekijken, dan pas sturen.
-
-    Erft het nulpunt, de UA en de versheidsbewaking van ``QuattHeatDemandSensor``
-    — dezelfde bronnen, zodat de twee reeksen op elk moment vergelijkbaar zijn en
-    een verschil alleen van de weging kan komen.
-
-    Bij γ = 0 is de uitkomst per definitie gelijk aan ``warmtevraag``. Dat is de
-    standaard, en meteen de terugvalgarantie.
-    """
-
-    _attr_name = "Warmtevraag Verschoven"
-    _attr_icon = "mdi:chart-timeline-variant-shimmer"
-
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        coordinator: QuattStooklijnCoordinator,
-        entry: ConfigEntry,
-        mpc_sensor: "QuattMpcSensor",
-    ) -> None:
-        super().__init__(hass, coordinator, entry)
-        self._mpc = mpc_sensor
-        self._attr_unique_id = f"{entry.entry_id}_heat_demand_shifted"
-        # Entity-ID vastpinnen, zie de toelichting bij MirrorSpec.slug.
-        self.entity_id = async_generate_entity_id(
-            ENTITY_ID_FORMAT,
-            f"{ENTITY_PREFIX}_warmtevraag_verschoven",
-            hass=hass,
-        )
-
-    @property
-    def _gamma(self) -> float:
-        cfg = {**self._entry.data, **self._entry.options}
-        try:
-            return float(cfg.get(CONF_DEMAND_SHIFT_GAMMA, DEFAULT_DEMAND_SHIFT_GAMMA))
-        except (TypeError, ValueError):
-            return DEFAULT_DEMAND_SHIFT_GAMMA
-
-    def _ingangen(self) -> dict | None:
-        """De ingangen van de herverdeling, hooguit één keer per update gebouwd.
-
-        ``native_value`` en ``extra_state_attributes`` worden allebei bij elke
-        state-write aangeroepen, en de gamma-scan rekent het venster nog een stuk
-        of vijftien keer door. De forecast opbouwen hoort daar niet in mee te
-        schalen, dus dat gebeurt hier één keer en wordt bewaard zolang de
-        coördinator dezelfde data draagt en de buitentemperatuur niet bewoog.
-        """
-        data = self.coordinator.data
-        if data is None:
-            return None
-        hlc = data.heat_loss_hp.heat_loss_coefficient
-        if not hlc or hlc <= 0:
-            return None
-
-        openquatt = self._openquatt()
-        zero_point = self._zero_point(openquatt)
-        # Dezelfde versheidscontrole als de gekoppelde sensor: een bevroren
-        # buitentemperatuur mag hier net zomin een vraag opleveren.
-        t_outdoor = self._outdoor_temp()
-        if zero_point is None or t_outdoor is None:
-            return None
-
-        # Vergelijken op identiteit, niet op inhoud: het data-object wordt bij
-        # elke refresh vervangen, en een diepe vergelijking is duurder dan de
-        # berekening die we ermee willen uitsparen.
-        bewaard = getattr(self, "_ingang_cache", None)
-        if bewaard is not None and bewaard[0] is data and bewaard[1] == t_outdoor:
-            return bewaard[2]
-
-        # Eigen venster, niet dat van de displayforecast: de winst zit in de
-        # dagzwaai en die past niet in zes uur. Zie DEMAND_SHIFT_HOURS.
-        fc_temps, _solar, _meta = self._mpc.build_forecast_arrays(
-            t_outdoor, n_hours=DEMAND_SHIFT_HOURS
-        )
-        if not fc_temps:
-            return None
-
-        # Thermische massa uit het geleerde RC-model. Nog niet geconvergeerd?
-        # Dan geen driftschatting — liever niets dan een getal op een verzonnen C.
-        params = self._mpc.thermal_params
-        c_whk = params.get("C_whk") if params.get("converged") else None
-
-        ingangen = {
-            "forecast_temps": fc_temps,
-            "reference_curve": data.cop_performance.reference,
-            "ua": float(hlc),
-            "t_zero": zero_point[0],
-            "ceiling_w": self._ceiling_w(openquatt),
-            "thermal_mass_wh_k": c_whk,
-            "max_drift_k": DEMAND_SHIFT_MAX_DRIFT_K,
-        }
-        self._ingang_cache = (data, t_outdoor, ingangen)
-        return ingangen
-
-    def _shift(self):
-        """Bereken de herverdeling, of ``None`` als een ingang ontbreekt."""
-        from .analysis.demand_shift import calculate_demand_shift
-
-        ingangen = self._ingangen()
-        if ingangen is None:
-            return None
-        return calculate_demand_shift(
-            ingangen["forecast_temps"],
-            ingangen["reference_curve"],
-            ingangen["ua"],
-            ingangen["t_zero"],
-            self._gamma,
-            ceiling_w=ingangen["ceiling_w"],
-            thermal_mass_wh_k=ingangen["thermal_mass_wh_k"],
-            max_drift_k=ingangen["max_drift_k"],
-        )
-
-    def _scan(self):
-        """Wat élke gamma over dit venster zou opleveren.
-
-        Draait ook als gamma op 0 staat — juist dan: zonder doorgerekende reeks
-        is er geen grond om hem hoger te zetten.
-        """
-        from .analysis.demand_shift import scan_gamma
-
-        ingangen = self._ingangen()
-        if ingangen is None:
-            return None
-        return scan_gamma(
-            ingangen["forecast_temps"],
-            ingangen["reference_curve"],
-            ingangen["ua"],
-            ingangen["t_zero"],
-            ceiling_w=ingangen["ceiling_w"],
-            thermal_mass_wh_k=ingangen["thermal_mass_wh_k"],
-            max_drift_k=ingangen["max_drift_k"],
-        )
-
-    def _ceiling_w(self, openquatt: dict[str, str] | None) -> float | None:
-        from .discovery import ROLE_PH_RATED_POWER
-
-        if not openquatt:
-            return None
-        return get_float_state(
-            self.hass, openquatt.get(ROLE_PH_RATED_POWER) or ""
-        )
-
-    @property
-    def native_value(self) -> float | None:
-        shift = self._shift()
-        return shift.now_shifted if shift else None
-
-    @property
-    def extra_state_attributes(self) -> dict | None:
-        shift = self._shift()
-        if shift is None:
-            return None
-        scan = self._scan()
-        return {
-            "gamma": shift.gamma,
-            # Wat `warmtevraag` op dit moment publiceert. Bij gamma=0 gelijk.
-            "vlak_nu": shift.now_flat,
-            "verschoven_nu": shift.now_shifted,
-            # De voorspelde winst is waar γ op gekozen wordt. Positief betekent
-            # minder stroom voor dezelfde warmte over het venster.
-            "verwachte_besparing": shift.expected_saving,
-            "venster_uren": len(shift.flat),
-            # Afronden hoort bij de weergave; de reeksen zelf zijn onafgerond,
-            # anders klopt de energie-neutraliteit niet meer exact.
-            "vlak": [round(p) for p in shift.flat],
-            "verschoven": [round(p) for p in shift.shifted],
-            # Boven het firmwareplafond kapt Power House af, en dan gaat de
-            # energie-neutraliteit alsnog verloren. Signaleren, niet klemmen.
-            "uren_boven_plafond": shift.hours_above_ceiling,
-            # Hoe ver de kamer zou wegzakken vóór de comfortterm van de firmware
-            # bijstuurt. Negatief = kouder.
-            "voorspelde_drift_k": shift.worst_drift_k,
-            # Kleiner dan 1 betekent dat de veiligheidsgrens heeft ingegrepen en
-            # de verschuiving evenredig is teruggeschaald.
-            "drift_begrenzing": shift.drift_limit_factor,
-            "gekoppeld": False,
-            # De hele reeks doorgerekend, zodat gamma af te lezen is in plaats
-            # van te gokken. Geldt voor dit venster: een dag met veel zwaai
-            # levert een andere uitkomst dan een strakke koude dag, dus dit is
-            # een dagkoers en geen instelling.
-            "gamma_scan": [
-                {
-                    "gamma": p.gamma,
-                    "besparing": p.besparing,
-                    "drift_k": p.drift_k,
-                    "uren_boven_plafond": p.uren_boven_plafond,
-                    "drift_begrenzing": p.drift_begrenzing,
-                    "bruikbaar": p.schoon,
-                }
-                for p in (scan.punten if scan else [])
-            ],
-            "gamma_advies": scan.advies if scan else None,
-            "gamma_advies_besparing": scan.advies_besparing if scan else None,
-        }
 
 
 class QuattChMaxWaterSensor(SensorEntity):

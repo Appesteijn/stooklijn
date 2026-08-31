@@ -1224,21 +1224,27 @@ views:
               columns: full
               rows: auto
 
-      # ── 6-uurs forecast (volle breedte) ──
+      # ── Vooruitblik (volle breedte) ──
+      #
+      # Twaalf uur, gelijk aan het venster van de uitlooptijd. De titel
+      # leest het aantal uren uit het attribuut in plaats van het te
+      # herhalen — anders loopt hij weg zodra MPC_FORECAST_HOURS wijzigt.
       - type: grid
         column_span: 2
         cards:
           - type: markdown
-            title: 6-uurs forecast
+            title: Vooruitblik
             content: >
               {% set mpc =
               'sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur' %}
 
-              {% set fc = state_attr(mpc, 'forecast_6h') %}
+              {% set fc = state_attr(mpc, 'forecast') %}
 
               {% set src = state_attr(mpc, 'model_source') %}
 
               {% if fc and fc | length > 0 %}
+
+              ### Komende {{ fc | length }} uur
 
               {% set ns = namespace(tbl='| Uur | T buiten | T binnen | HP | Vermogen | Aanvoer | Aanvoer (geen zon) |\n|:--|--:|--:|:--:|--:|--:|--:|\n') %}{% for h in fc %}{% set t_in = h.get('t_indoor_predicted') %}{% set ns_val = h.get('supply_temp_no_solar') %}{% set ns.tbl = ns.tbl + '| **+' + h.hour|string + '** | ' + (h.temp_forecast|round(1))|string + '°C | ' + (t_in|string + '°C' if t_in is not none else '-') + ' | ' + ('🔥' if h.get('hp_needed') else '⏸️') + ' | ' + (h.get('q_hp_needed_w')|string + ' W' if h.get('q_hp_needed_w') is not none else '-') + ' | ' + (h.supply_temp|string + '°C' if h.supply_temp is not none else '-') + ' | ' + (ns_val|string + '°C' if ns_val is not none else '-') + ' |\n' %}{% endfor %}
 
@@ -1255,22 +1261,27 @@ views:
               columns: full
               rows: auto
 
-      # ── Rendement & herverdeling (validatie richting 1.0) ──
+      # ── Rendement: de enige gesloten lus rond een regelwijziging ──
+      #
+      # De norm is bevroren op de dagen vóór de grens en gebint per
+      # seizoenshelft, zodat het getal zegt wat het belooft. Wat het niet kan,
+      # staat er ook: onder de dagruis hoort geen conclusie.
       - type: grid
         column_span: 2
         cards:
           - type: markdown
-            title: Rendement & herverdeling
+            title: Rendement
             content: >
               {% set cp = 'sensor.quatt_warmteanalyse_cop_prestatie' %}
 
               {% set ratio = states(cp) | float(none) %}
 
-              {% if ratio is not none %}
+              {% if ratio is none %}
 
-              {% set d7 = state_attr(cp, 'rolling_7d') %}
+              *Nog geen rendementsmaat — er zijn stookdagen nodig om een norm te
+              bouwen.*
 
-              {% set dag = state_attr(cp, 'laatste_ratio') %}
+              {% else %}
 
               {% set van = state_attr(cp, 'venster_van') %}
 
@@ -1278,17 +1289,22 @@ views:
 
               {% set sinds = state_attr(cp, 'dagen_sinds_laatste_stookdag') | int(0) %}
 
+              {% set bevroren = state_attr(cp, 'norm_bevroren') %}
+
+              {% set grens = state_attr(cp, 'norm_grens') %}
+
+              {% set handmatig = state_attr(cp, 'norm_grens_handmatig') %}
+
+              {% set gevraagd = state_attr(cp, 'norm_grens_gevraagd') %}
+
+              {% set spreiding = state_attr(cp, 'dagspreiding_pct') %}
+
               ### {{ ratio }} — rendement t.o.v. de eigen norm
 
-              De norm is je eigen verleden: de stookdagen die deze installatie zelf
-              gedraaid heeft. Geen fabrieksopgave en geen vergelijking met andere huizen.
-              1,00 betekent dus precies zoals jij het bij die buitentemperatuur altijd
-              deed, en hoger is beter.
-
-              Gebruik dit om te zien of een aanpassing geholpen heeft: noteer het
-              gemiddelde over 30 stookdagen voordat je iets verandert, en kijk er een
-              maand later weer naar. Eén losse dag zegt niets — die schommelt ongeveer
-              12% op en neer.
+              De norm is je eigen verleden: wat deze installatie bij déze
+              buitentemperatuur en in dít deel van het seizoen zelf presteerde.
+              Geen fabrieksopgave en geen vergelijking met andere huizen. 1,00 is
+              precies zoals je het altijd deed, hoger is beter.
 
               | | Waarde |
 
@@ -1296,128 +1312,101 @@ views:
 
               | Laatste 30 stookdagen{% if van %} ({{ van }} → {{ tot }}){% endif %} | **{{ ratio }}** |
 
-              | Laatste 7 stookdagen | {{ d7 }} |
+              | Norm gebouwd uit | {{ state_attr(cp, 'referentie_stookdagen') }} stookdagen{% if grens %} vóór {{ grens }}{% endif %} |
 
-              | Laatste stookdag ({{ state_attr(cp, 'laatste_dag') }}) | {{ dag }} |
+              | Beoordeeld | {{ state_attr(cp, 'beoordeelde_dagen') }} stookdagen |
 
-              | Norm gebouwd uit | {{ state_attr(cp, 'referentie_stookdagen') }} stookdagen |
+              {% if spreiding %}
+
+              | Dagspreiding | ±{{ spreiding }}% per dag |
+
+              {% endif %}
+
+              {% if not bevroren %}
+
+              > **De norm is nog niet bevroren.** Er zijn te weinig stookdagen om
+              de beoordeelde dagen erbuiten te houden, dus zitten ze in hun eigen
+              norm en leest een verbetering structureel te laag. Dit lost zichzelf
+              op zodra er een seizoen historie staat.
+
+              {% elif gevraagd and not handmatig %}
+
+              > **Je wijzigingsdatum {{ gevraagd }} is niet gebruikt.** Er staan te
+              weinig stookdagen vóór die datum om er een norm op te bouwen. De
+              grens schuift zolang mee met het venster.
+
+              {% endif %}
 
               {% if sinds > 14 %}
 
-              > **Buiten het stookseizoen.** De laatste stookdag was {{ sinds }} dagen geleden.
-              Dit getal gaat over die periode en verandert niet tot de verwarming weer aan gaat.
+              > **Buiten het stookseizoen.** De laatste stookdag was {{ sinds }}
+              dagen geleden. Dit getal gaat over die periode en verandert niet tot
+              de verwarming weer aan gaat.
 
               {% endif %}
 
-              De norm kijkt alleen naar de buitentemperatuur en weet niet welke maand het
-              is. Maar 12 °C in november is iets anders dan 12 °C in mei: in mei is het huis
-              al warm en helpt de zon mee, dus heeft de pomp weinig te doen en draait ze in
-              korte runs. Dat kost rendement. Omdat de norm beide soorten dagen door
-              elkaar middelt, komen voorjaarsdagen bijna altijd onder 1 uit zonder dat er
-              iets mis is. Vergelijk dus voorjaar met voorjaar en najaar met najaar. Dat
-              geldt ook voor de vóór-en-na-vergelijking hierboven: valt die maand net over
-              de rand van het seizoen, dan meet je het seizoen en niet je aanpassing.
+              {% set na_n = state_attr(cp, 'na_dagen') | int(0) %}
+
+              {% set na_totaal = state_attr(cp, 'na_dagen_totaal') | int(0) %}
+
+              {% set voor_n = state_attr(cp, 'voor_dagen') | int(0) %}
+
+              {% set verschil = state_attr(cp, 'verschil_pct') %}
+
+              ### Heeft je aanpassing geholpen?
+
+              {% if not grens %}
+
+              Nog niet te zeggen: de norm bevat de beoordeelde dagen nog, dus er
+              valt niets tegen af te zetten.
+
+              {% elif na_totaal == 0 %}
+
+              Nog geen stookdagen ná {{ grens }} om te beoordelen. Zodra er weer
+              gestookt wordt verschijnt hier het verschil.
+
+              {% elif not state_attr(cp, 'verschil_vergelijkbaar') %}
+
+              Er zijn {{ na_totaal }} stookdagen ná {{ grens }}, maar geen daarvan
+              valt in dezelfde periode van het jaar als de dagen ervóór
+              ({{ state_attr(cp, 'voor_van') or 'geen' }}{% if state_attr(cp, 'voor_van') %} → {{ state_attr(cp, 'voor_tot') }}{% endif %}).
+              Bij 10 °C in februari vraagt het huis nog warmte en draait de pomp
+              lang; bij 10 °C in mei niet, en dat kost rendement zonder dat er iets
+              aan de installatie mankeert. Zo'n vergelijking zou dus het seizoen
+              meten en niet je aanpassing — daarom staat er geen getal. Zodra je
+              dezelfde maanden een jaar later opnieuw hebt, verschijnt het hier.
 
               {% else %}
 
-              *Nog geen rendementsmaat — er zijn stookdagen nodig om een norm te bouwen.*
+              **{{ '%+.1f'|format(verschil) }}%** over {{ na_n }} van de
+              {{ na_totaal }} stookdagen ná {{ grens }} — alleen de dagen die met
+              dezelfde periode van het jaar te vergelijken zijn — tegen
+              {{ voor_n }} stookdagen van
+              {{ state_attr(cp, 'voor_van') }} → {{ state_attr(cp, 'voor_tot') }}.
 
-              {% endif %}
+              {% if state_attr(cp, 'verschil_significant') %}
 
-              {% set ws = 'sensor.quatt_warmteanalyse_warmtevraag_verschoven' %}
-
-              {% set nu = states(ws) | float(none) %}
-
-              {% if nu is not none %}
-
-              {% set g = state_attr(ws, 'gamma') | float(0) %}
-
-              {% set bes = state_attr(ws, 'verwachte_besparing') | float(0) %}
-
-              ### Herverdeling — γ = {{ g }}{% if g == 0 %} (uit){% endif %}
-
-              {% if g == 0 %}
-
-              Staat uit: de verschoven vraag is gelijk aan de gewone. Zet γ hoger in de
-              integratie-opties om te zien wat verschuiven zou opleveren. Er wordt niets
-              mee aangestuurd.
+              Dat ligt buiten de dagruis van ±{{ spreiding }}%: dit is een echt
+              verschil en geen toeval.
 
               {% else %}
 
-              Zou nu **{{ nu | round(0) }} W** publiceren in plaats van
-              **{{ state_attr(ws, 'vlak_nu') | round(0) }} W**.
+              Dat valt bínnen de dagruis van ±{{ spreiding }}% per dag. Met
+              {{ na_n }} vergelijkbare stookdagen is dit nog niet van toeval te
+              onderscheiden — hier hoort dus nog geen conclusie aan te hangen.
 
               {% endif %}
 
-              | | Waarde |
-
-              |:--|--:|
-
-              | Verwachte besparing | **{{ (bes * 100) | round(2) }}%** |
-
-              | Venster | {{ state_attr(ws, 'venster_uren') }} uur |
-
-              | Voorspelde kamerdrift | {% set dk = state_attr(ws, 'voorspelde_drift_k') %}{% if dk is not none %}{{ dk }} K{% else %}—{% endif %} |
-
-              | Uren boven firmwareplafond | {{ state_attr(ws, 'uren_boven_plafond') }} |
-
-              {% if (state_attr(ws, 'drift_begrenzing') | float(1)) < 1 %}
-
-              > De comfortgrens greep in: de verschuiving is teruggeschaald met factor
-              {{ state_attr(ws, 'drift_begrenzing') }} om de kamerdrift onder 0,3 K te houden.
-
               {% endif %}
 
-              {% if (state_attr(ws, 'uren_boven_plafond') | int(0)) > 0 %}
+              {% if not handmatig %}
 
-              > In {{ state_attr(ws, 'uren_boven_plafond') }} uur komt de verdeling boven
-              *Rated maximum house power*. Daar kapt de firmware af en gaat de
-              energie-neutraliteit alsnog verloren — kies dan een lagere γ.
-
-              {% endif %}
-
-              {% set scan = state_attr(ws, 'gamma_scan') or [] %}
-
-              {% set advies = state_attr(ws, 'gamma_advies') %}
-
-              {% if not scan %}
-
-              *Geen warmtevraag in het venster, dus niets te verschuiven. Zodra er weer
-              gestookt wordt verschijnt hier wat elke γ zou opleveren.*
-
-              {% else %}
-
-              #### Wat een andere γ zou doen
-
-              {% if advies is not none %}
-
-              Op de verwachting van dit moment haalt **γ = {{ advies }}** vrijwel de volle
-              winst zonder dat een grens ingrijpt: **{{ (state_attr(ws, 'gamma_advies_besparing') * 100) | round(1) }}%**
-              minder stroom voor dezelfde warmte. Hoger mag, maar kost meer kamerdrift dan
-              het aan besparing oplevert.
-
-              {% else %}
-
-              Geen enkele γ levert hier iets op zonder dat het firmwareplafond of de
-              comfortgrens het resultaat bepaalt. Laat hem dan op 0 staan.
+              *De grens schuift mee met het venster: de laatste 30 stookdagen
+              worden getoetst aan alles daarvóór. Verander je iets aan de regeling,
+              zet die datum dan in de integratie-opties — dan blijft de norm daarop
+              staan en meet je die aanpassing in plaats van de vorige maand.*
 
               {% endif %}
-
-              {% set ns = namespace(tbl='| γ | Besparing | Kamerdrift | |\n|:--|--:|--:|:--|\n') %}{% for p in scan %}{% if ((p.gamma * 10) | round | int) % 5 == 0 or p.gamma == advies %}{% set merk = 'plafond' if p.uren_boven_plafond > 0 else ('begrensd' if p.drift_begrenzing < 1 else ('← advies' if p.gamma == advies else '')) %}{% set ns.tbl = ns.tbl + '| ' + ('**' + p.gamma|string + '**' if p.gamma == advies else p.gamma|string) + ' | ' + ((p.besparing * 100)|round(1)|string + '%' if p.besparing is not none else '—') + ' | ' + ('%.2f'|format(p.drift_k) + ' K' if p.drift_k is not none else '—') + ' | ' + merk + ' |\n' %}{% endif %}{% endfor %}{{ ns.tbl }}
-
-              Dit is een dagkoers, geen instelling: een dag met veel temperatuurzwaai geeft
-              een heel ander optimum dan een strakke koude dag. En het is een schatting uit
-              de COP-curve — of het echt geholpen heeft lees je een maand later af aan het
-              rendement hierboven.
-
-              {% endif %}
-
-              *Schaduwsensor: nergens aan gekoppeld.*
-
-              {% else %}
-
-              *Herverdeling nog niet beschikbaar — wacht op de weersverwachting en een
-              geconvergeerd thermisch model.*
 
               {% endif %}
             grid_options:
@@ -1427,8 +1416,9 @@ views:
       # ── Rendement per stookdag: de reeks achter het ene getal ──
       #
       # Eén getal kan twee dingen niet tonen: dat het venster buiten het
-      # stookseizoen maanden stilstaat, en dat de verhouding meebeweegt met de
-      # buitentemperatuur. Beide staan hier naast elkaar, inclusief de zomergaten.
+      # stookseizoen maanden stilstaat, en waar de norm ophoudt en de beoordeling
+      # begint. De reeks splitst op de norm-grens, zodat te zien is welke dagen
+      # de norm dragen en welke eraan getoetst worden.
       - type: grid
         column_span: 2
         cards:
@@ -1458,9 +1448,9 @@ views:
               chart:
                 height: 300
               markers:
-                size: [3, 0]
+                size: [3, 3, 0]
               stroke:
-                width: [0, 2]
+                width: [0, 0, 2]
               annotations:
                 yaxis:
                   - "y": 1
@@ -1474,14 +1464,29 @@ views:
                   right: 55
             series:
               - entity: sensor.quatt_warmteanalyse_cop_prestatie
-                name: Verhouding per stookdag
+                name: Norm-periode
+                yaxis_id: ratio
+                color: "#B39DDB"
+                type: line
+                stroke_width: 0
+                data_generator: |
+                  const a = hass.states['sensor.quatt_warmteanalyse_cop_prestatie']?.attributes || {};
+                  const grens = a.norm_grens;
+                  return (a.stookdagen || [])
+                    .filter(p => !grens || p.date < grens)
+                    .map(p => [new Date(p.date + 'T12:00:00').getTime(), p.ratio]);
+              - entity: sensor.quatt_warmteanalyse_cop_prestatie
+                name: Beoordeeld
                 yaxis_id: ratio
                 color: "#7E57C2"
                 type: line
                 stroke_width: 0
                 data_generator: |
-                  const d = hass.states['sensor.quatt_warmteanalyse_cop_prestatie']?.attributes?.stookdagen || [];
-                  return d.map(p => [new Date(p.date + 'T12:00:00').getTime(), p.ratio]);
+                  const a = hass.states['sensor.quatt_warmteanalyse_cop_prestatie']?.attributes || {};
+                  const grens = a.norm_grens;
+                  return (a.stookdagen || [])
+                    .filter(p => grens && p.date >= grens)
+                    .map(p => [new Date(p.date + 'T12:00:00').getTime(), p.ratio]);
               - entity: sensor.quatt_warmteanalyse_cop_prestatie
                 name: Buitentemperatuur die dag
                 yaxis_id: temp
@@ -1491,61 +1496,6 @@ views:
                 data_generator: |
                   const d = hass.states['sensor.quatt_warmteanalyse_cop_prestatie']?.attributes?.stookdagen || [];
                   return d.map(p => [new Date(p.date + 'T12:00:00').getTime(), p.temp]);
-            grid_options:
-              columns: full
-              rows: auto
-
-      # ── Verhouding tegen buitentemperatuur: de seizoensrand zichtbaar ──
-      #
-      # Zakt de wolk richting de rechterkant onder de lijn, dan is dat de zachte
-      # staart van het seizoen en geen achteruitgang van de installatie.
-      - type: grid
-        column_span: 2
-        cards:
-          - type: custom:apexcharts-card
-            header:
-              title: Verhouding tegen buitentemperatuur
-              show: true
-            update_interval: 01:00:00
-            graph_span: 36h
-            apex_config:
-              chart:
-                height: 260
-              xaxis:
-                min: EVAL:Date.now() - 36 * 3600000
-                max: EVAL:Date.now()
-                title:
-                  text: buitentemperatuur (°C)
-                labels:
-                  formatter: >-
-                    EVAL:function(val) { return Math.round(20 - (new
-                    Date().getTime() - val) / 3600000) + '°C'; }
-              yaxis:
-                decimalsInFloat: 2
-                title:
-                  text: verhouding
-              tooltip:
-                x:
-                  formatter: >-
-                    EVAL:function(val) { return Math.round(20 - (new
-                    Date().getTime() - val) / 3600000) + '°C'; }
-              annotations:
-                yaxis:
-                  - "y": 1
-                    borderColor: "#4CAF50"
-              markers:
-                size: 4
-              legend:
-                show: false
-            series:
-              - entity: sensor.quatt_warmteanalyse_cop_prestatie
-                name: Stookdag
-                type: line
-                stroke_width: 0
-                data_generator: |
-                  const d = hass.states['sensor.quatt_warmteanalyse_cop_prestatie']?.attributes?.stookdagen || [];
-                  const now = Date.now();
-                  return d.filter(p => p.temp < 20).map(p => [now - (20 - p.temp) * 3600000, p.ratio]);
             grid_options:
               columns: full
               rows: auto

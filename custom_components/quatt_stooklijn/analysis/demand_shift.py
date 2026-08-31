@@ -18,6 +18,14 @@ hem nergens. Daarom is dit additief in plaats van overlappend.
 
 De opbrengstschatting is het punt van deze module in de schaduwfase: zonder een
 voorspeld getal valt γ niet te kiezen.
+
+**Deze module heeft sinds v0.9.14 geen aanroeper.** De schaduwsensor en de
+γ-optie zijn verwijderd: een kaart die alleen kon melden dat er niets werd
+aangestuurd, en een knop die op elke stand hetzelfde deed, kostten de lezer
+aandacht zonder er een handeling voor terug te geven. De rekenkern en zijn tests
+blijven staan omdat de wiskunde klopt en de validatie geld waard is — komt er een
+pad waarlangs de herverdeling de gepubliceerde warmtevraag écht aanstuurt, dan is
+dit waar het weer aangehangen wordt. Tot die tijd hoort er geen sensor bij.
 """
 
 from __future__ import annotations

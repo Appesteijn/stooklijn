@@ -391,7 +391,7 @@ class OnlineRCModel:
         return model
 
 
-def simulate_6h(
+def simulate_forward(
     model: OnlineRCModel,
     t_indoor_now: float,
     t_return: float,
@@ -401,8 +401,15 @@ def simulate_6h(
     t_setpoint: float = 20.0,
     supply_temp_min: float = 20.0,
     supply_temp_max: float = 55.0,
+    max_hours: int | None = None,
 ) -> list[dict]:
-    """Simulate 6 hours forward, calculating required HP power per hour.
+    """Simuleer vooruit en bereken per uur het benodigde WP-vermogen.
+
+    De horizon volgt de aangeleverde forecast-arrays; ``max_hours`` kapt hem
+    desgewenst korter af. Stond hier eerder als een hard geklemde 6 — daardoor
+    bleef de simulatie op zes uur staan ook als de forecast langer was, en had
+    het verhogen van ``MPC_FORECAST_HOURS`` alleen langere temperatuurrijen
+    opgeleverd zonder dat de binnentemp-voorspelling meeliep.
 
     Returns a list of dicts with keys:
         hour, q_hp_needed_w, t_indoor_predicted, supply_temp, hp_needed
@@ -411,7 +418,9 @@ def simulate_6h(
     results: list[dict] = []
     t_in = t_indoor_now
 
-    n_hours = min(len(forecast_t_outdoor), len(forecast_q_solar), 6)
+    n_hours = min(len(forecast_t_outdoor), len(forecast_q_solar))
+    if max_hours is not None:
+        n_hours = min(n_hours, max_hours)
     for i in range(n_hours):
         t_out = forecast_t_outdoor[i]
         q_solar = forecast_q_solar[i]

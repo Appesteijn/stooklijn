@@ -38,7 +38,7 @@ them verbatim when you ask for a change. Dutch and English are used interchangea
 - **COP tracking** — Average coefficient of performance and per-temperature scatter data
 - **Knee temperature** — Detects the outdoor temperature where supplemental heating (boiler) kicks in
 - **Gas comparison** (optional) — Compare heat pump performance with historical gas consumption from before installation
-- **MPC shadow sensor** — Calculates an optimal supply temperature advice based on a 6-hour weather forecast, without touching your system
+- **MPC shadow sensor** — Calculates an optimal supply temperature advice based on a 12-hour weather forecast, without touching your system
 - **Online thermisch model** — Learns your home's thermal characteristics (heat loss W/K, thermal mass Wh/K, solar gain) in real-time using Recursive Least Squares; improves MPC accuracy continuously
 - **Quatt advies** — Shows exactly which parameters to ask Quatt to adjust (stookgrens, nominaal vermogen, stooklijn breakpoints)
 - **Geluidsniveaucompensatie** (optional) — Automatically adjusts the compressor sound level based on MPC error and boiler activity, with separate day/night limits
@@ -96,6 +96,13 @@ Leave a field empty and auto-detection picks the entity at runtime. That is usua
 
 ### Step 3: Geluidsniveaucompensatie (optional)
 - Enable the sound level compensation switch and configure day/night maximum levels and the day/night start times
+
+### Change marker (optional)
+
+**Change marker date** (`YYYY-MM-DD`, empty by default) tells the efficiency metric when you last
+changed something. The norm freezes on everything before that date, and every heating day after it
+is tested against it. Leave it empty and the boundary simply follows the last 30 heating days. See
+[Judging a change](#judging-a-change).
 
 ## Data sources
 
@@ -191,7 +198,7 @@ The dashboard has five tabs:
 | **Overzicht** | Key metrics (COP, heat loss, balance temp, knee), comfort chart, quick advice |
 | **Analyse** | Heat loss scatter + trendlines, COP vs temperature, heat demand table, data availability |
 | **Advies** | Quatt parameter recommendations, stooklijn breakpoints, OpenQuatt integration |
-| **MPC** | Thermal model status, 6-hour forecast, supply temperature comparison, error sensors |
+| **MPC** | Thermal model status, 12-hour forecast, supply temperature comparison, error sensors |
 | **Systeem** | Data sources per measurement, supply-temperature limiting, compressor starts, 48-hour aligned charts: power, starts vs outdoor temp, MPC deviation, flow & outdoor temp; sound level status when enabled |
 
 ### Adapting the dashboard to your setup
@@ -213,7 +220,7 @@ not show errors — it simply is not there.
 
 **Weather forecast — required for MPC shadow sensor:**
 
-The MPC sensor needs a weather forecast entity to predict the next 6 hours of outdoor temperature and solar radiation. During setup you are asked to provide one; the default is `weather.home`.
+The MPC sensor needs a weather forecast entity to predict the next 12 hours of outdoor temperature and solar radiation. During setup you are asked to provide one; the default is `weather.home`.
 
 Almost every Home Assistant installation has this: the built-in [Met.no integration](https://www.home-assistant.io/integrations/met/) creates `weather.home` automatically. If your entity is named differently (e.g. `weather.your_city`), update it in **Settings > Devices & Services > Quatt Warmteanalyse > Configure**.
 
@@ -267,7 +274,7 @@ Each carries `source_entity`, `source_integration`, `candidates` and `switched_a
 | `max_aanvoertemperatuur_instelling` | °C | Value last written to the heat pump's max supply temperature (only when supply-temperature control is enabled) |
 | `geluidsniveau` | — | Current compressor sound level (`uit` / `building87` / `silent` / `library` / `normal`) — only when sound level compensation is enabled |
 | `compressorstarts` | starts/uur | Compressor starts in the last hour — see [Short cycling](#short-cycling) |
-| `cop_prestatie` | — | Efficiency against this installation's own norm at the same outdoor temperature — see [Judging a change](#judging-a-change) |
+| `cop_prestatie` | — | Efficiency against this installation's own norm at the same outdoor temperature and the same half of the season — see [Judging a change](#judging-a-change) |
 
 Both error sensors return no value while the pump is idle (flow below 30 L/h): comparing advice against actual supply temperature is meaningless without circulation.
 
@@ -298,13 +305,13 @@ Both error sensors return no value while the pump is idle (flow below 30 L/h): c
 
 ## MPC shadow sensor
 
-The MPC (Model Predictive Control) sensor calculates what supply temperature your heat pump *should* be running at, given the weather forecast for the next 6 hours. It runs in **shadow mode**: it only produces advice and never writes any setpoints to your system.
+The MPC (Model Predictive Control) sensor calculates what supply temperature your heat pump *should* be running at, given the weather forecast for the next 12 hours. It runs in **shadow mode**: it only produces advice and never writes any setpoints to your system.
 
 ### How it works
 
 Every update cycle the sensor:
 
-1. Fetches the outdoor temperature forecast for the next 6 hours from your weather entity
+1. Fetches the outdoor temperature forecast for the next 12 hours from your weather entity
 2. Estimates solar heat gain for each hour based on solar radiation forecast (from [Open-Meteo](https://open-meteo.com/)) or your PV inverter output
 3. Applies a simple RC thermal model of your home (heat loss coefficient + thermal mass) to predict how much heat the house will need hour by hour
 4. Picks the supply temperature that keeps the house comfortable while avoiding unnecessary overheating
@@ -316,7 +323,7 @@ The result is compared to the actual supply temperature via the **error sensors*
 ![MPC tab](screenshot-mpc.png)
 
 *The MPC tab: the learned thermal model of your house, how long it can coast with the heat
-pump off, the 6-hour forecast, and advice versus actual supply temperature.*
+pump off, the 12-hour forecast, and advice versus actual supply temperature.*
 
 ### Solar gain correction
 
@@ -569,8 +576,8 @@ Bouwt voort op het RC-model en berekent de optimale aanvoertemperatuur:
 T_aanvoer = T_retour + max(0, warmtevraag − zonnewarmte) / (1.16 × debiet)
 ```
 
-- **Input:** live sensordata (retourtemp, debiet, buitentemp) + weersvoorspelling (6 uur) + zonnestraling (Open-Meteo)
-- **Output:** aanbevolen aanvoertemperatuur per uur, nu + 6 uur vooruit
+- **Input:** live sensordata (retourtemp, debiet, buitentemp) + weersvoorspelling (12 uur) + zonnestraling (Open-Meteo)
+- **Output:** aanbevolen aanvoertemperatuur per uur, nu + 12 uur vooruit
 
 | | Lineair model | RC model (online) | MPC forecast |
 |---|---|---|---|
@@ -648,32 +655,51 @@ change actually help?** The daily COP mostly follows the weather — on one meas
 weather, not two settings.
 
 This sensor divides each heating day's COP by what this installation normally achieved at that
-same outdoor temperature. 1.00 is business as usual, higher is better. The norm is a binned
-median over every heating day on record, so it is the installation's own history, not a
-manufacturer figure.
+same outdoor temperature, **in that same half of the season**. 1.00 is business as usual, higher
+is better. The norm is a binned median over the installation's own heating days — not a
+manufacturer figure, and not a comparison with other houses.
 
-Use it by running one setting for a period, then the other, and comparing. Individual days
-scatter about 12%, so read the average and not the last day.
+Two properties make the number mean what it says:
+
+- **The norm is frozen.** The days being judged are not in the norm they are judged against.
+  Without this, a real improvement slowly pulls the median of its own temperature bin upwards
+  and reads as 1.00 again after a season — the metric quietly eating the very thing it exists to
+  measure. By default the last 30 heating days stay out of the norm; set a change date (below)
+  to freeze it on a specific moment instead.
+- **Autumn and spring are binned separately.** 12 °C in November is not 12 °C in May: in May the
+  house is already warm, the sun helps, and the pump runs in short cycles that cost efficiency.
+  Pooling both into one bin puts spring days structurally below 1 with nothing wrong. On one
+  installation's 226 heating days the norm at 9–15 °C differed by 12–21% between the two halves.
+
+### Marking a change
+
+Set **Change marker date** in the integration options to the day you changed something. The norm
+then freezes on everything before that date and every day after it is tested against it. The
+dashboard shows the difference, over how many days, and whether it clears the measured day-to-day
+noise.
+
+Only days from the *same part of the year* enter that comparison — a March day is matched against
+late-January and February days, never against May. Comparing across the season measures the
+season's tail rather than your change. So a marker set in March gives a verdict within weeks; one
+set in June waits until the following winter, and the card says so instead of showing a number
+that would be mostly seasonal drift.
 
 ### What it cannot tell you
 
 - **It does not say which advice to follow.** The stooklijn and MPC sensors only advise; unless
   supply-temperature control is enabled, neither one steers, and the number reflects whatever
   the heat pump's own controller did. To compare them you have to actually run each for a while.
-- **Weather-neutral is not season-neutral.** The norm bins on outdoor temperature, which removes
-  the weather but not the season. At 13 °C in November the house still wants heat and the pump
-  runs steadily; at 13 °C in May it barely does and cycles instead. Same bin, different
-  behaviour — so the tail of a heating season sits structurally below 1. Compare periods within
-  the same part of the season.
 - **The window counts heating days, not calendar days.** Out of season the number freezes on the
   last 30 heating days, which may be months old. The card shows that date range and says so.
-- **A long one-sided period becomes its own norm.** Because the reference is a median over the
-  same days, a stretch spent entirely at one temperature pulls that bin towards itself and the
-  ratio drifts back to 1 regardless of how it performed.
+- **A single day means nothing.** Individual days scatter by roughly 10%, measured per
+  installation and shown on the card. The daily ratio is deliberately not published as a number;
+  the chart shows the series, the card shows the 30-day average.
+- **Below a season of history there is no freeze.** With too few heating days to keep the judged
+  days out of the norm, the metric falls back to the whole history and says so on the card — the
+  number then reads low. It resolves itself as history accumulates.
 
 The **MPC** tab plots the ratio per heating day over time with outdoor temperature alongside,
-plus a scatter of ratio against temperature. Those two pictures show all four caveats at a
-glance — the summer gaps, the seasonal slope, and where the norm is thin.
+split into the days that carry the norm and the days being judged against it.
 
 ## Performance & Caching
 

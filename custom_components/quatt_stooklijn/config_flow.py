@@ -19,7 +19,6 @@ from .const import (
     CONF_COMPRESSOR_2_ENTITY,
     CONF_COMPRESSOR_ENTITY,
     CONF_COP_ENTITY,
-    CONF_DEMAND_SHIFT_GAMMA,
     CONF_FLOW_ENTITY,
     CONF_GAS_ENABLED,
     CONF_GAS_ENTITY,
@@ -35,6 +34,7 @@ from .const import (
     CONF_CH_MAX_WATER_INTERVAL,
     CONF_COMFORT_FLOOR_TEMP,
     CONF_EOS_THROTTLE_ENTITY,
+    CONF_PERFORMANCE_BASELINE_DATE,
     CONF_POWER_INPUT_ENTITY,
     CONF_SOUND_LEVEL_ENABLED,
     CONF_SOUND_LEVEL_MAX_DAY,
@@ -56,7 +56,6 @@ from .const import (
     DEFAULT_CH_MAX_WATER_INTERVAL,
     DEFAULT_COMFORT_FLOOR_TEMP,
     DEFAULT_EOS_THROTTLE_ENTITY,
-    DEFAULT_DEMAND_SHIFT_GAMMA,
     DEFAULT_GAS_CALORIFIC_VALUE,
     DEFAULT_QUATT_CLOUD_ENABLED,
     DEFAULT_HOT_WATER_TEMP_THRESHOLD,
@@ -330,11 +329,27 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
+        errors: dict[str, str] = {}
         if user_input is not None:
             result = dict(user_input)
-            return self.async_create_entry(title="", data=result)
+            # Een onleesbare wijzigingsdatum zou de norm-bevriezing stilzwijgend
+            # uitzetten en het rendementsgetal onverklaarbaar laten verspringen.
+            # Hier melden is de enige plek waar dat nog opvalt.
+            baseline = str(result.get(CONF_PERFORMANCE_BASELINE_DATE) or "").strip()
+            if baseline:
+                try:
+                    date.fromisoformat(baseline)
+                except ValueError:
+                    errors[CONF_PERFORMANCE_BASELINE_DATE] = "invalid_date_format"
+            if not errors:
+                result[CONF_PERFORMANCE_BASELINE_DATE] = baseline
+                return self.async_create_entry(title="", data=result)
 
+        # Bij een fout het formulier terugtonen zoals de gebruiker het invulde,
+        # niet zoals het opgeslagen staat — anders is elke andere wijziging weg.
         data = {**self._config_entry.data, **self._config_entry.options}
+        if user_input is not None:
+            data = {**data, **user_input}
         # Auto-detectie levert de voorgestelde waarde als er nog niets is
         # ingesteld — of als de ingestelde entity niet (meer) bestaat.
         detected = async_discover_quatt_entities(self.hass)
@@ -434,14 +449,14 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     ): _entity("sensor"),
                     # Uit = draaien op recorder + eigen stores. De opgebouwde
                     # insights-cache blijft meedoen, hij groeit alleen niet meer.
-                    # Schaduw-parameter: 0 laat de verschoven warmtevraag
-                    # exact gelijk zijn aan de gewone. Niets is eraan gekoppeld.
+                    # De datum waarop je iets aan de regeling veranderde.
+                    # De rendementsmaat bevriest zijn norm dan op alles ervóór
+                    # en toetst alle dagen erna daaraan. Leeg = de grens schuift
+                    # mee met de laatste 30 stookdagen.
                     vol.Optional(
-                        CONF_DEMAND_SHIFT_GAMMA,
-                        default=data.get(
-                            CONF_DEMAND_SHIFT_GAMMA, DEFAULT_DEMAND_SHIFT_GAMMA
-                        ),
-                    ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=3.0)),
+                        CONF_PERFORMANCE_BASELINE_DATE,
+                        default=data.get(CONF_PERFORMANCE_BASELINE_DATE, ""),
+                    ): str,
                     vol.Optional(
                         CONF_QUATT_CLOUD_ENABLED,
                         default=data.get(
@@ -506,4 +521,5 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     ): _entity(["sensor", "input_number", "number"]),
                 }
             ),
+            errors=errors,
         )

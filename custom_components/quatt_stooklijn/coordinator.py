@@ -12,7 +12,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .analysis.gas import async_fetch_gas_data
-from .analysis.cop_performance import CopPerformanceResult, calculate_cop_performance
+from .analysis.cop_performance import (
+    DEFAULT_BIN_WIDTH,
+    DEFAULT_MIN_DAYS_PER_BIN,
+    CopPerformanceResult,
+    calculate_cop_performance,
+)
 from .analysis.heat_loss import HeatLossResult, calculate_heat_loss
 from .analysis.quatt import async_fetch_quatt_insights, async_get_cache_stats
 from .analysis.stooklijn import (
@@ -33,6 +38,7 @@ from .const import (
     CONF_GAS_ENTITY,
     CONF_GAS_START_DATE,
     CONF_HOT_WATER_TEMP_THRESHOLD,
+    CONF_PERFORMANCE_BASELINE_DATE,
     CONF_POWER_ENTITY,
     CONF_POWER_INPUT_ENTITY,
     CONF_QUATT_CLOUD_ENABLED,
@@ -272,20 +278,48 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
         #
         # De kale dag-COP is onbruikbaar om een wijziging aan te toetsen: hij
         # volgt vooral het weer. Deze maat zet elke stookdag af tegen wat de
-        # installatie bij díe buitentemperatuur normaal presteerde, en is
-        # daarmee wél vergelijkbaar over seizoenen heen.
+        # installatie bij díe buitentemperatuur en in díe seizoenshelft normaal
+        # presteerde, tegen een norm waar de beoordeelde dagen zelf niet in
+        # zitten. Zie de toelichting boven in cop_performance.py.
         cop_performance = await self.hass.async_add_executor_job(
             calculate_cop_performance,
             df_daily if not df_daily.empty else None,
+            DEFAULT_BIN_WIDTH,
+            DEFAULT_MIN_DAYS_PER_BIN,
+            config.get(CONF_PERFORMANCE_BASELINE_DATE) or None,
         )
-        if cop_performance.latest_ratio is not None:
+        if cop_performance.rolling_30d is not None:
             _LOGGER.info(
-                "COP-prestatie: %.3f op %s (7d %.3f, 30d %.3f) — norm uit %d "
-                "stookdagen in %d bins",
-                cop_performance.latest_ratio, cop_performance.latest_date,
-                cop_performance.rolling_7d, cop_performance.rolling_30d,
-                cop_performance.reference_days, len(cop_performance.reference),
+                "COP-prestatie: %.3f over de laatste 30 stookdagen (t/m %s) — "
+                "norm uit %d stookdagen%s",
+                cop_performance.rolling_30d, cop_performance.latest_date,
+                cop_performance.reference_days,
+                (
+                    f" vóór {cop_performance.baseline_date}"
+                    if cop_performance.norm_frozen
+                    else " (nog niet bevroren: te weinig historie)"
+                ),
             )
+            if cop_performance.delta_pct is not None:
+                _LOGGER.info(
+                    "COP-prestatie vóór/ná %s: %+.1f%% over %d van %d "
+                    "stookdagen (alleen dezelfde periode van het jaar) — %s",
+                    cop_performance.baseline_date, cop_performance.delta_pct,
+                    cop_performance.after.days,
+                    cop_performance.after_days_total,
+                    (
+                        "buiten de ruis"
+                        if cop_performance.delta_significant
+                        else "nog niet van toeval te onderscheiden"
+                    ),
+                )
+            elif cop_performance.after_days_total:
+                _LOGGER.info(
+                    "COP-prestatie: %d stookdagen ná %s, maar geen daarvan valt "
+                    "in dezelfde periode van het jaar als de norm — geen oordeel",
+                    cop_performance.after_days_total,
+                    cop_performance.baseline_date,
+                )
 
         # Collect data availability stats
         cache_stats = await async_get_cache_stats(self.hass)

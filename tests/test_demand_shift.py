@@ -143,23 +143,23 @@ class TestVensterlengte:
         assert winst[0] < 0.005, "zes uur hoort verwaarloosbaar te zijn"
         assert winst[-1] > 0.03, "vierentwintig uur hoort wel wat op te leveren"
 
-    def test_schaduwsensor_gebruikt_het_lange_venster(self):
-        """Niet dat van de displayforecast — dat is het hele punt van stap 3."""
-        import inspect
+    def test_het_venster_moet_langer_zijn_dan_de_displayforecast(self):
+        """De winst zit in de dagzwaai, en die past niet in het MPC-venster.
 
-        from custom_components.quatt_stooklijn.const import (
-            DEMAND_SHIFT_HOURS,
-            MPC_FORECAST_HOURS,
-        )
-        from custom_components.quatt_stooklijn.sensor import (
-            QuattShiftedHeatDemandSensor,
-        )
+        Blijft staan nu de schaduwsensor weg is: wie de herverdeling ooit echt
+        gaat aansturen, moet weer een eigen lang venster opbouwen en niet de
+        forecast van de MPC-sensor lenen.
 
-        assert DEMAND_SHIFT_HOURS > MPC_FORECAST_HOURS
-        # De vensterkeuze zit in _ingangen: die bouwt de forecast één keer op
-        # voor zowel _shift als de gamma-scan.
-        src = inspect.getsource(QuattShiftedHeatDemandSensor._ingangen)
-        assert "DEMAND_SHIFT_HOURS" in src
+        De marge is kleiner geworden sinds die displayforecast van zes naar
+        twaalf uur ging — de halve dagzwaai zit er nu wél in. Het verschil is
+        er nog steeds, en het gaat hier om de richting, niet om een factor die
+        met die constante meebeweegt.
+        """
+        from custom_components.quatt_stooklijn.const import MPC_FORECAST_HOURS
+
+        winst_kort = _shift(1.0, temps=self._dag(MPC_FORECAST_HOURS)).expected_saving
+        winst_lang = _shift(1.0, temps=self._dag(24)).expected_saving
+        assert winst_lang > winst_kort * 1.5
 
     def test_uren_zonder_vraag_blijven_nul(self):
         """Nooit warmte schuiven naar uren boven het nulpunt.

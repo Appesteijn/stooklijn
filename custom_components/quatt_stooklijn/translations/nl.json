@@ -73,7 +73,7 @@
           "control_setpoint_entity": "Thermostaat setpoint sensor (°C) — leeg laten voor auto-detectie",
           "room_setpoint_entity": "Kamer setpoint sensor (°C) — leeg laten voor auto-detectie",
           "cop_entity": "COP sensor — leeg laten voor auto-detectie",
-          "demand_shift_gamma": "Agressiviteit warmtevraag-verschuiving (0 = uit) — alleen schaduwsensor, er wordt niets mee aangestuurd",
+          "performance_baseline_date": "Datum van je aanpassing (YYYY-MM-DD) — bevriest de rendementsnorm op alles ervóór; leeg = laatste 30 stookdagen",
           "quatt_cloud_enabled": "Quatt cloud-API gebruiken — uit = alleen lokaal (recorder + eigen stores). De opgebouwde historie blijft, alleen nieuw uurdetail stopt. Vooral zinvol als je een tweede lokale bron hebt, zoals OpenQuatt.",
           "sound_level_enabled": "Geluidsniveau compensatie inschakelen (beperkt warmtepompvermogen via CiC geluidsniveau)",
           "sound_level_max_day": "Maximaal geluidsniveau overdag",
@@ -95,6 +95,9 @@
           "boiler_heat_entity": "Gasketel warmtevermogen sensor (W) — voor gasdetectie"
         }
       }
+    },
+    "error": {
+      "invalid_date_format": "Ongeldige datum. Gebruik YYYY-MM-DD"
     }
   },
   "services": {

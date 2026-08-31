@@ -15,7 +15,7 @@ from custom_components.quatt_stooklijn.analysis.thermal_model import (
     RLS_MIN_UPDATES,
     OnlineRCModel,
     RLSEstimator,
-    simulate_6h,
+    simulate_forward,
     simulate_coast_time,
 )
 
@@ -251,34 +251,72 @@ class TestOnlineRCModel:
 
 
 # --------------------------------------------------------------------------- #
-#  simulate_6h tests                                                          #
+#  simulate_forward tests                                                          #
 # --------------------------------------------------------------------------- #
 
 
-class TestSimulate6h:
-    """Tests voor de 6-uurs forward simulatie."""
+class TestSimulateForward:
+    """Tests voor de vooruit-simulatie."""
 
     @staticmethod
     def _trained_model() -> OnlineRCModel:
         return TestOnlineRCModel._make_trained_model(U=200.0, C=5000.0, g=0.30)
 
-    def test_returns_6_hours(self):
-        """Simulatie geeft 6 resultaten voor 6 forecast uren."""
-        model = self._trained_model()
-        results = simulate_6h(
-            model,
+    def _uren(self, n: int, **kw) -> list[dict]:
+        return simulate_forward(
+            self._trained_model(),
             t_indoor_now=20.0,
             t_return=28.0,
             flow_lph=500.0,
-            forecast_t_outdoor=[5.0] * 6,
-            forecast_q_solar=[0.0] * 6,
+            forecast_t_outdoor=[5.0] * n,
+            forecast_q_solar=[0.0] * n,
+            **kw,
         )
-        assert len(results) == 6
+
+    def test_volgt_de_lengte_van_de_forecast(self):
+        """Zes uur in, zes uur uit."""
+        assert len(self._uren(6)) == 6
+
+    def test_klemt_niet_meer_op_zes_uur(self):
+        """De horizon zat hier hard op 6 geklemd.
+
+        Daardoor bleef de simulatie op zes uur staan ook als de forecast langer
+        was: MPC_FORECAST_HOURS verhogen leverde dan wél langere
+        temperatuurrijen op, maar geen langere binnentemp-voorspelling — een
+        stille halvering van wat de kaart leek te tonen.
+        """
+        assert len(self._uren(12)) == 12
+        assert self._uren(12)[-1]["hour"] == 11
+
+    def test_max_hours_kapt_wel_af(self):
+        assert len(self._uren(12, max_hours=8)) == 8
+
+    def test_een_kortere_forecast_wint_van_max_hours(self):
+        """Nooit uren verzinnen die de weersverwachting niet levert."""
+        assert len(self._uren(4, max_hours=12)) == 4
+
+    def test_de_sensor_publiceert_de_volle_horizon(self):
+        """De constante en de simulatie moeten dezelfde horizon aanhouden."""
+        import inspect
+
+        from custom_components.quatt_stooklijn.const import MPC_FORECAST_HOURS
+        from custom_components.quatt_stooklijn.sensor import QuattMpcSensor
+
+        src = inspect.getsource(QuattMpcSensor.extra_state_attributes.fget)
+        assert "max_hours=MPC_FORECAST_HOURS" in src
+        assert len(self._uren(MPC_FORECAST_HOURS)) == MPC_FORECAST_HOURS
+
+    def test_de_forecast_gaat_niet_de_recorder_in(self):
+        """Twaalf rijen bij elke state-change van buitentemp, zon, flow of
+        retour is verspilling; het dashboard leest het attribuut direct."""
+        from custom_components.quatt_stooklijn.sensor import QuattMpcSensor
+
+        assert "forecast" in QuattMpcSensor._unrecorded_attributes
 
     def test_cold_weather_needs_heating(self):
         """Bij kou is HP nodig (hp_needed=True)."""
         model = self._trained_model()
-        results = simulate_6h(
+        results = simulate_forward(
             model,
             t_indoor_now=20.0,
             t_return=28.0,
@@ -293,7 +331,7 @@ class TestSimulate6h:
     def test_warm_weather_no_heating(self):
         """Bij warm weer is geen verwarming nodig."""
         model = self._trained_model()
-        results = simulate_6h(
+        results = simulate_forward(
             model,
             t_indoor_now=22.0,
             t_return=28.0,
@@ -307,7 +345,7 @@ class TestSimulate6h:
     def test_supply_temp_within_bounds(self):
         """Supply temp blijft binnen MPC grenzen."""
         model = self._trained_model()
-        results = simulate_6h(
+        results = simulate_forward(
             model,
             t_indoor_now=20.0,
             t_return=28.0,
@@ -322,7 +360,7 @@ class TestSimulate6h:
     def test_solar_reduces_heating_demand(self):
         """Zon verlaagt de warmtevraag in de simulatie."""
         model = self._trained_model()
-        results_no_sun = simulate_6h(
+        results_no_sun = simulate_forward(
             model,
             t_indoor_now=20.0,
             t_return=28.0,
@@ -330,7 +368,7 @@ class TestSimulate6h:
             forecast_t_outdoor=[5.0] * 6,
             forecast_q_solar=[0.0] * 6,
         )
-        results_sun = simulate_6h(
+        results_sun = simulate_forward(
             model,
             t_indoor_now=20.0,
             t_return=28.0,
@@ -343,7 +381,7 @@ class TestSimulate6h:
     def test_indoor_temp_predicted(self):
         """t_indoor_predicted is ingevuld voor elk uur."""
         model = self._trained_model()
-        results = simulate_6h(
+        results = simulate_forward(
             model,
             t_indoor_now=20.0,
             t_return=28.0,
@@ -357,7 +395,7 @@ class TestSimulate6h:
     def test_handles_short_forecast(self):
         """Werkt ook met minder dan 6 forecast uren."""
         model = self._trained_model()
-        results = simulate_6h(
+        results = simulate_forward(
             model,
             t_indoor_now=20.0,
             t_return=28.0,

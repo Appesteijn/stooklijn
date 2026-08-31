@@ -139,6 +139,38 @@ async def _async_cleanup_sound_level_entities(
                 "Soundslider-entity verwijderd: %s", entity_entry.entity_id
             )
 
+# Unique-ID suffixen van entiteiten die niet meer bestaan. Zonder opruiming
+# blijven ze als 'restored / niet beschikbaar' in het register staan en in elke
+# entiteitenkiezer opduiken.
+#
+# _heat_demand_shifted verdween met de herverdelingskaart: die sensor stond bij
+# γ = 0 — de standaard, en de enige stand waarin hij ooit gedraaid heeft —
+# byte-voor-byte gelijk aan `warmtevraag`, en er was niets aan gekoppeld dat het
+# verschil kon gebruiken. De rekenmodule blijft staan voor als de herverdeling
+# ooit écht gaat aansturen; zie analysis/demand_shift.py.
+_VERWIJDERDE_ENTITY_SUFFIXES = (
+    "_heat_demand_shifted",  # sensor, tot v0.9.13
+)
+
+
+async def _async_cleanup_removed_entities(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
+    """Haal entiteiten die de integratie niet meer aanmaakt uit het register."""
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    entities = er.async_entries_for_config_entry(registry, entry.entry_id)
+
+    for entity_entry in entities:
+        uid = entity_entry.unique_id or ""
+        if any(uid.endswith(suffix) for suffix in _VERWIJDERDE_ENTITY_SUFFIXES):
+            registry.async_remove(entity_entry.entity_id)
+            _LOGGER.info(
+                "Vervallen entity verwijderd: %s", entity_entry.entity_id
+            )
+
+
 PLATFORMS = ["binary_sensor", "sensor", "switch", "text"]
 
 
@@ -176,6 +208,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Ruim soundslider-entities op als de feature is uitgeschakeld.
     if not merged_config.get(CONF_SOUND_LEVEL_ENABLED, False):
         await _async_cleanup_sound_level_entities(hass, entry)
+
+    await _async_cleanup_removed_entities(hass, entry)
 
     await _async_setup_dashboard(hass)
 
