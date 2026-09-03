@@ -31,3 +31,20 @@ def get_effective_flow(flow_lph: float | None) -> float:
     if flow_lph is not None and flow_lph >= MIN_FLOW_LPH:
         return flow_lph
     return NOMINAL_FLOW_LPH
+
+
+def resolve_own_entity_id(
+    hass, platform: str, entry_id: str, unique_suffix: str
+) -> str | None:
+    """Zoek de entity-ID van een eigen entiteit op via de entity registry.
+
+    Een hardcoded entity-ID breekt zodra de gebruiker de entiteit hernoemt of
+    een tweede config-entry aanmaakt; de unique_id blijft wel stabiel. Geeft
+    None terug als de entiteit (nog) niet bestaat — bijvoorbeeld omdat de
+    bijbehorende optie uitstaat.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    return er.async_get(hass).async_get_entity_id(
+        platform, DOMAIN, f"{entry_id}_{unique_suffix}"
+    )

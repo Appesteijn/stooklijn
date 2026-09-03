@@ -4,6 +4,10 @@ from datetime import timedelta
 
 DOMAIN = "quatt_stooklijn"
 
+# Dispatcher-signaal waarmee de geluidsniveau-switch zijn actieve niveau
+# doorgeeft aan de spiegelsensor. Format-argument: entry_id.
+SIGNAL_SOUND_LEVEL = f"{DOMAIN}_sound_level_{{}}"
+
 # Config keys
 CONF_QUATT_START_DATE = "quatt_start_date"
 CONF_QUATT_END_DATE = "quatt_end_date"

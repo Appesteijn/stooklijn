@@ -25,7 +25,8 @@ from datetime import datetime, timedelta, timezone
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -47,6 +48,7 @@ from .const import (
     MIN_FLOW_LPH,
     OTGW_CYCLE_SECONDS,
     OTGW_UNAVAILABLE_TIMEOUT,
+    SIGNAL_SOUND_LEVEL,
 )
 from .coordinator import QuattStooklijnCoordinator
 from .discovery import (
@@ -54,7 +56,7 @@ from .discovery import (
     ROLE_FLOW_RATE,
     ROLE_SUPPLY_TEMP,
 )
-from .helpers import get_device_info, get_float_state
+from .helpers import get_device_info, get_float_state, resolve_own_entity_id
 from .sources import async_source_entity
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,7 +66,10 @@ _SOUND_LEVELS = ["building87", "silent", "library", "normal"]
 _NORMAL_IDX = len(_SOUND_LEVELS) - 1
 
 
-_MPC_ENTITY = "sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur"
+# unique_id-achtervoegsel van onze eigen MPC-sensor. De entity-ID zelf wordt per
+# entry via de registry opgezocht, zodat hernoemen of een tweede config-entry de
+# compensatie niet stilzwijgend blind maakt.
+_MPC_UNIQUE_SUFFIX = "mpc_recommended_supply_temp"
 _DAY_SOUND_ENTITY = "select.cic_day_max_sound_level"
 _NIGHT_SOUND_ENTITY = "select.cic_night_max_sound_level"
 
@@ -291,7 +296,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             return
 
         # 3. MPC feedback
-        mpc_advised = get_float_state(self.hass, _MPC_ENTITY)
+        mpc_advised = self._mpc_advised()
         actual_supply = get_float_state(self.hass, self._supply_entity)
 
         # Watchdog: reset als MPC te lang unavailable
@@ -383,9 +388,42 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         except Exception:
             _LOGGER.warning("Kon geluidsniveau niet resetten")
 
+    def _mpc_advised(self) -> float | None:
+        """Het MPC-aanvoeradvies van onze eigen sensor.
+
+        De entity-ID wordt per aanroep via de entity registry opgezocht op
+        unique_id, zodat een hernoemde sensor of een tweede config-entry blijft
+        werken. Geeft None zolang die sensor er (nog) niet is.
+        """
+        if self.hass is None:
+            return None
+        entity_id = resolve_own_entity_id(
+            self.hass, "sensor", self._entry.entry_id, _MPC_UNIQUE_SUFFIX
+        )
+        if not isinstance(entity_id, str):
+            return None
+        return get_float_state(self.hass, entity_id)
+
+    @callback
+    def async_write_ha_state(self) -> None:
+        """Schrijf de state en publiceer het actieve niveau.
+
+        De spiegelsensor leest niet mee op een hardcoded entity-ID maar krijgt
+        het niveau hier aangereikt; hass.data houdt de laatste waarde vast voor
+        een sensor die later wordt toegevoegd dan deze switch.
+        """
+        super().async_write_ha_state()
+        level = _SOUND_LEVELS[self._current_level_idx]
+        self.hass.data.setdefault(DOMAIN, {})[
+            f"{self._entry.entry_id}_sound_level"
+        ] = level
+        async_dispatcher_send(
+            self.hass, SIGNAL_SOUND_LEVEL.format(self._entry.entry_id), level
+        )
+
     @property
     def extra_state_attributes(self) -> dict:
-        mpc_advised = get_float_state(self.hass, _MPC_ENTITY) if self.hass else None
+        mpc_advised = self._mpc_advised() if self.hass else None
         actual_supply = get_float_state(self.hass, self._supply_entity) if self.hass else None
         flow = get_float_state(self.hass, self._flow_entity) if self.hass else None
         boiler_heat = get_float_state(self.hass, self._boiler_heat_entity) if self.hass else None

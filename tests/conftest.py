@@ -35,6 +35,7 @@ def _stub_ha():
     _ensure_module("homeassistant.helpers.update_coordinator")
     _ensure_module("homeassistant.helpers.entity_platform")
     _ensure_module("homeassistant.helpers.event")
+    _ensure_module("homeassistant.helpers.dispatcher")
     _ensure_module("homeassistant.helpers.aiohttp_client")
     _ensure_module("homeassistant.helpers.restore_state")
     _ensure_module("homeassistant.helpers.storage")
@@ -118,7 +119,9 @@ def _stub_ha():
 
     # Switch stubs
     switch_mod = sys.modules["homeassistant.components.switch"]
-    switch_mod.SwitchEntity = type("SwitchEntity", (), {})
+    switch_mod.SwitchEntity = type(
+        "SwitchEntity", (), {"async_write_ha_state": lambda self: None}
+    )
 
     # Text stubs
     text_mod = sys.modules["homeassistant.components.text"]
@@ -154,6 +157,12 @@ def _stub_ha():
     # Entity platform
     ep = sys.modules["homeassistant.helpers.entity_platform"]
     ep.AddEntitiesCallback = MagicMock
+
+    # Dispatcher helpers — de geluidsniveau-switch publiceert hiermee zijn
+    # niveau aan de spiegelsensor.
+    disp_mod = sys.modules["homeassistant.helpers.dispatcher"]
+    disp_mod.async_dispatcher_send = MagicMock()
+    disp_mod.async_dispatcher_connect = MagicMock()
 
     # Event helpers
     event_mod = sys.modules["homeassistant.helpers.event"]

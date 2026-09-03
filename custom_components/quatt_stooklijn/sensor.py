@@ -20,6 +20,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
@@ -70,6 +71,7 @@ from .const import (
     MPC_SUPPLY_TEMP_MAX,
     MPC_SUPPLY_TEMP_MIN,
     OPEN_METEO_FORECAST_URL,
+    SIGNAL_SOUND_LEVEL,
     SOLAR_RADIATION_DEFAULT_FACTOR,
 )
 from .discovery import (
@@ -2621,17 +2623,21 @@ class QuattChMaxWaterSensor(SensorEntity):
         }
 
 
-_SOUND_LEVEL_SWITCH = "switch.quatt_warmteanalyse_geluidsniveau_compensatie"
-
-
 class QuattSoundLevelSensor(SensorEntity):
-    """Sensor met het actieve geluidsniveau — spiegelt current_level van de compensatie-switch."""
+    """Sensor met het actieve geluidsniveau — spiegelt current_level van de compensatie-switch.
+
+    De switch publiceert zijn niveau via een dispatcher-signaal en legt de
+    laatste waarde vast in hass.data. Zo hangt deze sensor niet aan een vaste
+    entity-ID van de switch (die de gebruiker kan hernoemen) en maakt het niet
+    uit welke van de twee platforms als eerste wordt opgezet.
+    """
 
     _attr_has_entity_name = True
     _attr_name = "Geluidsniveau"
     _attr_icon = "mdi:volume-medium"
 
     def __init__(self, entry: ConfigEntry) -> None:
+        self._entry_id = entry.entry_id
         self._attr_unique_id = f"{entry.entry_id}_sound_level_sensor"
         self._attr_device_info = get_device_info(entry.entry_id)
         self._level: str | None = None
@@ -2641,21 +2647,21 @@ class QuattSoundLevelSensor(SensorEntity):
         return self._level
 
     async def async_added_to_hass(self) -> None:
-        if (s := self.hass.states.get(_SOUND_LEVEL_SWITCH)) is not None:
-            self._level = s.attributes.get("current_level")
+        self._level = self.hass.data.get(DOMAIN, {}).get(
+            f"{self._entry_id}_sound_level"
+        )
         self.async_on_remove(
-            async_track_state_change_event(
+            async_dispatcher_connect(
                 self.hass,
-                [_SOUND_LEVEL_SWITCH],
-                self._handle_change,
+                SIGNAL_SOUND_LEVEL.format(self._entry_id),
+                self._handle_level,
             )
         )
 
     @callback
-    def _handle_change(self, event) -> None:
-        if (new := event.data.get("new_state")) is not None:
-            self._level = new.attributes.get("current_level")
-            self.async_write_ha_state()
+    def _handle_level(self, level: str) -> None:
+        self._level = level
+        self.async_write_ha_state()
 
 
 class QuattCompressorStartsSensor(SensorEntity):
