@@ -38,6 +38,11 @@ CONF_SUPPLY_TEMP_ENTITY = "supply_temp_entity"
 # terugvalnamen staan in discovery.FALLBACK_ENTITIES — één bron van waarheid.
 MIN_FLOW_LPH = 30   # l/h — below this the pump is not actively circulating
 NOMINAL_FLOW_LPH = 800  # l/h — fallback when HP is off, for theoretical supply temp
+# W — hieronder levert de installatie geen warmte aan het huis. Debiet alleen is
+# geen bewijs van stoken: buiten het seizoen circuleert de pomp zonder productie,
+# en een advies daartegen afzetten levert een fout die nergens over gaat.
+# Zelfde grens als _GAS_THRESHOLD_W en MIN_HEATING_WATTS.
+MIN_HEAT_OUTPUT_W = 200
 
 # Recorder statistics sensors (derived from Quatt integration)
 CONF_POWER_INPUT_ENTITY = "power_input_entity"

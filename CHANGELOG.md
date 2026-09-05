@@ -3,6 +3,30 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.1-beta.1 — 2026-09-05
+
+Pre-release. Twee poorten rond het aanvoeradvies, gevonden bij het nalopen van
+de voorspelkwaliteit over het afgelopen seizoen. Beide fouten zijn onzichtbaar
+zolang de installatie stookt, en beide vervuilen de langetermijnstatistiek —
+waar ze niet meer uit te halen zijn.
+
+- De foutsensoren poortten alleen op debiet. Buiten het stookseizoen circuleert
+  de pomp met 0 W productie, terwijl de adviessensor op een nacht onder het
+  balanspunt wél een getal geeft; het verschil daartussen werd als voorspelfout
+  weggeschreven. Op deze installatie trok dat de maandgemiddelden van juni t/m
+  september naar −4 tot −14 °C, terwijl er sinds half mei geen stookdag meer
+  was geweest. Er is nu een tweede voorwaarde: er moet ook warmte het huis in
+  gaan (≥ 200 W, dezelfde grens die de gasketel-sensor en de stookdag-telling
+  al hanteren).
+- De live adviessensor had als enige geen boven- en ondergrens; de MPC-tak en
+  de stooklijn-breekpunten clampen allang op 20–55 °C. Eén onzinnige
+  retourtemperatuur — zoals tijdens het bronwissel-venster bij een herstart —
+  schreef daardoor een advies van tientallen graden onder nul weg, met een
+  "fout" van −69,8 °C als gevolg. Dezelfde clamp staat er nu ook.
+
+Wat dit niet doet: de al vervuilde statistiek opschonen. Die buckets blijven
+staan tot ze handmatig uit de recorder worden gehaald.
+
 ## v0.10.0 — 2026-09-03
 
 Functioneel gelijk aan v0.9.15; wat hier bij komt is opruimwerk. Bewust geen

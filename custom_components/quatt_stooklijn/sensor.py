@@ -65,6 +65,7 @@ from .const import (
     DEFAULT_WEATHER_ENTITY,
     DOMAIN,
     MIN_FLOW_LPH,
+    MIN_HEAT_OUTPUT_W,
     MIN_HEATING_WATTS,
     NOMINAL_FLOW_LPH,
     MPC_FORECAST_HOURS,
@@ -620,6 +621,12 @@ class QuattSupplyTempSensor(
             # retourtemperatuur suggereert een advies dat er niet is.
             return None
         t_supply = t_return + heat_demand_w / (1.16 * effective_flow)
+        # Dezelfde grenzen als de MPC-tak en _calc_heating_curve_breakpoints.
+        # Zonder clamp schrijft één onzinnige retourtemperatuur — zoals tijdens
+        # het bronwissel-venster bij een herstart — een advies van tientallen
+        # graden onder nul de langetermijnstatistiek in, en daar komt het nooit
+        # meer uit.
+        t_supply = max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, t_supply))
         return round(t_supply, 1)
 
     @property
@@ -1509,6 +1516,14 @@ class QuattAdviceErrorSensor(
             config=cfg, conf_key=CONF_FLOW_ENTITY,
         )
 
+    @property
+    def _heat_output_entity(self) -> str:
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_TOTAL_POWER,
+            config=cfg, conf_key=CONF_POWER_ENTITY,
+        )
+
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         # Volg álle kandidaten, niet alleen de nu actieve: anders komt een
@@ -1517,7 +1532,7 @@ class QuattAdviceErrorSensor(
             f"{self._entry.entry_id}_sources"
         )
         tracked = {self._advised_entity}
-        for role in (ROLE_SUPPLY_TEMP, ROLE_FLOW_RATE):
+        for role in (ROLE_SUPPLY_TEMP, ROLE_FLOW_RATE, ROLE_TOTAL_POWER):
             source = registry.get(role) if registry else None
             tracked.update(source.candidates if source else ())
         tracked.discard(None)
@@ -1536,6 +1551,14 @@ class QuattAdviceErrorSensor(
         # Fout is alleen zinvol als de HP draait
         flow = get_float_state(self.hass, self._flow_entity)
         if flow is None or flow < MIN_FLOW_LPH:
+            return None
+        # ... én als er warmte het huis in gaat. Debiet alleen is niet genoeg:
+        # buiten het stookseizoen circuleert de pomp met 0 W productie, terwijl
+        # de adviessensor op een zomernacht onder het balanspunt wél een getal
+        # geeft. Het verschil daartussen is geen voorspelfout maar ruis, en het
+        # trok de maandgemiddelden richting −14 °C.
+        heat_out = get_float_state(self.hass, self._heat_output_entity)
+        if heat_out is None or heat_out < MIN_HEAT_OUTPUT_W:
             return None
         advised = get_float_state(self.hass, self._advised_entity)
         actual = get_float_state(self.hass, self._supply_temp_entity)
