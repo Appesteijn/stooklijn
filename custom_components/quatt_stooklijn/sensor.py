@@ -35,6 +35,7 @@ from .analysis.thermal_model import (
     OnlineRCModel,
     simulate_coast_time,
     simulate_forward,
+    stored_heat_kwh,
 )
 from homeassistant.helpers.storage import Store
 
@@ -358,6 +359,7 @@ async def async_setup_entry(
     entities.append(mpc_sensor)
     # Coast-time sensor deelt het RC-model + forecast van de MPC-sensor.
     entities.append(QuattCoastTimeSensor(coordinator, entry, mpc_sensor))
+    entities.append(QuattStoredHeatSensor(coordinator, entry, mpc_sensor))
 
     # Geen entity-ID's meer meegeven: die werden hier één keer bij het opstarten
     # bepaald en daarna nooit meer. De sensor zoekt ze nu zelf op via de
@@ -809,6 +811,16 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         return {**self._entry.data, **self._entry.options}.get(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
 
     @property
+    def _comfort_floor(self) -> float:
+        """Referentie voor de warmtebuffer, gedeeld met de uitlooptijd-sensor.
+
+        Beide gaan over dezelfde vraag — hoeveel ruimte is er tot het te koud
+        wordt — dus ze horen dezelfde ondergrens te gebruiken.
+        """
+        cfg = {**self._entry.data, **self._entry.options}
+        return cfg.get(CONF_COMFORT_FLOOR_TEMP, DEFAULT_COMFORT_FLOOR_TEMP)
+
+    @property
     def _indoor_temp_entity(self) -> str:
         cfg = {**self._entry.data, **self._entry.options}
         return async_source_entity(
@@ -1231,6 +1243,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                     forecast_t_outdoor=fc_temps,
                     forecast_q_solar=fc_solar_wm2,
                     max_hours=MPC_FORECAST_HOURS,
+                    comfort_floor=self._comfort_floor,
                 )
                 for i, step in enumerate(sim):
                     entry = {**step, **fc_meta[i]} if i < len(fc_meta) else step
@@ -1278,6 +1291,12 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             "heat_demand_w": round(raw_demand) if raw_demand is not None else None,
             "net_demand_w": round(net_demand) if net_demand is not None else None,
             "solar_radiation_wm2": round(current_rad_wm2),
+            "stored_heat_kwh": stored_heat_kwh(
+                model.raw_params["C"] if model.raw_params else None,
+                get_float_state(self.hass, self._indoor_temp_entity),
+                self._comfort_floor,
+            ),
+            "comfort_floor": self._comfort_floor,
             "model_source": model_source,
             **{f"model_{k}": v for k, v in model_params.items()},
             # Horizon-neutrale naam: heette forecast_6h toen de simulatie op zes
@@ -1458,6 +1477,111 @@ class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorE
                 candidate_entities(
                     self.hass, self._entry.entry_id,
                     (ROLE_OUTDOOR_TEMP, ROLE_INDOOR_TEMP),
+                ),
+                self._handle_state_change,
+            )
+        )
+
+    async def _handle_state_change(self, event) -> None:
+        self.async_write_ha_state()
+
+
+class QuattStoredHeatSensor(
+    CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity
+):
+    """Warmte die nu in de bouwmassa zit, gerekend boven de comfortgrens.
+
+    E = C × (T_binnen − T_comfortgrens), met C de geleerde warmtecapaciteit van
+    het huis. Dit is de buffer waarop je kunt teren met de warmtepomp uit: wat
+    het huis moet verliezen voordat het van de huidige temperatuur naar de
+    comfortgrens zakt. Het is nadrukkelijk geen warmte die je eruit kunt halen
+    en elders in kunt stoppen.
+
+    Zelfde grens als de uitlooptijd-sensor, want het is dezelfde vraag in een
+    andere eenheid: die zegt hoe lang, deze hoeveel. Staat het huis onder de
+    grens, dan is het getal negatief — dat blijft staan, want een tekort is
+    informatie.
+
+    Niet beschikbaar tot het RC-model geconvergeerd is (≈2 dagen data): zonder
+    betrouwbare C is elk getal hier verzonnen.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Opgeslagen Warmte"
+    _attr_native_unit_of_measurement = "kWh"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:home-thermometer"
+    # Bewust geen device_class ENERGY: dat hoort bij een meterstand die oploopt
+    # en zou deze sensor het energiedashboard in trekken. Dit is een voorraad op
+    # dit moment, geen verbruik.
+
+    def __init__(
+        self,
+        coordinator: QuattStooklijnCoordinator,
+        entry: ConfigEntry,
+        mpc_sensor: QuattMpcSensor,
+    ) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._mpc = mpc_sensor
+        self._attr_unique_id = f"{entry.entry_id}_stored_heat_kwh"
+        self._attr_device_info = get_device_info(entry.entry_id)
+        # Deterministische entity-id, net als bij de uitlooptijd-sensor: anders
+        # bouwt HA hem op uit de area van het device en verwijst het dashboard
+        # naar een id die niet bestaat.
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            "quatt_warmteanalyse_opgeslagen_warmte",
+            hass=coordinator.hass,
+        )
+
+    @property
+    def _comfort_floor(self) -> float:
+        return self._mpc._comfort_floor
+
+    @property
+    def _capacity_whk(self) -> float | None:
+        model = self._mpc.thermal_model
+        if model is None or not model.is_converged:
+            return None
+        raw = model.raw_params
+        return raw["C"] if raw else None
+
+    @property
+    def _t_indoor(self) -> float | None:
+        return get_float_state(self.hass, self._mpc._indoor_temp_entity)
+
+    @property
+    def native_value(self) -> float | None:
+        return stored_heat_kwh(
+            self._capacity_whk, self._t_indoor, self._comfort_floor
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        capacity = self._capacity_whk
+        t_indoor = self._t_indoor
+        return {
+            "comfort_floor": self._comfort_floor,
+            "kamertemperatuur": t_indoor,
+            # De marge in graden staat er los bij: dat getal is direct te
+            # controleren aan de thermostaat, de kWh niet.
+            "marge_k": (
+                round(t_indoor - self._comfort_floor, 1)
+                if t_indoor is not None
+                else None
+            ),
+            "capaciteit_wh_k": round(capacity) if capacity else None,
+            "model_source": "online" if capacity else "unavailable",
+        }
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                candidate_entities(
+                    self.hass, self._entry.entry_id, (ROLE_INDOOR_TEMP,)
                 ),
                 self._handle_state_change,
             )

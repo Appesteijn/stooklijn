@@ -3,6 +3,29 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.1-beta.2 — 2026-09-05
+
+Pre-release, bovenop beta.1. Nieuw: hoeveel warmte er op dit moment in het huis
+zit, en hoe die zich over de vooruitblik ontwikkelt.
+
+- Sensor "Opgeslagen Warmte" (kWh): E = C × (T_binnen − comfortgrens), met de
+  geleerde warmtecapaciteit van het huis. Dezelfde comfortgrens als de
+  uitlooptijd-sensor, want het is dezelfde vraag in een andere eenheid — die
+  zegt hoe lang je kunt teren, deze hoeveel er te teren valt. Nadrukkelijk geen
+  warmte die je eruit kunt halen en elders in kunt stoppen: het is wat het huis
+  moet verliezen voordat het naar de comfortgrens zakt. Onder die grens wordt
+  het getal negatief; dat blijft staan, want een tekort is informatie.
+- De vooruitblik draagt de buffer nu per uur, gerekend op de vóórspelde
+  binnentemperatuur van dát uur. Het dashboard heeft er een kolom Buffer bij en
+  een tegel naast Veilige uitlooptijd.
+- Bewust geen device_class energy op de nieuwe sensor: dat hoort bij een
+  meterstand die oploopt en zou hem het energiedashboard in trekken. Dit is een
+  voorraad op dit moment, geen verbruik.
+
+Beperking: draait het RC-model nog in de terugvalmodus (batch-stooklijn, vóór
+convergentie), dan heeft de vooruitblik geen binnentemperatuurvoorspelling en
+blijft de Buffer-kolom leeg.
+
 ## v0.10.1-beta.1 — 2026-09-05
 
 Pre-release. Twee poorten rond het aanvoeradvies, gevonden bij het nalopen van

@@ -391,6 +391,31 @@ class OnlineRCModel:
         return model
 
 
+def stored_heat_kwh(
+    c_whk: float | None,
+    t_indoor: float | None,
+    reference_temp: float,
+) -> float | None:
+    """Warmte die in de bouwmassa zit boven ``reference_temp``, in kWh.
+
+    E = C × ΔT, met C de geleerde warmtecapaciteit van het huis (Wh/K).
+
+    Let op wat dit *niet* is: warmte die je eruit kunt halen en ergens anders in
+    kunt stoppen. Het is wat het huis moet verliezen voordat het van de huidige
+    binnentemperatuur naar de referentie zakt — de buffer waarop je kunt teren
+    met de warmtepomp uit. Hoe snel dat gaat hangt van het weer af; dáár gaat
+    ``simulate_coast_time`` over.
+
+    Onder de referentie wordt het getal negatief. Dat blijft zo staan in plaats
+    van afgekapt op nul: een tekort is informatie, en op nul afkappen zou een
+    huis dat 1 K te koud staat niet onderscheiden van een huis dat precies goed
+    staat.
+    """
+    if c_whk is None or c_whk <= 0 or t_indoor is None:
+        return None
+    return round(c_whk * (t_indoor - reference_temp) / 1000.0, 1)
+
+
 def simulate_forward(
     model: OnlineRCModel,
     t_indoor_now: float,
@@ -402,6 +427,7 @@ def simulate_forward(
     supply_temp_min: float = 20.0,
     supply_temp_max: float = 55.0,
     max_hours: int | None = None,
+    comfort_floor: float = 19.0,
 ) -> list[dict]:
     """Simuleer vooruit en bereken per uur het benodigde WP-vermogen.
 
@@ -412,11 +438,15 @@ def simulate_forward(
     opgeleverd zonder dat de binnentemp-voorspelling meeliep.
 
     Returns a list of dicts with keys:
-        hour, q_hp_needed_w, t_indoor_predicted, supply_temp, hp_needed
+        hour, q_hp_needed_w, t_indoor_predicted, supply_temp, hp_needed,
+        stored_heat_kwh
     """
     SPECIFIC_HEAT = 1.16  # Wh/(L·K)
     results: list[dict] = []
     t_in = t_indoor_now
+    # Eén keer ophalen: de capaciteit verandert niet gedurende de simulatie.
+    raw = model.raw_params
+    c_whk = raw["C"] if raw else None
 
     n_hours = min(len(forecast_t_outdoor), len(forecast_q_solar))
     if max_hours is not None:
@@ -463,6 +493,9 @@ def simulate_forward(
             "supply_temp": supply_temp,
             "supply_temp_no_solar": supply_temp_no_solar,
             "hp_needed": bool(q_hp_needed > 200),  # MIN_HEATING_WATTS
+            # De buffer hoort bij de voorspelde temperatuur van dít uur, dus
+            # bij t_in_next — niet bij de stand waarmee het uur begon.
+            "stored_heat_kwh": stored_heat_kwh(c_whk, t_in_next, comfort_floor),
         })
 
         t_in = t_in_next

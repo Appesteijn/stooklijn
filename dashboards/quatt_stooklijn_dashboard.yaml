@@ -1078,6 +1078,11 @@ views:
             name: Veilige uitlooptijd
             icon: mdi:home-clock-outline
             color: orange
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_opgeslagen_warmte
+            name: Opgeslagen warmte
+            icon: mdi:home-thermometer
+            color: orange
 
       # ── Thermisch model (volle breedte) ──
       - type: grid
@@ -1246,7 +1251,7 @@ views:
 
               ### Komende {{ fc | length }} uur
 
-              {% set ns = namespace(tbl='| Uur | T buiten | T binnen | HP | Vermogen | Aanvoer | Aanvoer (geen zon) |\n|:--|--:|--:|:--:|--:|--:|--:|\n') %}{% for h in fc %}{% set t_in = h.get('t_indoor_predicted') %}{% set ns_val = h.get('supply_temp_no_solar') %}{% set ns.tbl = ns.tbl + '| **+' + h.hour|string + '** | ' + (h.temp_forecast|round(1))|string + '°C | ' + (t_in|string + '°C' if t_in is not none else '-') + ' | ' + ('🔥' if h.get('hp_needed') else '⏸️') + ' | ' + (h.get('q_hp_needed_w')|string + ' W' if h.get('q_hp_needed_w') is not none else '-') + ' | ' + (h.supply_temp|string + '°C' if h.supply_temp is not none else '-') + ' | ' + (ns_val|string + '°C' if ns_val is not none else '-') + ' |\n' %}{% endfor %}
+              {% set ns = namespace(tbl='| Uur | T buiten | T binnen | Buffer | HP | Vermogen | Aanvoer | Aanvoer (geen zon) |\n|:--|--:|--:|--:|:--:|--:|--:|--:|\n') %}{% for h in fc %}{% set t_in = h.get('t_indoor_predicted') %}{% set buf = h.get('stored_heat_kwh') %}{% set ns_val = h.get('supply_temp_no_solar') %}{% set ns.tbl = ns.tbl + '| **+' + h.hour|string + '** | ' + (h.temp_forecast|round(1))|string + '°C | ' + (t_in|string + '°C' if t_in is not none else '-') + ' | ' + (buf|string + ' kWh' if buf is not none else '-') + ' | ' + ('🔥' if h.get('hp_needed') else '⏸️') + ' | ' + (h.get('q_hp_needed_w')|string + ' W' if h.get('q_hp_needed_w') is not none else '-') + ' | ' + (h.supply_temp|string + '°C' if h.supply_temp is not none else '-') + ' | ' + (ns_val|string + '°C' if ns_val is not none else '-') + ' |\n' %}{% endfor %}
 
               {{ ns.tbl }}
 
