@@ -72,6 +72,8 @@
           "room_setpoint_entity": "Kamer setpoint sensor (°C) — leeg laten voor auto-detectie",
           "room_setpoint_fallback": "Terugval kamersetpoint (°C) — alleen gebruikt als de thermostaat er geen levert",
           "cop_entity": "COP sensor — leeg laten voor auto-detectie",
+          "compressor_entity": "Compressorfrequentie sensor WP1 (Hz) — hieruit worden de starts geteld; leeg laten voor auto-detectie",
+          "compressor_2_entity": "Compressorfrequentie sensor WP2 (Hz) — alleen bij een Duo; laat leeg op een Solo",
           "performance_baseline_date": "Datum van je aanpassing (YYYY-MM-DD) — bevriest de rendementsnorm op alles ervóór; leeg = laatste 30 stookdagen",
           "quatt_cloud_enabled": "Quatt cloud-API gebruiken — uit = alleen lokaal (recorder + eigen stores). De opgebouwde historie blijft, alleen nieuw uurdetail stopt. Vooral zinvol als je een tweede lokale bron hebt, zoals OpenQuatt.",
           "sound_level_enabled": "Geluidsniveau compensatie inschakelen (beperkt warmtepompvermogen via CiC geluidsniveau)",

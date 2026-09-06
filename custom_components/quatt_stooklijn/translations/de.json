@@ -72,6 +72,8 @@
           "room_setpoint_entity": "Raum-Sollwert-Sensor (°C) — leer lassen für Auto-Erkennung",
           "room_setpoint_fallback": "Ersatz-Raumsollwert (°C) — nur genutzt, wenn der Thermostat keinen liefert",
           "cop_entity": "COP-Sensor — leer lassen für Auto-Erkennung",
+          "compressor_entity": "Verdichterfrequenz-Sensor WP1 (Hz) — daraus werden die Starts gezählt; leer lassen für automatische Erkennung",
+          "compressor_2_entity": "Verdichterfrequenz-Sensor WP2 (Hz) — nur beim Duo; bei einem Solo leer lassen",
           "performance_baseline_date": "Datum der Änderung (YYYY-MM-DD) — friert die Effizienznorm auf alles davor ein; leer = letzte 30 Heiztage",
           "quatt_cloud_enabled": "Quatt-Cloud-API verwenden — aus = nur lokal (Recorder + eigene Speicher). Die aufgebaute Historie bleibt, nur neue Stundendaten entfallen. Sinnvoll vor allem mit einer zweiten lokalen Quelle wie OpenQuatt.",
           "sound_level_enabled": "Schallpegel-Kompensation aktivieren (begrenzt Wärmepumpenleistung über CiC-Schallpegel)",

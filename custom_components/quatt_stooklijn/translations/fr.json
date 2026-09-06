@@ -72,6 +72,8 @@
           "room_setpoint_entity": "Capteur de consigne d'ambiance (°C) — laisser vide pour la détection auto",
           "room_setpoint_fallback": "Consigne d'ambiance de repli (°C) — utilisée seulement si le thermostat n'en fournit pas",
           "cop_entity": "Capteur COP — laisser vide pour la détection auto",
+          "compressor_entity": "Capteur de fréquence du compresseur PAC1 (Hz) — sert à compter les démarrages ; vide = détection automatique",
+          "compressor_2_entity": "Capteur de fréquence du compresseur PAC2 (Hz) — Duo uniquement ; laisser vide sur un Solo",
           "performance_baseline_date": "Date de la modification (YYYY-MM-DD) — fige la norme de rendement sur tout ce qui précède ; vide = 30 derniers jours de chauffe",
           "quatt_cloud_enabled": "Utiliser l'API cloud Quatt — désactivé = local uniquement (recorder + stockage interne). L'historique constitué est conservé ; seul le détail horaire s'arrête. Surtout utile avec une seconde source locale comme OpenQuatt.",
           "sound_level_enabled": "Activer la compensation du niveau sonore (limite la puissance de la pompe à chaleur via le niveau sonore CiC)",

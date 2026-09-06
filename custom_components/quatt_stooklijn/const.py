@@ -37,7 +37,13 @@ CONF_SUPPLY_TEMP_ENTITY = "supply_temp_entity"
 # de gebruikers. De entity-ID wordt bepaald door discovery.async_resolve_entity();
 # terugvalnamen staan in discovery.FALLBACK_ENTITIES — één bron van waarheid.
 MIN_FLOW_LPH = 30   # l/h — below this the pump is not actively circulating
-NOMINAL_FLOW_LPH = 800  # l/h — fallback when HP is off, for theoretical supply temp
+# l/h — terugval als de pomp stilstaat, voor de theoretische aanvoertemperatuur.
+#
+# 800 is geen aanname over dit huis: een standaard Quatt-installatie draait daar
+# altijd op. Alleen met OpenQuatt is het debiet zelf instelbaar, en dan wijkt de
+# werkelijke waarde af — maar die wordt gewoon gemeten zodra de pomp loopt, en
+# deze constante geldt uitsluitend voor de momenten dat hij stilstaat.
+NOMINAL_FLOW_LPH = 800
 # W — hieronder levert de installatie geen warmte aan het huis. Debiet alleen is
 # geen bewijs van stoken: buiten het seizoen circuleert de pomp zonder productie,
 # en een advies daartegen afzetten levert een fout die nergens over gaat.

@@ -80,6 +80,8 @@
           "room_setpoint_entity": "Thermostat room setpoint sensor (°C) — leave empty for auto-detection",
           "room_setpoint_fallback": "Fallback room setpoint (°C) — used only when the thermostat provides none",
           "cop_entity": "COP sensor — leave empty for auto-detection",
+          "compressor_entity": "Compressor frequency sensor HP1 (Hz) — used to count compressor starts; leave empty for auto-detection",
+          "compressor_2_entity": "Compressor frequency sensor HP2 (Hz) — Duo only; leave empty on a Solo",
           "performance_baseline_date": "Change marker date (YYYY-MM-DD) — freezes the efficiency norm on everything before it; empty = last 30 heating days",
           "quatt_cloud_enabled": "Use Quatt cloud API — off = local only (recorder + own stores). The built-up history is kept; only new hourly detail stops. Best if you have a second local source such as OpenQuatt.",
           "sound_level_enabled": "Enable sound level compensation (limits heat pump power via CiC sound level)",
