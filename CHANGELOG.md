@@ -3,6 +3,51 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.1-beta.3 — 2026-09-06
+
+Pre-release. Deze ronde gaat niet over nieuwe functies maar over aannames: de
+MPC-laag en de geluidsfunctie waren op één installatie geschreven en pas later
+uitgeleverd. Vijf daarvan zijn losgemaakt.
+
+- **Het kamerdoel komt nu van de thermostaat.** Het advies rekende op een vaste
+  20 °C. Het is lineair in het verschil met de binnentemperatuur, dus wie op
+  21,5 °C stookt kreeg elk uur van de dag een advies dat er 1,5 K naast zat.
+  De setpoint-sensor werd al gedetecteerd, alleen nooit gebruikt. Levert je
+  thermostaat er geen, dan is de terugval nu instelbaar in plaats van vast.
+- **Geen zon bekend is niet hetzelfde als geen zon.** Was Open-Meteo
+  onbereikbaar, dan ging er een nul het huismodel in alsof het donker was. De
+  zonnewinst belandt dan in de restfout en het geleerde warmteverlies zakt weg,
+  terwijl het model zich gewoon "geconvergeerd" blijft noemen. Zo'n uur wordt nu
+  overgeslagen — het leervenster is ruim 500 uur, dus dat kost vrijwel niets.
+  De opgehaalde reeks krijgt bovendien een houdbaarheidsdatum, zodat die van
+  gisteren niet met de klok van vandaag gelezen wordt.
+- **De weersverwachting hield vast aan de Nederlandse tijdzone.** Buiten die
+  zone schoof de hele zonnereeks een tot twee uur op. De tijdzone komt nu uit je
+  Home Assistant-instellingen, en de reeks wordt op tijdstempel gelezen in plaats
+  van op uurnummer — dat laatste brak sowieso op de twee dagen per jaar dat een
+  dag 23 of 25 uur telt.
+- **De geluidsniveau-compensatie werkte niet op oudere installaties.** Ze schreef
+  naar twee vaste entiteitsnamen die alleen ná de Quatt-devicemigratie bestaan.
+  Op alles daarvóór deed de functie stilzwijgend niets. Nu worden ze opgezocht,
+  in beide naamgevingen.
+- **De aanvoertemperatuur-begrenzing las de CiC-knop onder een vaste naam.**
+  Zelfde probleem: op oudere installaties bleven die rij en die grafieklijn leeg.
+  De integratie zoekt de knop nu zelf op.
+
+Verder:
+
+- Entiteitsnamen zijn vertaalbaar geworden: 43 namen in Nederlands, Engels, Duits
+  en Frans, waar eerder een mengeling van hardgecodeerd Nederlands en Engels
+  stond. Bestaande entity-ID's veranderen niet.
+- Het meegeleverde dashboard verwees naar een helper uit een privé-opstelling.
+  Die tekst is algemeen gemaakt.
+- De PV-sensor is uit de configuratie verdwenen. Het huismodel rekent met
+  zoninstraling in W/m² van Open-Meteo, niet met paneelopbrengst; wat er nog aan
+  hing was een ongelezen attribuut en een listener die de vooruitblik bij elke
+  tik van je omvormer opnieuw liet berekenen.
+- Drie configuratievelden toonden hun interne sleutelnaam in plaats van een
+  omschrijving. Alle velden hebben nu een label.
+
 ## v0.10.1-beta.2 — 2026-09-05
 
 Pre-release, bovenop beta.1. Nieuw: hoeveel warmte er op dit moment in het huis
