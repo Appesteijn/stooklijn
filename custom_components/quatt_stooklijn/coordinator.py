@@ -31,7 +31,7 @@ from .cache import KneeDataStore
 from .const import (
     CONF_BOILER_EFFICIENCY,
     CONF_BOILER_HEAT_ENTITY,
-    CONF_EOS_THROTTLE_ENTITY,
+    CONF_THROTTLE_ENTITY,
     CONF_GAS_CALORIFIC_VALUE,
     CONF_GAS_ENABLED,
     CONF_GAS_END_DATE,
@@ -178,7 +178,7 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             self.hass,
             temp_candidates,
             power_candidates,
-            throttle_entity=config.get(CONF_EOS_THROTTLE_ENTITY) or None,
+            throttle_entity=config.get(CONF_THROTTLE_ENTITY) or None,
         )
 
         # Step 3b: Update persistent knee data store

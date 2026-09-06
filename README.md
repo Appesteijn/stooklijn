@@ -208,12 +208,11 @@ entities, which this integration creates itself with fixed entity IDs. Those kee
 matter which integration delivers the underlying measurement, and no matter how your Quatt
 sensors happen to be named.
 
-Two exceptions:
+One exception:
 
 | Entity ID | What to do |
 |-----------|------------|
 | `number.cic_max_water_temperature` | Used by the supply-temperature limiting card. Comes from the Quatt integration; replace it if yours is named differently, or ignore the card if you do not use that feature. |
-| `input_number.eos_comfort_coast_margin_min` | Only referenced in explanatory text on the MPC tab. Safe to ignore unless you run an Energy-OS style setup. |
 
 Cards for optional features hide themselves when the feature is off, so an unused card does
 not show errors — it simply is not there.

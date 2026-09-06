@@ -19,7 +19,7 @@ from homeassistant.core import HomeAssistant
 from ..const import (
     BIN_SIZE,
     DAYS_HISTORY,
-    EOS_THROTTLE_CAP_FREE,
+    THROTTLE_CAP_FREE,
     KEEP_THRESHOLD,
     MIN_MODULATION_WATTS,
     MIN_POWER_FILTER,
@@ -467,9 +467,9 @@ async def async_fetch_live_history(
     of preference — see :func:`coalesce_series` for how they are stitched. A
     bare string is accepted for ``power_entities`` for backwards compatibility.
 
-    When ``throttle_entity`` is set (e.g. energy-os' ``input_number.eos_hp_cap_override``)
+    When ``throttle_entity`` is set (any external cap helper, e.g. a tariff-driven one)
     the minutes during which an external controller throttled the heat pump
-    (cap < EOS_THROTTLE_CAP_FREE) are dropped: while throttled the pump does not
+    (cap < THROTTLE_CAP_FREE) are dropped: while throttled the pump does not
     follow its natural heating curve, so those samples would pollute the knee,
     stooklijn and heat-loss fits. The number of excluded minutes is stored on
     ``df.attrs["throttle_excluded_minutes"]``.
@@ -550,7 +550,7 @@ async def async_fetch_live_history(
     merged = pd.merge(df_temp, df_power, left_index=True, right_index=True, how="inner")
     _LOGGER.info("Merged live history: %d aligned data points", len(merged))
 
-    # Exclude minutes during which an external controller (energy-os) throttled
+    # Exclude minutes during which an external controller throttled
     # the heat pump — those samples don't reflect the natural heating curve.
     merged.attrs["throttle_excluded_minutes"] = 0
     if throttle_entity:
@@ -587,7 +587,7 @@ async def async_fetch_live_history(
 def apply_throttle_mask(
     merged: pd.DataFrame,
     cap_records: list[dict],
-    free_cap: float = EOS_THROTTLE_CAP_FREE,
+    free_cap: float = THROTTLE_CAP_FREE,
 ) -> tuple[pd.DataFrame, int]:
     """Drop minutes during which the external HP cap was below ``free_cap``.
 
@@ -596,7 +596,7 @@ def apply_throttle_mask(
     Args:
         merged: minute-indexed analysis frame (DatetimeIndex).
         cap_records: list of ``{"timestamp": datetime, "cap": float}`` — the
-            external cap state changes (e.g. energy-os' eos_hp_cap_override).
+            external cap state changes from the configured throttle entity.
         free_cap: cap value that means "no throttling"; below it = throttled.
 
     Returns ``(filtered_frame, excluded_minute_count)``. The cap is forward-filled

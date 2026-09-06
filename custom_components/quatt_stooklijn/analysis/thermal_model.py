@@ -22,6 +22,8 @@ from datetime import datetime
 
 import numpy as np
 
+from ..const import DEFAULT_ROOM_SETPOINT
+
 _LOGGER = logging.getLogger(__name__)
 
 # Defaults for cold start (typical Dutch terraced house)
@@ -423,7 +425,7 @@ def simulate_forward(
     flow_lph: float,
     forecast_t_outdoor: list[float],
     forecast_q_solar: list[float],
-    t_setpoint: float = 20.0,
+    t_setpoint: float = DEFAULT_ROOM_SETPOINT,
     supply_temp_min: float = 20.0,
     supply_temp_max: float = 55.0,
     max_hours: int | None = None,
@@ -515,7 +517,7 @@ def simulate_coast_time(
     """Simulate the free cool-down (heat pump OFF) and report how long the
     house can coast before the indoor temperature reaches ``comfort_floor``.
 
-    Used by energy-os to decide whether the heat pump may be throttled during
+    Used by external control to decide whether the heat pump may be throttled during
     an expensive tariff window while the battery covers the load — only as long
     as the house stays warm enough.
 

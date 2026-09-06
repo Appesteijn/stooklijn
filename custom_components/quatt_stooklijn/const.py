@@ -131,6 +131,35 @@ DEFAULT_WEATHER_ENTITY = "weather.home"
 # gebruikt QuattMpcSensor die waarde; anders valt hij terug op deze constante.
 SOLAR_TO_HEAT_FACTOR = 0.30
 
+# Kamerdoel waar het MPC-advies op rekent.
+#
+# De thermostaat weet dit zelf — ``ROLE_ROOM_SETPOINT`` wordt al gedetecteerd en
+# gespiegeld — dus die is de bron. Deze constante is uitsluitend de terugval voor
+# installaties waar die sensor er niet is: een thermostaat die niet via OpenTherm
+# aan de CiC hangt levert hem niet, en bij een herstart van de bron staat hij
+# tijdelijk op ``unavailable``.
+#
+# Stond tot v0.10.1 als kale 20.0 in drie berekeningen plus de default van
+# ``simulate_forward``. Dat is precies de waarde van dit huis, en daarmee een
+# stelselmatige fout voor iedereen die anders stookt: wie op 21,5 °C zit kreeg
+# een advies dat 1,5 K te weinig vroeg, elk uur van de dag.
+#
+# Instelbaar via ``CONF_ROOM_SETPOINT_FALLBACK``. Een vaste terugval zou dezelfde
+# aanname zijn, alleen een laag dieper: precies de gebruiker zónder
+# OpenTherm-thermostaat — die de sensor dus nooit krijgt — zou er permanent aan
+# vastzitten. Deze constante is daarmee alleen nog de waarde waarop het veld
+# begint, niet de waarde waar iemand mee moet leven.
+CONF_ROOM_SETPOINT_FALLBACK = "room_setpoint_fallback"
+DEFAULT_ROOM_SETPOINT = 20.0  # °C
+
+# Geldigheidsband voor een gelezen setpoint. Gelijk aan het bereik dat de
+# OpenTherm-specificatie voor een kamersetpoint toestaat, dus een echte
+# handmatige boost valt er nog binnen; wat erbuiten valt is een meetfout of een
+# sensor die iets anders publiceert dan een kamerdoel, en daar mag het advies
+# niet op gaan rekenen.
+ROOM_SETPOINT_MIN = 5.0   # °C
+ROOM_SETPOINT_MAX = 30.0  # °C
+
 # Veiligheidsgrenzen aanvoertemperatuur MPC-sensor
 MPC_SUPPLY_TEMP_MIN = 20.0       # °C — warmtepompen werken niet effectief onder 20°C aanvoer
 MPC_SUPPLY_TEMP_COOL_MIN = 15.0  # °C — ondergrens voor koeling (LTV convectoren ~15°C)
@@ -147,13 +176,30 @@ MPC_SUPPLY_TEMP_MAX = 55.0       # °C
 # beperkende factor, en de tabel op het dashboard onleesbaar.
 MPC_FORECAST_HOURS = 12
 
-# Open-Meteo URL template — wordt ingevuld met lat/lon uit HA config
+# Open-Meteo URL template — lat/lon én tijdzone komen uit de HA-config.
+#
+# De tijdzone stond hier tot v0.10.1 vast op Europe/Amsterdam. Lat/lon waren wél
+# dynamisch, dus de straling klopte, maar de uren waarin ze werd uitgedrukt niet:
+# Open-Meteo levert de reeks vanaf 00:00 in de gevraagde zone, en die werd
+# uitgelezen met de klok van de gebruiker. Voor iedereen buiten die zone schoof de
+# hele zonnereeks een of twee uur op — in het leersignaal én in de vooruitblik.
 OPEN_METEO_FORECAST_URL = (
     "https://api.open-meteo.com/v1/forecast"
     "?latitude={lat}&longitude={lon}"
     "&hourly=shortwave_radiation,cloud_cover"
-    "&forecast_days=2&timezone=Europe%2FAmsterdam"
+    "&forecast_days=2&timezone={tz}"
 )
+
+# Hoe oud de opgehaalde stralingsreeks mag zijn voordat hij niet meer meetelt.
+#
+# De reeks wordt elk uur ververst en beslaat 48 uur, dus een gemiste ophaalronde
+# is onschadelijk: de uren van vandaag staan er nog gewoon in. Wat níét onschadelijk
+# is, is een reeks van gisteren die met de klok van vandaag wordt uitgelezen — dan
+# staat er een getal, het ziet er geldig uit, en het hoort bij een andere dag.
+#
+# Drie uur is drie gemiste rondes. Ruim genoeg om een hikje in het netwerk te
+# overleven, kort genoeg om nooit over een dagovergang heen te reiken.
+SOLAR_FORECAST_MAX_AGE_SECONDS = 3 * 3600
 
 # Standaard omrekeningsfactor shortwave_radiation (W/m²) → warmtewinst (W).
 # Wordt dynamisch gekalibreerd als solaredge_ac_power beschikbaar is.
@@ -162,7 +208,7 @@ OPEN_METEO_FORECAST_URL = (
 SOLAR_RADIATION_DEFAULT_FACTOR = 8.0  # W per W/m²
 
 # ---------------------------------------------------------------------------
-# Energy-OS brug: prijsgestuurd thermisch uitlopen + datahygiëne
+# Brug naar externe sturing: thermisch uitlopen + datahygiëne
 # ---------------------------------------------------------------------------
 # Comfort-vloer: laagste acceptabele binnentemperatuur. De coast-time sensor
 # berekent hoe lang het huis (met WP uit) op zijn thermische massa kan uitlopen
@@ -174,13 +220,18 @@ DEFAULT_COMFORT_FLOOR_TEMP = 19.0  # °C
 COAST_MAX_HOURS = 12
 COAST_STEP_MINUTES = 15
 
-# Optioneel: entity die aangeeft dat een externe regelaar (energy-os) de
-# warmtepomp knijpt. Leeg = uit (geen filtering). Bij een waarde < FREE wordt
-# de WP geknepen; die minuten worden uitgesloten van COP/warmteverlies-analyse,
-# zodat de fits niet vervuild raken door externe ingrepen.
-CONF_EOS_THROTTLE_ENTITY = "eos_throttle_entity"
-DEFAULT_EOS_THROTTLE_ENTITY = ""  # leeg = geen filtering
-EOS_THROTTLE_CAP_FREE = 20  # cap-waarde die "geen beperking" betekent
+# Optioneel: entity die aangeeft dat een externe regelaar de warmtepomp knijpt —
+# een tariefsturing, een dynamisch contract, een eigen script. Leeg = uit (geen
+# filtering). Bij een waarde < FREE wordt de WP geknepen; die minuten worden
+# uitgesloten van de COP- en warmteverlies-analyse, zodat de fits niet vervuild
+# raken door ingrepen die niets met het huis te maken hebben.
+#
+# De opgeslagen sleutel houdt zijn historische naam. Hem hernoemen zou een
+# migratie van elke bestaande config-entry vragen voor iets wat de gebruiker
+# nergens ziet — het label en de documentatie zijn wél generiek.
+CONF_THROTTLE_ENTITY = "eos_throttle_entity"
+DEFAULT_THROTTLE_ENTITY = ""  # leeg = geen filtering
+THROTTLE_CAP_FREE = 20  # cap-waarde die "geen beperking" betekent
 
 # Zonproductie-fractie per HA weather condition (proxy voor shortwave_radiation).
 # Waarde × huidige solaredge_ac_power = geschatte zonproductie dat uur.

@@ -54,6 +54,8 @@ from .coordinator import QuattStooklijnCoordinator
 from .discovery import (
     ROLE_BOILER_HEAT,
     ROLE_FLOW_RATE,
+    ROLE_SOUND_DAY,
+    ROLE_SOUND_NIGHT,
     ROLE_SUPPLY_TEMP,
 )
 from .helpers import get_device_info, get_float_state, resolve_own_entity_id
@@ -70,8 +72,10 @@ _NORMAL_IDX = len(_SOUND_LEVELS) - 1
 # entry via de registry opgezocht, zodat hernoemen of een tweede config-entry de
 # compensatie niet stilzwijgend blind maakt.
 _MPC_UNIQUE_SUFFIX = "mpc_recommended_supply_temp"
-_DAY_SOUND_ENTITY = "select.cic_day_max_sound_level"
-_NIGHT_SOUND_ENTITY = "select.cic_night_max_sound_level"
+# De twee geluidsniveau-selects worden per aanroep uit de bronresolutie gehaald
+# (zie ``_day_sound_entity`` / ``_night_sound_entity``). Ze stonden hier als
+# vaste entity-ID, en dan alleen in de ná-migratie vorm — waardoor deze functie
+# op elke installatie van vóór die migratie stilzwijgend niets deed.
 
 _GAS_THRESHOLD_W = 200.0  # W: boven deze waarde is de gasketel actief
 _DEAD_BAND = 2.0           # °C: geen actie binnen deze marge rond MPC-advies
@@ -343,19 +347,40 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
                 )
                 await self._async_apply_level()
 
+    @property
+    def _day_sound_entity(self) -> str | None:
+        """De dag-select, elke keer opnieuw opgezocht.
+
+        Niet één keer bij het opbouwen vastleggen: de Quatt-integratie kan er bij
+        een herstart later zijn dan wij, en een naam die dan leeg was zou blijven
+        hangen tot de volgende herstart.
+        """
+        return async_source_entity(self.hass, self._entry.entry_id, ROLE_SOUND_DAY)
+
+    @property
+    def _night_sound_entity(self) -> str | None:
+        return async_source_entity(self.hass, self._entry.entry_id, ROLE_SOUND_NIGHT)
+
     async def _async_apply_level(self) -> None:
         """Schrijf het huidige geluidsniveau naar de actieve periode-select.
 
         De inactieve select wordt teruggezet naar zijn geconfigureerde maximum,
         zodat bij periode-overgang de CIC een schone waarde aantreft.
         """
+        day_entity = self._day_sound_entity
+        night_entity = self._night_sound_entity
         if self._is_night():
-            active_entity, active_idx = _NIGHT_SOUND_ENTITY, min(self._current_level_idx, self._max_night_idx)
-            idle_entity, idle_idx = _DAY_SOUND_ENTITY, self._max_day_idx
+            active_entity, active_idx = night_entity, min(self._current_level_idx, self._max_night_idx)
+            idle_entity, idle_idx = day_entity, self._max_day_idx
         else:
-            active_entity, active_idx = _DAY_SOUND_ENTITY, min(self._current_level_idx, self._max_day_idx)
-            idle_entity, idle_idx = _NIGHT_SOUND_ENTITY, self._max_night_idx
+            active_entity, active_idx = day_entity, min(self._current_level_idx, self._max_day_idx)
+            idle_entity, idle_idx = night_entity, self._max_night_idx
         for entity_id, idx in ((active_entity, active_idx), (idle_entity, idle_idx)):
+            if not entity_id:
+                # Geen select gevonden: overslaan in plaats van de service met
+                # een lege entity-ID aanroepen.
+                _LOGGER.debug("Geluidsniveau: select niet gevonden, overgeslagen")
+                continue
             await self.hass.services.async_call(
                 "select",
                 "select_option",
@@ -372,9 +397,11 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         self._current_level_idx = self._effective_max_idx()
         try:
             for entity_id, max_idx in (
-                (_DAY_SOUND_ENTITY, self._max_day_idx),
-                (_NIGHT_SOUND_ENTITY, self._max_night_idx),
+                (self._day_sound_entity, self._max_day_idx),
+                (self._night_sound_entity, self._max_night_idx),
             ):
+                if not entity_id:
+                    continue
                 await self.hass.services.async_call(
                     "select",
                     "select_option",

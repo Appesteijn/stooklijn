@@ -79,6 +79,15 @@ ROLE_COP = "cop"
 # Databronnen-kaart komen te staan.
 ROLE_COMPRESSOR = "compressor"
 ROLE_COMPRESSOR_2 = "compressor_2"
+# De twee geluidsniveau-keuzeknoppen van de CiC.
+#
+# Deze stonden tot v0.10.1 als kale entity-ID in switch.py — en dan uitsluitend
+# in de ná-migratie vorm. Precies de valkuil die bovenaan dit bestand beschreven
+# staat: installaties van vóór de v2→v3 migratie heten
+# ``select.heatpump_cic_day_max_sound_level`` en kregen dus een geluidsfunctie
+# die stilzwijgend niets deed.
+ROLE_SOUND_DAY = "sound_day"
+ROLE_SOUND_NIGHT = "sound_night"
 # Power House-modelparameters. Alleen OpenQuatt kent deze; de Quatt-integratie
 # heeft geen equivalent, dus ze staan bewust niet in QUATT_KEYS of
 # FALLBACK_ENTITIES. Ze zijn ook geen meting maar een instelknop — de spiegels
@@ -124,6 +133,8 @@ QUATT_KEYS: dict[str, tuple[str, ...]] = {
     # Quatt-integratie; de hp1./hp2.-vorm hierboven komt uit oudere versies.
     ROLE_COMPRESSOR: ("heatPumps.0.compressorFrequency",),
     ROLE_COMPRESSOR_2: ("heatPumps.1.compressorFrequency",),
+    ROLE_SOUND_DAY: ("dayMaxSoundLevel",),
+    ROLE_SOUND_NIGHT: ("nightMaxSoundLevel",),
 }
 
 # Terugvalnamen als auto-detectie niets vindt (Quatt-integratie afwezig, of een
@@ -186,6 +197,14 @@ FALLBACK_ENTITIES: dict[str, tuple[str, ...]] = {
     ROLE_COMPRESSOR_2: (
         "sensor.heatpump_2_compressor_frequency",
         "sensor.openquatt_hp2_compressor_frequency",
+    ),
+    ROLE_SOUND_DAY: (
+        "select.heatpump_cic_day_max_sound_level",
+        "select.cic_day_max_sound_level",
+    ),
+    ROLE_SOUND_NIGHT: (
+        "select.heatpump_cic_night_max_sound_level",
+        "select.cic_night_max_sound_level",
     ),
 }
 

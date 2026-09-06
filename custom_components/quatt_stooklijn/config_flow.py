@@ -33,7 +33,7 @@ from .const import (
     CONF_CH_MAX_WATER_HYSTERESIS,
     CONF_CH_MAX_WATER_INTERVAL,
     CONF_COMFORT_FLOOR_TEMP,
-    CONF_EOS_THROTTLE_ENTITY,
+    CONF_THROTTLE_ENTITY,
     CONF_PERFORMANCE_BASELINE_DATE,
     CONF_POWER_INPUT_ENTITY,
     CONF_SOUND_LEVEL_ENABLED,
@@ -46,6 +46,7 @@ from .const import (
     CONF_QUATT_START_DATE,
     CONF_RETURN_TEMP_ENTITY,
     CONF_ROOM_SETPOINT_ENTITY,
+    CONF_ROOM_SETPOINT_FALLBACK,
     CONF_SOLAR_ENTITY,
     CONF_SUPPLY_TEMP_ENTITY,
     CONF_TEMP_ENTITIES,
@@ -55,9 +56,10 @@ from .const import (
     DEFAULT_CH_MAX_WATER_HYSTERESIS,
     DEFAULT_CH_MAX_WATER_INTERVAL,
     DEFAULT_COMFORT_FLOOR_TEMP,
-    DEFAULT_EOS_THROTTLE_ENTITY,
+    DEFAULT_THROTTLE_ENTITY,
     DEFAULT_GAS_CALORIFIC_VALUE,
     DEFAULT_QUATT_CLOUD_ENABLED,
+    DEFAULT_ROOM_SETPOINT,
     DEFAULT_HOT_WATER_TEMP_THRESHOLD,
     DEFAULT_SOLAR_ENTITY,
     DEFAULT_SOUND_LEVEL_MAX,
@@ -65,6 +67,8 @@ from .const import (
     DEFAULT_SOUND_NIGHT_END_HOUR,
     DEFAULT_WEATHER_ENTITY,
     DOMAIN,
+    ROOM_SETPOINT_MAX,
+    ROOM_SETPOINT_MIN,
     SOUND_LEVEL_OPTIONS,
 )
 from .discovery import (
@@ -432,6 +436,19 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_ROOM_SETPOINT_ENTITY,
                         _current(CONF_ROOM_SETPOINT_ENTITY, ROLE_ROOM_SETPOINT),
                     ): _entity("sensor"),
+                    # Waar het MPC-advies naartoe rekent als de thermostaat geen
+                    # setpoint levert — geen OpenTherm-koppeling, of de bron staat
+                    # even op unavailable. Levert hij er wél een, dan doet dit veld
+                    # niets: de thermostaat wint altijd.
+                    vol.Optional(
+                        CONF_ROOM_SETPOINT_FALLBACK,
+                        default=data.get(
+                            CONF_ROOM_SETPOINT_FALLBACK, DEFAULT_ROOM_SETPOINT
+                        ),
+                    ): vol.All(
+                        vol.Coerce(float),
+                        vol.Range(min=ROOM_SETPOINT_MIN, max=ROOM_SETPOINT_MAX),
+                    ),
                     _prefill(
                         CONF_COP_ENTITY, _current(CONF_COP_ENTITY, ROLE_COP)
                     ): _entity("sensor"),
@@ -504,7 +521,7 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_CH_MAX_WATER_INTERVAL,
                         default=data.get(CONF_CH_MAX_WATER_INTERVAL, DEFAULT_CH_MAX_WATER_INTERVAL),
                     ): vol.All(vol.Coerce(int), vol.Range(min=5, max=120)),
-                    # --- Energy-OS brug ---
+                    # --- Brug naar externe sturing ---
                     # Comfort-vloer: laagste acceptabele binnentemperatuur. De
                     # coast-time sensor berekent hoe lang het huis met WP uit kan
                     # uitlopen op zijn thermische massa vóór deze grens (incl. zon).
@@ -512,12 +529,13 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_COMFORT_FLOOR_TEMP,
                         default=data.get(CONF_COMFORT_FLOOR_TEMP, DEFAULT_COMFORT_FLOOR_TEMP),
                     ): vol.All(vol.Coerce(float), vol.Range(min=10.0, max=22.0)),
-                    # Optioneel: entity die aangeeft dat energy-os de WP knijpt
-                    # (cap < 20). Die periodes worden uitgesloten van de
-                    # COP/warmteverlies-analyse. Leeg = uit (geen filtering).
+                    # Optioneel: entity die aangeeft dat een externe regelaar de
+                    # WP knijpt (cap < 20) — tariefsturing, dynamisch contract, eigen
+                    # script. Die periodes worden uitgesloten van de COP- en
+                    # warmteverlies-analyse. Leeg = uit (geen filtering).
                     _prefill(
-                        CONF_EOS_THROTTLE_ENTITY,
-                        data.get(CONF_EOS_THROTTLE_ENTITY, DEFAULT_EOS_THROTTLE_ENTITY),
+                        CONF_THROTTLE_ENTITY,
+                        data.get(CONF_THROTTLE_ENTITY, DEFAULT_THROTTLE_ENTITY),
                     ): _entity(["sensor", "input_number", "number"]),
                 }
             ),

@@ -1178,7 +1178,7 @@ views:
         column_span: 2
         cards:
           - type: markdown
-            title: Veilige uitlooptijd (Energy OS comfort-guard)
+            title: Veilige uitlooptijd
             content: >
               {% set s = 'sensor.quatt_warmteanalyse_veilige_uitlooptijd' %}
 
@@ -1212,17 +1212,15 @@ views:
               {% endif %}
 
 
-              Energy OS knijpt bij een duur tarief de warmtepomp alléén zolang
-              deze tijd boven de marge ligt
-              (`input_number.eos_comfort_coast_margin_min`); daaronder krijgt
-              comfort voorrang en draait de WP weer vrij.
+              Bruikbaar als comfort-grens voor sturing van buitenaf: knijp de
+              warmtepomp alleen zolang deze tijd boven je eigen marge ligt, en geef
+              comfort voorrang zodra hij daaronder zakt.
 
               {% else %}
 
               *Nog niet beschikbaar — het RC-model is nog niet geconvergeerd, of
-              de sensor bestaat nog niet na een herstart/update. Energy OS valt
-              zolang terug op de buitentemp-heuristiek (alsof zonder
-              stooklijn).*
+              de sensor bestaat nog niet na een herstart/update. Sturing die hierop
+              leunt moet zolang op een eigen terugval draaien.*
 
               {% endif %}
             grid_options:

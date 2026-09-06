@@ -18,6 +18,8 @@ from custom_components.quatt_stooklijn.discovery import (
     ROLE_OUTDOOR_TEMP,
     ROLE_POWER_INPUT,
     ROLE_RETURN_TEMP,
+    ROLE_SOUND_DAY,
+    ROLE_SOUND_NIGHT,
     ROLE_SUPPLY_TEMP,
     ROLE_TOTAL_POWER,
     async_discover_openquatt_entities,
@@ -500,3 +502,48 @@ class TestResolveEntityMetLijst:
             _hass(MODERN), {self.CONF: [None, "  ", ""]}, self.CONF, ROLE_OUTDOOR_TEMP
         )
         assert got == "sensor.heatpump_1_temperature_outside"
+
+
+# ---------------------------------------------------------------------------
+# Geluidsniveau-selects
+# ---------------------------------------------------------------------------
+#
+# Deze twee stonden tot v0.10.1 als vaste entity-ID in switch.py, en dan alleen
+# in de moderne vorm. Op een installatie van vóór de migratie schreef de
+# geluidscompensatie dus naar een entity die niet bestaat — zonder foutmelding,
+# want de select-service klaagt daar niet over.
+
+SOUND_MODERN = [
+    _entry("select.cic_day_max_sound_level", "cic", "dayMaxSoundLevel"),
+    _entry("select.cic_night_max_sound_level", "cic", "nightMaxSoundLevel"),
+]
+
+SOUND_LEGACY = [
+    _entry("select.heatpump_cic_day_max_sound_level", "cic", "dayMaxSoundLevel"),
+    _entry("select.heatpump_cic_night_max_sound_level", "cic", "nightMaxSoundLevel"),
+]
+
+
+class TestGeluidsSelects:
+    def test_moderne_naamgeving(self):
+        found = async_discover_quatt_entities(_hass(SOUND_MODERN))
+        assert found[ROLE_SOUND_DAY] == "select.cic_day_max_sound_level"
+        assert found[ROLE_SOUND_NIGHT] == "select.cic_night_max_sound_level"
+
+    def test_legacy_naamgeving(self):
+        """De installatie die vóór de fix stilzwijgend niets deed."""
+        found = async_discover_quatt_entities(_hass(SOUND_LEGACY))
+        assert found[ROLE_SOUND_DAY] == "select.heatpump_cic_day_max_sound_level"
+        assert found[ROLE_SOUND_NIGHT] == "select.heatpump_cic_night_max_sound_level"
+
+    def test_resolver_vindt_legacy_zonder_register(self):
+        """Zonder Quatt-register telt de terugvalnaam die daadwerkelijk bestaat."""
+        hass = _hass(states={"select.heatpump_cic_day_max_sound_level": "normal"})
+        assert async_resolve_entity(hass, {}, None, ROLE_SOUND_DAY) == (
+            "select.heatpump_cic_day_max_sound_level"
+        )
+
+    def test_geen_quatt_geen_kaartenhuis(self):
+        """Geen Quatt-integratie: de resolver geeft een naam, geen exceptie."""
+        found = async_discover_quatt_entities(_hass([]))
+        assert ROLE_SOUND_DAY not in found

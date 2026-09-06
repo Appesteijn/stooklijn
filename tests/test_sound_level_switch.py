@@ -11,10 +11,32 @@ import pytest
 from custom_components.quatt_stooklijn.switch import (
     QuattSoundLevelSwitch,
     _SOUND_LEVELS,
-    _DAY_SOUND_ENTITY,
-    _NIGHT_SOUND_ENTITY,
 )
 from custom_components.quatt_stooklijn.const import MIN_FLOW_LPH
+from custom_components.quatt_stooklijn.discovery import (
+    ROLE_SOUND_DAY,
+    ROLE_SOUND_NIGHT,
+)
+
+# De selects worden niet meer als constante geïmporteerd maar via de
+# bronresolutie opgezocht, zodat ook installaties van vóór de v2→v3 migratie
+# (``select.heatpump_cic_...``) bediend worden. De tests pinnen die resolutie
+# hieronder vast op de ná-migratie namen.
+_DAY_SOUND_ENTITY = "select.cic_day_max_sound_level"
+_NIGHT_SOUND_ENTITY = "select.cic_night_max_sound_level"
+
+
+@pytest.fixture(autouse=True)
+def _pin_sound_selects():
+    """Bronresolutie vastzetten voor elke test in dit bestand."""
+    with patch(
+        "custom_components.quatt_stooklijn.switch.async_source_entity",
+        side_effect=lambda hass, entry_id, role, **kw: {
+            ROLE_SOUND_DAY: _DAY_SOUND_ENTITY,
+            ROLE_SOUND_NIGHT: _NIGHT_SOUND_ENTITY,
+        }.get(role, f"sensor.{role}"),
+    ):
+        yield
 
 
 # ---------------------------------------------------------------------------

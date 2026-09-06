@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from time import monotonic
 import logging
 from typing import Any
+from urllib.parse import quote
 
 from homeassistant.components.sensor import (
     ENTITY_ID_FORMAT,
@@ -51,6 +52,8 @@ from .const import (
     DEFAULT_QUATT_CLOUD_ENABLED,
     CONF_POWER_ENTITY,
     CONF_RETURN_TEMP_ENTITY,
+    CONF_ROOM_SETPOINT_ENTITY,
+    CONF_ROOM_SETPOINT_FALLBACK,
     CONF_SOLAR_ENTITY,
     CONF_SOUND_LEVEL_ENABLED,
     CONF_SUPPLY_TEMP_ENTITY,
@@ -62,6 +65,7 @@ from .const import (
     COMPRESSOR_STORAGE_KEY,
     COMPRESSOR_STORAGE_VERSION,
     DEFAULT_COMFORT_FLOOR_TEMP,
+    DEFAULT_ROOM_SETPOINT,
     DEFAULT_SOLAR_ENTITY,
     DEFAULT_WEATHER_ENTITY,
     DOMAIN,
@@ -73,6 +77,9 @@ from .const import (
     MPC_SUPPLY_TEMP_MAX,
     MPC_SUPPLY_TEMP_MIN,
     OPEN_METEO_FORECAST_URL,
+    SOLAR_FORECAST_MAX_AGE_SECONDS,
+    ROOM_SETPOINT_MAX,
+    ROOM_SETPOINT_MIN,
     SIGNAL_SOUND_LEVEL,
     SOLAR_RADIATION_DEFAULT_FACTOR,
 )
@@ -83,6 +90,7 @@ from .discovery import (
     ROLE_RETURN_TEMP,
     ROLE_INDOOR_TEMP,
     ROLE_OUTDOOR_TEMP,
+    ROLE_ROOM_SETPOINT,
     ROLE_SUPPLY_TEMP,
     ROLE_TOTAL_POWER,
 )
@@ -772,6 +780,11 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         self._forecast_retry = 0
         self._forecast_warned = False
         self._solar_radiation: list[float] = []  # uurlijkse shortwave W/m² van Open-Meteo
+        # De tijdstempels die bij die waarden horen (lokale tijd, uit Open-Meteo
+        # zelf) en het moment van ophalen. Zonder die twee is een reeks van
+        # gisteren niet te onderscheiden van een van vandaag.
+        self._solar_times: list[str] = []
+        self._solar_fetched_at = None
         # Online thermal model
         self._thermal_store = ThermalModelStore(coordinator.hass)
         self._thermal_loaded = False
@@ -836,18 +849,86 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             config=cfg, conf_key=CONF_POWER_ENTITY,
         )
 
-    def _get_current_solar_radiation_wm2(self) -> float:
-        """Return current hour's shortwave radiation from Open-Meteo (W/m²).
+    @property
+    def _room_setpoint_entity(self) -> str:
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_ROOM_SETPOINT,
+            config=cfg, conf_key=CONF_ROOM_SETPOINT_ENTITY,
+        )
 
-        Used as solar input for the RC model instead of PV output, because:
-        - W/m² is a direct physical measure of incoming solar energy
-        - No collinearity with outdoor temperature through PV panel characteristics
-        - g_solar becomes physically meaningful: effective_window_area × SHGC
+    def _resolve_room_setpoint(self) -> tuple[float, str]:
+        """Het kamerdoel waar het advies op rekent, en waar het vandaan komt.
+
+        De thermostaat weet dit zelf, dus die is de bron. Een vaste waarde is
+        hier geen neutrale keuze maar een aanname over het huis: het advies is
+        lineair in ``t_setpoint − t_binnen``, dus wie anders stookt dan de
+        aangehouden waarde kreeg elk uur van de dag een advies dat er even ver
+        naast zat.
+
+        De terugval is instelbaar en niet hardgecodeerd. Juist de installatie
+        die de sensor niet heeft — een thermostaat die niet via OpenTherm aan de
+        CiC hangt — zou anders permanent op andermans kamertemperatuur rekenen,
+        zonder enige manier om dat te corrigeren.
+
+        Teruggegeven wordt ook waar de waarde vandaan komt. Zonder die
+        markering is een advies dat op de terugval draait niet te onderscheiden
+        van een advies dat de thermostaat volgt — en dat verschil is precies
+        wat je wilt zien als het advies raar oogt.
         """
-        now_hour = dt_util.now().hour
-        if self._solar_radiation and now_hour < len(self._solar_radiation):
-            return float(self._solar_radiation[now_hour])
-        return 0.0
+        value = get_float_state(self.hass, self._room_setpoint_entity)
+        if value is not None and ROOM_SETPOINT_MIN <= value <= ROOM_SETPOINT_MAX:
+            return value, "thermostaat"
+        cfg = {**self._entry.data, **self._entry.options}
+        return (
+            cfg.get(CONF_ROOM_SETPOINT_FALLBACK, DEFAULT_ROOM_SETPOINT),
+            "terugval",
+        )
+
+    @property
+    def _solar_forecast_is_fresh(self) -> bool:
+        """Of de opgehaalde stralingsreeks nog meetelt."""
+        if not self._solar_radiation or self._solar_fetched_at is None:
+            return False
+        age = (dt_util.utcnow() - self._solar_fetched_at).total_seconds()
+        return age <= SOLAR_FORECAST_MAX_AGE_SECONDS
+
+    def _solar_radiation_at(self, moment) -> float | None:
+        """Straling (W/m²) op het hele uur van ``moment``, of None als onbekend.
+
+        Zoekt op tijdstempel in ``hourly.time``, niet op uur-index. Open-Meteo
+        levert die reeks in de tijdzone die we zelf hebben meegegeven, dus een
+        gelijke stempel is per definitie hetzelfde uur — ook op de dagen dat er
+        een uur verdwijnt of dubbel voorkomt.
+        """
+        if not self._solar_forecast_is_fresh:
+            return None
+        stamp = moment.astimezone(dt_util.now().tzinfo).strftime("%Y-%m-%dT%H:00")
+        try:
+            idx = self._solar_times.index(stamp)
+        except ValueError:
+            return None
+        if idx >= len(self._solar_radiation):
+            return None
+        value = self._solar_radiation[idx]
+        return float(value) if value is not None else None
+
+    def _get_current_solar_radiation_wm2(self) -> float | None:
+        """Straling van dit uur (W/m²), of None als die niet bekend is.
+
+        Bewust ``None`` en niet ``0.0``. Een nul is een uitspraak — het is donker
+        — en die uitspraak ging tot v0.10.1 ook de RC-regressie in zodra
+        Open-Meteo onbereikbaar was. Zonnewinst belandt dan in het residu, θ₁ en
+        θ₂ verklaren dezelfde trage drift, en het geleerde warmteverlies zakt weg
+        terwijl ``converged`` gewoon ``true`` blijft. Precies die fout, alleen
+        stil en bij iedereen zonder internet naar Open-Meteo.
+
+        Gebruikt als zonne-invoer voor het RC-model in plaats van PV-opbrengst:
+        - W/m² is een directe fysische maat voor inkomende zonne-energie
+        - geen collineariteit met buitentemperatuur via paneelkarakteristieken
+        - g_solar wordt fysisch betekenisvol: effectief raamoppervlak × ZTA
+        """
+        return self._solar_radiation_at(dt_util.now())
 
     @property
     def thermal_model(self) -> OnlineRCModel | None:
@@ -880,7 +961,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         Gedeeld door de MPC-sensor en de coast-time sensor.
         """
         now_utc = dt_util.utcnow()
-        now_hour = dt_util.now().hour
+        now_local = dt_util.now()
 
         # Build time-indexed lookup: hours_from_now -> forecast point
         fc_lookup: dict[int, dict] = {}
@@ -915,15 +996,19 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 break
 
             fc_temps.append(fc_temp)
-            rad_idx = now_hour + i
-            rad_wm2 = 0.0
-            if self._solar_radiation and rad_idx < len(self._solar_radiation):
-                rad_wm2 = self._solar_radiation[rad_idx]
-            fc_solar_wm2.append(rad_wm2)
+            # Op tijdstempel opzoeken, niet op ``nu + i`` als index: de reeks
+            # begint om middernacht en niet bij dit uur, en op een dag met een
+            # DST-overgang klopt uur-rekenwerk sowieso niet.
+            rad = self._solar_radiation_at(now_local + timedelta(hours=i))
+            # Voor de simulatie moet er een getal staan. Nul is hier de veilige
+            # kant: geen zon meerekenen vraagt eerder te veel warmte dan te
+            # weinig. ``shortwave_wm2`` blijft None zodat in de tabel zichtbaar
+            # is dat het een aanname was en geen verwachting.
+            fc_solar_wm2.append(rad if rad is not None else 0.0)
             fc_meta.append({
                 "datetime": fc_dt_str,
                 "condition": fc_condition,
-                "shortwave_wm2": rad_wm2,
+                "shortwave_wm2": rad,
             })
         return fc_temps, fc_solar_wm2, fc_meta
 
@@ -937,7 +1022,12 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 self.hass,
                 candidate_entities(
                     self.hass, self._entry.entry_id,
-                    (ROLE_OUTDOOR_TEMP, ROLE_FLOW_RATE, ROLE_RETURN_TEMP),
+                    # Het kamerdoel hoort hierbij: verzet de bewoner de
+                    # thermostaat, dan verandert het advies mee, en zonder deze
+                    # rol zou dat pas zichtbaar worden bij de eerstvolgende
+                    # verandering van buitentemp, debiet of retour.
+                    (ROLE_OUTDOOR_TEMP, ROLE_FLOW_RATE, ROLE_RETURN_TEMP,
+                     ROLE_ROOM_SETPOINT),
                     extra=(self._solar_entity,),
                 ),
                 self._handle_state_change,
@@ -981,11 +1071,17 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             t_outdoor = get_float_state(self.hass, self._outdoor_entity)
             q_hp = get_float_state(self.hass, self._power_entity) or 0.0
             q_solar_wm2 = self._get_current_solar_radiation_wm2()
-            if t_indoor is not None and t_outdoor is not None:
+            if t_indoor is not None and t_outdoor is not None and q_solar_wm2 is not None:
                 model.update(t_indoor, t_outdoor, q_hp, q_solar_wm2, dt_util.utcnow())
                 _LOGGER.info(
                     "RC model primed with initial values: T_in=%.1f, T_out=%.1f",
                     t_indoor, t_outdoor,
+                )
+            elif q_solar_wm2 is None:
+                _LOGGER.info(
+                    "RC model niet geprimed: zonnestraling onbekend. Het model "
+                    "voeden met nul zou de zonnewinst in het residu duwen en het "
+                    "geleerde warmteverlies wegtrekken."
                 )
             else:
                 _LOGGER.debug(
@@ -1019,7 +1115,16 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             q_hp = get_float_state(self.hass, self._power_entity) or 0.0
             q_solar_wm2 = self._get_current_solar_radiation_wm2()
 
-            if t_indoor is not None and t_outdoor is not None:
+            if q_solar_wm2 is None:
+                # Geen straling bekend: niet leren. Een uur overslaan kost bijna
+                # niets — het RLS-venster is ~500 uur — terwijl doorrekenen met
+                # een verzonnen nul de zonnewinst in het residu duwt en U stil
+                # laat wegzakken, met ``converged`` nog gewoon op true.
+                _LOGGER.info(
+                    "RC model update overgeslagen: zonnestraling onbekend "
+                    "(Open-Meteo onbereikbaar of reeks verouderd)."
+                )
+            elif t_indoor is not None and t_outdoor is not None:
                 updated = self._thermal_store.model.update(
                     t_indoor, t_outdoor, q_hp, q_solar_wm2, dt_util.utcnow()
                 )
@@ -1120,18 +1225,38 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     async def _async_refresh_solar_radiation(self, _=None) -> None:
         """Haal shortwave_radiation forecast op van Open-Meteo (gratis, geen API key).
 
-        Gebruikt lat/lon uit HA config — geen handmatige instelling nodig.
-        Slaat 48 uurlijkse W/m² waarden op in self._solar_radiation.
+        Lat/lon én tijdzone komen uit de HA-config — geen handmatige instelling
+        nodig, en de reeks komt terug in dezelfde zone als waarin hij hier wordt
+        uitgelezen.
+
+        Naast de waarden wordt ``hourly.time`` bewaard. Op uur-index rekenen ging
+        mis op de twee dagen per jaar dat een dag 23 of 25 uur telt; op tijdstempel
+        zoeken kan dat per constructie niet.
         """
         lat = self.hass.config.latitude
         lon = self.hass.config.longitude
-        url = OPEN_METEO_FORECAST_URL.format(lat=lat, lon=lon)
+        tz = quote(self.hass.config.time_zone or "UTC", safe="")
+        url = OPEN_METEO_FORECAST_URL.format(lat=lat, lon=lon, tz=tz)
         try:
             session = async_get_clientsession(self.hass)
             async with session.get(url, timeout=10) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    self._solar_radiation = data.get("hourly", {}).get("shortwave_radiation", [])
+                    hourly = data.get("hourly", {})
+                    values = hourly.get("shortwave_radiation") or []
+                    times = hourly.get("time") or []
+                    if values and len(times) == len(values):
+                        self._solar_radiation = values
+                        self._solar_times = times
+                        self._solar_fetched_at = dt_util.utcnow()
+                    else:
+                        # Een half antwoord is geen antwoord: liever de vorige
+                        # reeks laten staan (die verloopt vanzelf) dan hier een
+                        # reeks neerzetten waarvan de uren niet vaststaan.
+                        _LOGGER.debug(
+                            "Open-Meteo: onbruikbaar antwoord (%d waarden, %d tijden)",
+                            len(values), len(times),
+                        )
                 else:
                     _LOGGER.debug("Open-Meteo response %s", resp.status)
         except Exception:
@@ -1158,9 +1283,14 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         if self._thermal_loaded and model.is_converged:
             t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
             if t_indoor is not None:
-                q_solar_wm2 = self._get_current_solar_radiation_wm2()
+                # Voor een advies moet er een getal staan. Onbekend telt hier als
+                # geen zon: dat vraagt eerder te veel warmte dan te weinig, en dat
+                # is de goede kant om op te falen. Leren gebeurt hier niet — daar
+                # wordt een onbekende straling wél overgeslagen.
+                q_solar_wm2 = self._get_current_solar_radiation_wm2() or 0.0
+                t_setpoint, _ = self._resolve_room_setpoint()
                 q_needed = model.calc_required_power(
-                    t_indoor, t_outdoor, q_solar_wm2, t_setpoint=20.0,
+                    t_indoor, t_outdoor, q_solar_wm2, t_setpoint=t_setpoint,
                 )
                 if q_needed <= 0:
                     # Kamer op of boven setpoint: geen vraag, geen advies. De
@@ -1182,7 +1312,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         if heat_loss.slope is None or heat_loss.intercept is None or heat_loss.balance_point is None:
             return None
 
-        solar_gain_w = self._get_current_solar_radiation_wm2() * SOLAR_RADIATION_DEFAULT_FACTOR
+        solar_gain_w = (self._get_current_solar_radiation_wm2() or 0.0) * SOLAR_RADIATION_DEFAULT_FACTOR
         return _calc_mpc_supply_temp(
             heat_loss.slope,
             heat_loss.intercept,
@@ -1201,6 +1331,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         flow_lph = get_float_state(self.hass, self._flow_entity)
         effective_flow = get_effective_flow(flow_lph)
         solar_w = get_float_state(self.hass, self._solar_entity) or 0.0
+        room_setpoint, room_setpoint_source = self._resolve_room_setpoint()
 
         # Thermal model parameters
         model = self._thermal_store.model
@@ -1218,7 +1349,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             if raw is not None and raw["g"] > 0:
                 solar_factor = raw["g"]
 
-        solar_gain_w = self._get_current_solar_radiation_wm2() * solar_factor
+        solar_gain_w = (self._get_current_solar_radiation_wm2() or 0.0) * solar_factor
 
         # Build forecast arrays (shared with the coast-time sensor).
         fc_temps, fc_solar_wm2, fc_meta = self.build_forecast_arrays(t_outdoor)
@@ -1242,6 +1373,10 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                     flow_lph=effective_flow,
                     forecast_t_outdoor=fc_temps,
                     forecast_q_solar=fc_solar_wm2,
+                    # Expliciet, ook al is het de default van de functie: de hele
+                    # tabel hangt hieraan, en een stil meegenomen default is
+                    # precies hoe deze waarde eerder aan het zicht ontsnapte.
+                    t_setpoint=room_setpoint,
                     max_hours=MPC_FORECAST_HOURS,
                     comfort_floor=self._comfort_floor,
                 )
@@ -1265,10 +1400,11 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
             if t_indoor is not None:
                 raw_demand = model.calc_required_power(
-                    t_indoor, t_outdoor, 0.0, t_setpoint=20.0,
+                    t_indoor, t_outdoor, 0.0, t_setpoint=room_setpoint,
                 )
                 net_demand = model.calc_required_power(
-                    t_indoor, t_outdoor, current_rad_wm2, t_setpoint=20.0,
+                    t_indoor, t_outdoor, current_rad_wm2 or 0.0,
+                    t_setpoint=room_setpoint,
                 )
         elif self.coordinator.data is not None:
             heat_loss = self.coordinator.data.heat_loss_hp
@@ -1290,13 +1426,23 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             "solar_factor_w_per_wm2": round(solar_factor, 3),
             "heat_demand_w": round(raw_demand) if raw_demand is not None else None,
             "net_demand_w": round(net_demand) if net_demand is not None else None,
-            "solar_radiation_wm2": round(current_rad_wm2),
+            # None als de reeks ontbreekt of verouderd is — een nul zou hier
+            # niet te onderscheiden zijn van een echte nacht.
+            "solar_radiation_wm2": (
+                round(current_rad_wm2) if current_rad_wm2 is not None else None
+            ),
+            "solar_forecast_fresh": self._solar_forecast_is_fresh,
             "stored_heat_kwh": stored_heat_kwh(
                 model.raw_params["C"] if model.raw_params else None,
                 get_float_state(self.hass, self._indoor_temp_entity),
                 self._comfort_floor,
             ),
             "comfort_floor": self._comfort_floor,
+            # Waar het advies naartoe rekent, en of dat de thermostaat is of de
+            # terugval. Zonder dit tweede veld is een advies dat op een vaste
+            # 20 °C draait niet te herkennen.
+            "room_setpoint": room_setpoint,
+            "room_setpoint_source": room_setpoint_source,
             "model_source": model_source,
             **{f"model_{k}": v for k, v in model_params.items()},
             # Horizon-neutrale naam: heette forecast_6h toen de simulatie op zes
@@ -1375,16 +1521,16 @@ class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorE
     """Veilige uitlooptijd: hoeveel minuten het huis met de warmtepomp UIT kan
     uitlopen op zijn thermische massa vóór de binnentemp de comfort-vloer raakt.
 
-    Voedt energy-os: bij een duur tarief mag de WP geknepen worden en draagt de
-    batterij de last — maar alleen zolang het huis veilig kan uitlopen. De
-    Open-Meteo zon-forecast gaat mee in de simulatie, dus voorspelde zon
+    Bedoeld als comfort-grens voor sturing van buitenaf: bij een duur tarief
+    mag de WP geknepen worden — maar alleen zolang het huis veilig kan uitlopen.
+    De Open-Meteo zon-forecast gaat mee in de simulatie, dus voorspelde zon
     verlengt de coast-tijd (de geleerde g·Q_solar-term remt de afkoeling).
 
     Hergebruikt het online RC-model én de forecast van de MPC-sensor, zodat er
     geen tweede model getraind of forecast opgehaald hoeft te worden.
 
-    Niet beschikbaar tot het RC-model geconvergeerd is (≈2 dagen data); energy-os
-    valt dan terug op zijn eigen heuristiek.
+    Niet beschikbaar tot het RC-model geconvergeerd is (≈2 dagen data); sturing
+    die hierop leunt moet zolang op een eigen terugval draaien.
     """
 
     _attr_has_entity_name = True
@@ -1407,7 +1553,7 @@ class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorE
         # Pin een deterministische entity-id, los van de device-naam/area.
         # Anders bouwt HA de id voor deze (nieuwe) entity op uit de area van
         # het device (bijv. "Bijkeuken") → sensor.bijkeuken_quatt_warmteanalyse_…,
-        # terwijl het dashboard en energy-os de schone id verwachten.
+        # terwijl het dashboard en externe automations de schone id verwachten.
         self.entity_id = async_generate_entity_id(
             ENTITY_ID_FORMAT,
             "quatt_warmteanalyse_veilige_uitlooptijd",
