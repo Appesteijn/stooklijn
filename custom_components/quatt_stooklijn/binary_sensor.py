@@ -45,7 +45,7 @@ class QuattGasActiveSensor(BinarySensorEntity):
     """Binary sensor: gasketel actief als aanvulling op de warmtepomp."""
 
     _attr_has_entity_name = True
-    _attr_name = "Gasketel Actief"
+    _attr_translation_key = "gas_active"
     _attr_icon = "mdi:fire"
     _attr_device_class = BinarySensorDeviceClass.HEAT
 

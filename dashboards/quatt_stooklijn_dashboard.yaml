@@ -1609,7 +1609,8 @@ views:
                 yaxis_id: temp
                 color: "#26A69A"
                 stroke_width: 1.5
-              - entity: number.cic_max_water_temperature
+              - entity: sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling
+                attribute: limit_c
                 name: Ingestelde limiet
                 yaxis_id: temp
                 color: "#F44336"
@@ -1699,7 +1700,7 @@ views:
 
               {% set setpoint = states('sensor.quatt_warmteanalyse_thermostaat_setpoint') | float(none) %}
 
-              {% set limiet = states('number.cic_max_water_temperature') | float(none) %}
+              {% set limiet = state_attr(s, 'limit_c') | float(none) %}
 
               {% set werkelijk = states('sensor.quatt_warmteanalyse_aanvoertemperatuur') | float(none) %}
 

@@ -115,7 +115,14 @@
   },
   "entity": {
     "sensor": {
+      "aanvoertemperatuur": {
+        "name": "Température de départ"
+      },
+      "advice_parameters": {
+        "name": "Paramètres de conseil Quatt"
+      },
       "analysis_status": {
+        "name": "État de l'analyse",
         "state": {
           "idle": "Pas encore exécuté",
           "running": "En cours…",
@@ -123,6 +130,132 @@
           "no_data": "Terminé — pas encore de données de chauffe",
           "error": "Erreur"
         }
+      },
+      "average_cop": {
+        "name": "COP moyen"
+      },
+      "balance_point": {
+        "name": "Température d'équilibre"
+      },
+      "buitentemperatuur": {
+        "name": "Température extérieure"
+      },
+      "ch_max_water_setting": {
+        "name": "Réglage température de départ max"
+      },
+      "coast_time": {
+        "name": "Temps d'inertie sûr"
+      },
+      "compressor_starts": {
+        "name": "Démarrages du compresseur"
+      },
+      "compressorfrequentie": {
+        "name": "Fréquence du compresseur"
+      },
+      "cop": {
+        "name": "COP"
+      },
+      "cop_performance": {
+        "name": "Performance COP"
+      },
+      "data_stats": {
+        "name": "Statistiques de données"
+      },
+      "debiet": {
+        "name": "Débit"
+      },
+      "estimated_cop": {
+        "name": "COP actuel estimé"
+      },
+      "freezing_performance_slope": {
+        "name": "Pente de performance par gel"
+      },
+      "gas_heat_loss_coefficient": {
+        "name": "Coefficient de déperdition gaz"
+      },
+      "heat_demand": {
+        "name": "Demande de chaleur"
+      },
+      "heat_loss_coefficient": {
+        "name": "Coefficient de déperdition"
+      },
+      "kamer_setpoint": {
+        "name": "Consigne d'ambiance"
+      },
+      "kamertemperatuur": {
+        "name": "Température ambiante"
+      },
+      "ketelvermogen": {
+        "name": "Puissance chaudière"
+      },
+      "knee_temperature": {
+        "name": "Point de rupture"
+      },
+      "last_analysis": {
+        "name": "Dernière analyse"
+      },
+      "mpc_recommended_supply_temp": {
+        "name": "Température de départ recommandée MPC"
+      },
+      "mpc_supply_temp_error": {
+        "name": "Écart de température de départ MPC"
+      },
+      "openquatt_balance_point": {
+        "name": "Point d'équilibre OpenQuatt"
+      },
+      "openquatt_curve": {
+        "name": "Courbe de chauffe OpenQuatt"
+      },
+      "opgenomen_vermogen": {
+        "name": "Puissance absorbée"
+      },
+      "optimal_stooklijn_slope": {
+        "name": "Pente de courbe optimale"
+      },
+      "power_house_calibration": {
+        "name": "Calibrage OpenQuatt Power House"
+      },
+      "quatt_stooklijn_slope": {
+        "name": "Pente de courbe Quatt"
+      },
+      "recommended_supply_temp": {
+        "name": "Température de départ recommandée"
+      },
+      "retourtemperatuur": {
+        "name": "Température de retour"
+      },
+      "sound_level": {
+        "name": "Niveau sonore"
+      },
+      "source_overview": {
+        "name": "Sources de données"
+      },
+      "stooklijn_supply_temp_error": {
+        "name": "Écart de température de départ courbe"
+      },
+      "stored_heat": {
+        "name": "Chaleur stockée"
+      },
+      "thermisch_vermogen": {
+        "name": "Puissance thermique"
+      },
+      "thermostaat_setpoint": {
+        "name": "Consigne du thermostat"
+      }
+    },
+    "binary_sensor": {
+      "gas_active": {
+        "name": "Chaudière gaz active"
+      }
+    },
+    "switch": {
+      "sound_level_compensation": {
+        "name": "Compensation du niveau sonore"
+      }
+    },
+    "text": {
+      "analysis_start_date": {
+        "name": "Date de début d'analyse"
       }
     }
   },

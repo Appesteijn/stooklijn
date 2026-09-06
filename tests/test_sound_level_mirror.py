@@ -69,7 +69,9 @@ class TestSwitchPublishesLevel:
 class TestSensorReadsLevel:
 
     def _make_sensor(self, hass_data: dict) -> QuattSoundLevelSensor:
-        sensor = QuattSoundLevelSensor(_entry())
+        # De sensor pint zijn entity-id en heeft daarvoor hass nodig; de
+        # naam komt uit de vertaling en zou de id anders taalafhankelijk maken.
+        sensor = QuattSoundLevelSensor(MagicMock(), _entry())
         sensor.hass = MagicMock()
         sensor.hass.data = hass_data
         sensor.async_on_remove = MagicMock()

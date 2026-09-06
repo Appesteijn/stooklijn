@@ -5,9 +5,10 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from homeassistant.components.text import TextEntity, TextMode
+from homeassistant.components.text import ENTITY_ID_FORMAT, TextEntity, TextMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import CONF_QUATT_START_DATE, DOMAIN
@@ -26,7 +27,7 @@ async def async_setup_entry(
     coordinator: QuattStooklijnCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     async_add_entities([
-        QuattDateText(coordinator, entry, CONF_QUATT_START_DATE, "Analyse Startdatum"),
+        QuattDateText(coordinator, entry, CONF_QUATT_START_DATE, "analysis_start_date"),
     ])
 
 
@@ -42,16 +43,21 @@ class QuattDateText(TextEntity):
         coordinator: QuattStooklijnCoordinator,
         entry: ConfigEntry,
         config_key: str,
-        name: str,
+        translation_key: str,
     ) -> None:
         """Initialize the text entity."""
         self._coordinator = coordinator
         self._entry = entry
         self._config_key = config_key
-        self._attr_name = name
+        self._attr_translation_key = translation_key
         self._attr_unique_id = f"{entry.entry_id}_{config_key}"
         self._attr_icon = "mdi:calendar"
         self._attr_device_info = get_device_info(entry.entry_id)
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            "quatt_warmteanalyse_analyse_startdatum",
+            hass=coordinator.hass,
+        )
 
     @property
     def native_value(self) -> str | None:

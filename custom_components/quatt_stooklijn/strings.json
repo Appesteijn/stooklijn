@@ -123,7 +123,14 @@
   },
   "entity": {
     "sensor": {
+      "aanvoertemperatuur": {
+        "name": "Supply temperature"
+      },
+      "advice_parameters": {
+        "name": "Quatt advice parameters"
+      },
       "analysis_status": {
+        "name": "Analysis status",
         "state": {
           "idle": "Idle",
           "running": "Running…",
@@ -131,6 +138,132 @@
           "no_data": "Completed — no heating data yet",
           "error": "Error"
         }
+      },
+      "average_cop": {
+        "name": "Average COP"
+      },
+      "balance_point": {
+        "name": "Balance point temperature"
+      },
+      "buitentemperatuur": {
+        "name": "Outdoor temperature"
+      },
+      "ch_max_water_setting": {
+        "name": "Max supply temperature setting"
+      },
+      "coast_time": {
+        "name": "Safe coast time"
+      },
+      "compressor_starts": {
+        "name": "Compressor starts"
+      },
+      "compressorfrequentie": {
+        "name": "Compressor frequency"
+      },
+      "cop": {
+        "name": "COP"
+      },
+      "cop_performance": {
+        "name": "COP performance"
+      },
+      "data_stats": {
+        "name": "Data statistics"
+      },
+      "debiet": {
+        "name": "Flow rate"
+      },
+      "estimated_cop": {
+        "name": "Estimated current COP"
+      },
+      "freezing_performance_slope": {
+        "name": "Freezing performance slope"
+      },
+      "gas_heat_loss_coefficient": {
+        "name": "Gas heat loss coefficient"
+      },
+      "heat_demand": {
+        "name": "Heat demand"
+      },
+      "heat_loss_coefficient": {
+        "name": "Heat loss coefficient"
+      },
+      "kamer_setpoint": {
+        "name": "Room setpoint"
+      },
+      "kamertemperatuur": {
+        "name": "Room temperature"
+      },
+      "ketelvermogen": {
+        "name": "Boiler power"
+      },
+      "knee_temperature": {
+        "name": "Knee temperature"
+      },
+      "last_analysis": {
+        "name": "Last analysis"
+      },
+      "mpc_recommended_supply_temp": {
+        "name": "MPC recommended supply temperature"
+      },
+      "mpc_supply_temp_error": {
+        "name": "MPC supply temperature error"
+      },
+      "openquatt_balance_point": {
+        "name": "OpenQuatt balance point"
+      },
+      "openquatt_curve": {
+        "name": "OpenQuatt heating curve"
+      },
+      "opgenomen_vermogen": {
+        "name": "Electrical input"
+      },
+      "optimal_stooklijn_slope": {
+        "name": "Optimal heating curve slope"
+      },
+      "power_house_calibration": {
+        "name": "OpenQuatt Power House calibration"
+      },
+      "quatt_stooklijn_slope": {
+        "name": "Quatt heating curve slope"
+      },
+      "recommended_supply_temp": {
+        "name": "Recommended supply temperature"
+      },
+      "retourtemperatuur": {
+        "name": "Return temperature"
+      },
+      "sound_level": {
+        "name": "Sound level"
+      },
+      "source_overview": {
+        "name": "Data sources"
+      },
+      "stooklijn_supply_temp_error": {
+        "name": "Heating curve supply temperature error"
+      },
+      "stored_heat": {
+        "name": "Stored heat"
+      },
+      "thermisch_vermogen": {
+        "name": "Thermal power"
+      },
+      "thermostaat_setpoint": {
+        "name": "Thermostat setpoint"
+      }
+    },
+    "binary_sensor": {
+      "gas_active": {
+        "name": "Gas boiler active"
+      }
+    },
+    "switch": {
+      "sound_level_compensation": {
+        "name": "Sound level compensation"
+      }
+    },
+    "text": {
+      "analysis_start_date": {
+        "name": "Analysis start date"
       }
     }
   },

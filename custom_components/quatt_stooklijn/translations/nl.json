@@ -115,7 +115,14 @@
   },
   "entity": {
     "sensor": {
+      "aanvoertemperatuur": {
+        "name": "Aanvoertemperatuur"
+      },
+      "advice_parameters": {
+        "name": "Quatt advies parameters"
+      },
       "analysis_status": {
+        "name": "Analysestatus",
         "state": {
           "idle": "Nog niet gedraaid",
           "running": "Bezig…",
@@ -123,6 +130,132 @@
           "no_data": "Voltooid — nog geen stookdata",
           "error": "Fout"
         }
+      },
+      "average_cop": {
+        "name": "Gemiddelde COP"
+      },
+      "balance_point": {
+        "name": "Stookgrens"
+      },
+      "buitentemperatuur": {
+        "name": "Buitentemperatuur"
+      },
+      "ch_max_water_setting": {
+        "name": "Max aanvoertemperatuur instelling"
+      },
+      "coast_time": {
+        "name": "Veilige uitlooptijd"
+      },
+      "compressor_starts": {
+        "name": "Compressorstarts"
+      },
+      "compressorfrequentie": {
+        "name": "Compressorfrequentie"
+      },
+      "cop": {
+        "name": "COP"
+      },
+      "cop_performance": {
+        "name": "COP prestatie"
+      },
+      "data_stats": {
+        "name": "Datastatistieken"
+      },
+      "debiet": {
+        "name": "Debiet"
+      },
+      "estimated_cop": {
+        "name": "Geschatte actuele COP"
+      },
+      "freezing_performance_slope": {
+        "name": "Vriesprestatie helling"
+      },
+      "gas_heat_loss_coefficient": {
+        "name": "Warmteverliescoëfficiënt gas"
+      },
+      "heat_demand": {
+        "name": "Warmtevraag"
+      },
+      "heat_loss_coefficient": {
+        "name": "Warmteverliescoëfficiënt"
+      },
+      "kamer_setpoint": {
+        "name": "Kamer setpoint"
+      },
+      "kamertemperatuur": {
+        "name": "Kamertemperatuur"
+      },
+      "ketelvermogen": {
+        "name": "Ketelvermogen"
+      },
+      "knee_temperature": {
+        "name": "Knikpunt"
+      },
+      "last_analysis": {
+        "name": "Laatste analyse"
+      },
+      "mpc_recommended_supply_temp": {
+        "name": "MPC aanbevolen aanvoertemperatuur"
+      },
+      "mpc_supply_temp_error": {
+        "name": "MPC fout aanvoertemperatuur"
+      },
+      "openquatt_balance_point": {
+        "name": "OpenQuatt stookgrens"
+      },
+      "openquatt_curve": {
+        "name": "OpenQuatt stooklijn"
+      },
+      "opgenomen_vermogen": {
+        "name": "Opgenomen vermogen"
+      },
+      "optimal_stooklijn_slope": {
+        "name": "Optimale stooklijn helling"
+      },
+      "power_house_calibration": {
+        "name": "OpenQuatt Power House kalibratie"
+      },
+      "quatt_stooklijn_slope": {
+        "name": "Quatt stooklijn helling"
+      },
+      "recommended_supply_temp": {
+        "name": "Aanbevolen aanvoertemperatuur"
+      },
+      "retourtemperatuur": {
+        "name": "Retourtemperatuur"
+      },
+      "sound_level": {
+        "name": "Geluidsniveau"
+      },
+      "source_overview": {
+        "name": "Databronnen"
+      },
+      "stooklijn_supply_temp_error": {
+        "name": "Stooklijn fout aanvoertemperatuur"
+      },
+      "stored_heat": {
+        "name": "Opgeslagen warmte"
+      },
+      "thermisch_vermogen": {
+        "name": "Thermisch vermogen"
+      },
+      "thermostaat_setpoint": {
+        "name": "Thermostaat setpoint"
+      }
+    },
+    "binary_sensor": {
+      "gas_active": {
+        "name": "Gasketel actief"
+      }
+    },
+    "switch": {
+      "sound_level_compensation": {
+        "name": "Geluidsniveau compensatie"
+      }
+    },
+    "text": {
+      "analysis_start_date": {
+        "name": "Analyse startdatum"
       }
     }
   },

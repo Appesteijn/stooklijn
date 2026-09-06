@@ -122,11 +122,13 @@ def _stub_ha():
     switch_mod.SwitchEntity = type(
         "SwitchEntity", (), {"async_write_ha_state": lambda self: None}
     )
+    switch_mod.ENTITY_ID_FORMAT = "switch.{}"
 
     # Text stubs
     text_mod = sys.modules["homeassistant.components.text"]
     text_mod.TextEntity = type("TextEntity", (), {})
     text_mod.TextMode = MagicMock()
+    text_mod.ENTITY_ID_FORMAT = "text.{}"
 
     # Coordinator stubs
     coord_mod = sys.modules["homeassistant.helpers.update_coordinator"]

@@ -23,10 +23,11 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.switch import ENTITY_ID_FORMAT, SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -98,7 +99,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
     """Switch om geluidsniveau-compensatie aan/uit te zetten."""
 
     _attr_has_entity_name = True
-    _attr_name = "Geluidsniveau Compensatie"
+    _attr_translation_key = "sound_level_compensation"
     _attr_icon = "mdi:volume-high"
 
     def __init__(
@@ -111,6 +112,13 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_sound_level_compensation"
         self._attr_device_info = get_device_info(entry.entry_id)
+        # Vaste entity-id: de naam komt uit de vertaling en zou de id anders
+        # taalafhankelijk maken, terwijl het dashboard hem hard noemt.
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            "quatt_warmteanalyse_geluidsniveau_compensatie",
+            hass=hass,
+        )
 
         self._is_on = True  # standaard aan: config-optie = feature actief
         self._current_level_idx: int = _NORMAL_IDX

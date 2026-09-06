@@ -203,16 +203,12 @@ The dashboard has five tabs:
 
 ### Adapting the dashboard to your setup
 
-Almost nothing needs adapting. The dashboard references only `sensor.quatt_warmteanalyse_*`
+Nothing needs adapting. The dashboard references only `sensor.quatt_warmteanalyse_*`
 entities, which this integration creates itself with fixed entity IDs. Those keep working no
 matter which integration delivers the underlying measurement, and no matter how your Quatt
-sensors happen to be named.
-
-One exception:
-
-| Entity ID | What to do |
-|-----------|------------|
-| `number.cic_max_water_temperature` | Used by the supply-temperature limiting card. Comes from the Quatt integration; replace it if yours is named differently, or ignore the card if you do not use that feature. |
+sensors happen to be named — the supply-temperature limit is read through an attribute on the
+integration's own sensor rather than through a Quatt entity ID, so the pre/post device-migration
+naming difference does not matter.
 
 Cards for optional features hide themselves when the feature is off, so an unused card does
 not show errors — it simply is not there.

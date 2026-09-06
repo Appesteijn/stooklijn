@@ -115,7 +115,14 @@
   },
   "entity": {
     "sensor": {
+      "aanvoertemperatuur": {
+        "name": "Vorlauftemperatur"
+      },
+      "advice_parameters": {
+        "name": "Quatt Empfehlungsparameter"
+      },
       "analysis_status": {
+        "name": "Analysestatus",
         "state": {
           "idle": "Noch nicht ausgeführt",
           "running": "Läuft…",
@@ -123,6 +130,132 @@
           "no_data": "Abgeschlossen — noch keine Heizdaten",
           "error": "Fehler"
         }
+      },
+      "average_cop": {
+        "name": "Durchschnittlicher COP"
+      },
+      "balance_point": {
+        "name": "Heizgrenztemperatur"
+      },
+      "buitentemperatuur": {
+        "name": "Außentemperatur"
+      },
+      "ch_max_water_setting": {
+        "name": "Max. Vorlauftemperatur-Einstellung"
+      },
+      "coast_time": {
+        "name": "Sichere Auslaufzeit"
+      },
+      "compressor_starts": {
+        "name": "Verdichterstarts"
+      },
+      "compressorfrequentie": {
+        "name": "Verdichterfrequenz"
+      },
+      "cop": {
+        "name": "COP"
+      },
+      "cop_performance": {
+        "name": "COP-Leistung"
+      },
+      "data_stats": {
+        "name": "Datenstatistik"
+      },
+      "debiet": {
+        "name": "Durchfluss"
+      },
+      "estimated_cop": {
+        "name": "Geschätzter aktueller COP"
+      },
+      "freezing_performance_slope": {
+        "name": "Frostleistungssteigung"
+      },
+      "gas_heat_loss_coefficient": {
+        "name": "Wärmeverlustkoeffizient Gas"
+      },
+      "heat_demand": {
+        "name": "Wärmebedarf"
+      },
+      "heat_loss_coefficient": {
+        "name": "Wärmeverlustkoeffizient"
+      },
+      "kamer_setpoint": {
+        "name": "Raum-Sollwert"
+      },
+      "kamertemperatuur": {
+        "name": "Raumtemperatur"
+      },
+      "ketelvermogen": {
+        "name": "Kesselleistung"
+      },
+      "knee_temperature": {
+        "name": "Knickpunkt"
+      },
+      "last_analysis": {
+        "name": "Letzte Analyse"
+      },
+      "mpc_recommended_supply_temp": {
+        "name": "MPC empfohlene Vorlauftemperatur"
+      },
+      "mpc_supply_temp_error": {
+        "name": "MPC Vorlauftemperatur-Abweichung"
+      },
+      "openquatt_balance_point": {
+        "name": "OpenQuatt Heizgrenze"
+      },
+      "openquatt_curve": {
+        "name": "OpenQuatt Heizkurve"
+      },
+      "opgenomen_vermogen": {
+        "name": "Aufgenommene Leistung"
+      },
+      "optimal_stooklijn_slope": {
+        "name": "Optimale Heizkurvensteigung"
+      },
+      "power_house_calibration": {
+        "name": "OpenQuatt Power House Kalibrierung"
+      },
+      "quatt_stooklijn_slope": {
+        "name": "Quatt Heizkurvensteigung"
+      },
+      "recommended_supply_temp": {
+        "name": "Empfohlene Vorlauftemperatur"
+      },
+      "retourtemperatuur": {
+        "name": "Rücklauftemperatur"
+      },
+      "sound_level": {
+        "name": "Geräuschpegel"
+      },
+      "source_overview": {
+        "name": "Datenquellen"
+      },
+      "stooklijn_supply_temp_error": {
+        "name": "Heizkurve Vorlauftemperatur-Abweichung"
+      },
+      "stored_heat": {
+        "name": "Gespeicherte Wärme"
+      },
+      "thermisch_vermogen": {
+        "name": "Thermische Leistung"
+      },
+      "thermostaat_setpoint": {
+        "name": "Thermostat-Sollwert"
+      }
+    },
+    "binary_sensor": {
+      "gas_active": {
+        "name": "Gaskessel aktiv"
+      }
+    },
+    "switch": {
+      "sound_level_compensation": {
+        "name": "Geräuschpegel-Kompensation"
+      }
+    },
+    "text": {
+      "analysis_start_date": {
+        "name": "Analyse-Startdatum"
       }
     }
   },

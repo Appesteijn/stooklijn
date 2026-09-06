@@ -133,7 +133,7 @@ class QuattSensorDescription(SensorEntityDescription):
 SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
     QuattSensorDescription(
         key="heat_loss_coefficient",
-        name="Heat Loss Coefficient",
+        translation_key="heat_loss_coefficient",
         native_unit_of_measurement="W/K",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:home-thermometer-outline",
@@ -155,7 +155,7 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
     ),
     QuattSensorDescription(
         key="balance_point",
-        name="Balance Point Temperature",
+        translation_key="balance_point",
         native_unit_of_measurement="\u00b0C",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -168,7 +168,7 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
     ),
     QuattSensorDescription(
         key="optimal_stooklijn_slope",
-        name="Optimal Stooklijn Slope",
+        translation_key="optimal_stooklijn_slope",
         native_unit_of_measurement="W/\u00b0C",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:chart-line",
@@ -193,7 +193,7 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
     ),
     QuattSensorDescription(
         key="quatt_stooklijn_slope",
-        name="Quatt Stooklijn Slope",
+        translation_key="quatt_stooklijn_slope",
         native_unit_of_measurement="W/\u00b0C",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:chart-line-variant",
@@ -211,7 +211,7 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
     ),
     QuattSensorDescription(
         key="knee_temperature",
-        name="Knee Temperature",
+        translation_key="knee_temperature",
         native_unit_of_measurement="\u00b0C",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -229,7 +229,7 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
     ),
     QuattSensorDescription(
         key="average_cop",
-        name="Average COP",
+        translation_key="average_cop",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:gauge",
         value_fn=lambda d: round(d.average_cop, 2) if d.average_cop else None,
@@ -241,7 +241,7 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
     ),
     QuattSensorDescription(
         key="freezing_performance_slope",
-        name="Freezing Performance Slope",
+        translation_key="freezing_performance_slope",
         native_unit_of_measurement="W/\u00b0C",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:snowflake-thermometer",
@@ -260,7 +260,7 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
     ),
     QuattSensorDescription(
         key="gas_heat_loss_coefficient",
-        name="Gas Heat Loss Coefficient",
+        translation_key="gas_heat_loss_coefficient",
         native_unit_of_measurement="W/K",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:fire",
@@ -281,7 +281,7 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
     ),
     QuattSensorDescription(
         key="last_analysis",
-        name="Last Analysis",
+        translation_key="last_analysis",
         icon="mdi:clock-check-outline",
         value_fn=lambda d: (
             d.last_analysis.strftime("%Y-%m-%d") if d.last_analysis else None
@@ -289,7 +289,6 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
     ),
     QuattSensorDescription(
         key="analysis_status",
-        name="Analysis Status",
         translation_key="analysis_status",
         icon="mdi:information-outline",
         value_fn=lambda d: d.analysis_status,
@@ -297,14 +296,14 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
     ),
     QuattSensorDescription(
         key="data_stats",
-        name="Data Statistieken",
+        translation_key="data_stats",
         icon="mdi:database-outline",
         value_fn=lambda d: d.data_stats.get("daily_days", 0) if d.data_stats else 0,
         attr_fn=lambda d: d.data_stats if d.data_stats else None,
     ),
     QuattSensorDescription(
         key="openquatt_balance_point",
-        name="OpenQuatt Balance Point",
+        translation_key="openquatt_balance_point",
         native_unit_of_measurement="°C",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -322,6 +321,32 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
         else None,
     ),
 ]
+
+
+# Vaste object-id per beschrijving.
+#
+# Sinds de namen via ``translation_key`` lopen leidt HA de entity-id af uit de
+# vertaalde naam, en dus uit de taal van de gebruiker: op een Engelse HA zou
+# ``sensor.quatt_warmteanalyse_warmtevraag`` ineens ``..._heat_demand`` heten en
+# breekt het meegeleverde dashboard. Deze tabel pint wat er nu in het veld staat.
+#
+# ``quatt_warmteanalyse_quatt_warmteanalyse_slope`` is geen typefout maar de id
+# die HA ooit voor "Quatt Stooklijn Slope" heeft gemaakt; hernoemen zou elke
+# bestaande verwijzing breken voor niets.
+DESCRIPTION_OBJECT_IDS: dict[str, str] = {
+    "heat_loss_coefficient": "quatt_warmteanalyse_heat_loss_coefficient",
+    "balance_point": "quatt_warmteanalyse_balance_point_temperature",
+    "optimal_stooklijn_slope": "quatt_warmteanalyse_optimal_stooklijn_slope",
+    "quatt_stooklijn_slope": "quatt_warmteanalyse_quatt_warmteanalyse_slope",
+    "knee_temperature": "quatt_warmteanalyse_knee_temperature",
+    "average_cop": "quatt_warmteanalyse_average_cop",
+    "freezing_performance_slope": "quatt_warmteanalyse_freezing_performance_slope",
+    "gas_heat_loss_coefficient": "quatt_warmteanalyse_gas_heat_loss_coefficient",
+    "last_analysis": "quatt_warmteanalyse_last_analysis",
+    "analysis_status": "quatt_warmteanalyse_analysis_status",
+    "data_stats": "quatt_warmteanalyse_data_statistieken",
+    "openquatt_balance_point": "quatt_warmteanalyse_openquatt_balance_point",
+}
 
 
 def candidate_entities(
@@ -387,10 +412,10 @@ async def async_setup_entry(
     entities.append(QuattHeatDemandSensor(hass, coordinator, entry))
 
     if {**entry.data, **entry.options}.get(CONF_SOUND_LEVEL_ENABLED, False):
-        entities.append(QuattSoundLevelSensor(entry))
+        entities.append(QuattSoundLevelSensor(hass, entry))
 
     if {**entry.data, **entry.options}.get(CONF_CH_MAX_WATER_ENABLED, False):
-        entities.append(QuattChMaxWaterSensor(entry))
+        entities.append(QuattChMaxWaterSensor(hass, entry))
 
     # Spiegelsensoren: één stabiel entity-ID per meting, ongeacht of Quatt of
     # OpenQuatt hem levert. Dashboards horen hieraan te hangen.
@@ -423,6 +448,14 @@ class QuattStooklijnSensor(
         self.entity_description = description
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
         self._attr_device_info = get_device_info(entry.entry_id)
+        # Vaste entity-id, los van de vertaalde naam — zie DESCRIPTION_OBJECT_IDS.
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            DESCRIPTION_OBJECT_IDS.get(
+                description.key, f"quatt_warmteanalyse_{description.key}"
+            ),
+            hass=coordinator.hass,
+        )
 
     _STATUS_ICONS = {
         "running": "mdi:progress-clock",
@@ -467,7 +500,7 @@ class QuattEstimatedCopSensor(
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Geschatte Actuele COP"
+    _attr_translation_key = "estimated_cop"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:gauge-low"
 
@@ -481,6 +514,10 @@ class QuattEstimatedCopSensor(
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_estimated_cop"
         self._attr_device_info = get_device_info(entry.entry_id)
+        # Vaste entity-id, los van de vertaalde naam — zie DESCRIPTION_OBJECT_IDS.
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT, "quatt_warmteanalyse_geschatte_actuele_cop", hass=coordinator.hass
+        )
 
     @property
     def _outdoor_entity(self) -> str:
@@ -546,7 +583,7 @@ class QuattSupplyTempSensor(
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Aanbevolen Aanvoertemperatuur"
+    _attr_translation_key = "recommended_supply_temp"
     _attr_native_unit_of_measurement = "°C"
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -562,6 +599,10 @@ class QuattSupplyTempSensor(
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_recommended_supply_temp"
         self._attr_device_info = get_device_info(entry.entry_id)
+        # Vaste entity-id, los van de vertaalde naam — zie DESCRIPTION_OBJECT_IDS.
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT, "quatt_warmteanalyse_aanbevolen_aanvoertemperatuur", hass=coordinator.hass
+        )
 
     @property
     def _outdoor_entity(self) -> str:
@@ -752,7 +793,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     """
 
     _attr_has_entity_name = True
-    _attr_name = "MPC Aanbevolen Aanvoertemperatuur"
+    _attr_translation_key = "mpc_recommended_supply_temp"
     _attr_native_unit_of_measurement = "°C"
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -773,6 +814,10 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_mpc_recommended_supply_temp"
         self._attr_device_info = get_device_info(entry.entry_id)
+        # Vaste entity-id, los van de vertaalde naam — zie DESCRIPTION_OBJECT_IDS.
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT, "quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur", hass=coordinator.hass
+        )
         self._forecast: list[dict] = []
         self._forecast_fetched_at: float | None = None
         # Hoeveel herpogingen er al gedaan zijn na het opstarten, en of er al
@@ -1534,7 +1579,7 @@ class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorE
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Veilige Uitlooptijd"
+    _attr_translation_key = "coast_time"
     _attr_native_unit_of_measurement = "min"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:home-clock-outline"
@@ -1653,7 +1698,7 @@ class QuattStoredHeatSensor(
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Opgeslagen Warmte"
+    _attr_translation_key = "stored_heat"
     _attr_native_unit_of_measurement = "kWh"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:home-thermometer"
@@ -1763,12 +1808,17 @@ class QuattAdviceErrorSensor(
         self._entry = entry
         self._advised_entity = advised_entity
         self._attr_unique_id = f"{entry.entry_id}_{mode}_advice_error"
-        self._attr_name = (
-            "MPC Fout Aanvoertemperatuur"
+        self._attr_translation_key = (
+            "mpc_supply_temp_error"
             if mode == "mpc"
-            else "Stooklijn Fout Aanvoertemperatuur"
+            else "stooklijn_supply_temp_error"
         )
         self._attr_device_info = get_device_info(entry.entry_id)
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            f"quatt_warmteanalyse_{mode}_fout_aanvoertemperatuur",
+            hass=coordinator.hass,
+        )
 
     @property
     def _supply_temp_entity(self) -> str:
@@ -1856,7 +1906,7 @@ class QuattCopPerformanceSensor(
     """
 
     _attr_has_entity_name = True
-    _attr_name = "COP Prestatie"
+    _attr_translation_key = "cop_performance"
     _attr_icon = "mdi:gauge-full"
     _attr_state_class = SensorStateClass.MEASUREMENT
     # De dagreeks is honderden regels en verandert alleen bij een analyse. Zonder
@@ -1992,7 +2042,7 @@ class QuattAdviceSensor(
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Quatt Advies Parameters"
+    _attr_translation_key = "advice_parameters"
     _attr_icon = "mdi:tune"
 
     def __init__(
@@ -2004,6 +2054,10 @@ class QuattAdviceSensor(
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_quatt_advice"
         self._attr_device_info = get_device_info(entry.entry_id)
+        # Vaste entity-id, los van de vertaalde naam — zie DESCRIPTION_OBJECT_IDS.
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT, "quatt_warmteanalyse_quatt_advies_parameters", hass=coordinator.hass
+        )
 
     @property
     def native_value(self) -> str | None:
@@ -2206,7 +2260,7 @@ class QuattOpenQuattCurveSensor(
     """
 
     _attr_has_entity_name = True
-    _attr_name = "OpenQuatt Stooklijn"
+    _attr_translation_key = "openquatt_curve"
     _attr_icon = "mdi:chart-bell-curve-cumulative"
 
     def __init__(
@@ -2218,6 +2272,10 @@ class QuattOpenQuattCurveSensor(
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_openquatt_curve"
         self._attr_device_info = get_device_info(entry.entry_id)
+        # Vaste entity-id, los van de vertaalde naam — zie DESCRIPTION_OBJECT_IDS.
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT, "quatt_warmteanalyse_openquatt_stooklijn", hass=coordinator.hass
+        )
 
     @property
     def native_value(self) -> int | None:
@@ -2267,7 +2325,9 @@ class QuattSourceMirrorSensor(SensorEntity):
         self._entry = entry
         self._registry = registry
         self._spec = spec
-        self._attr_name = spec.name
+        # De slug is ook de vertaalsleutel: één naam per rol, en de
+        # entity-id die eruit volgt staat toch al vast.
+        self._attr_translation_key = spec.slug
         self._attr_unique_id = f"{entry.entry_id}_source_{spec.role}"
         # Deterministische entity-id — zie de toelichting bij MirrorSpec.slug.
         self.entity_id = async_generate_entity_id(
@@ -2358,7 +2418,7 @@ class QuattSourceOverviewSensor(SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Databronnen"
+    _attr_translation_key = "source_overview"
     _attr_icon = "mdi:source-branch"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_should_poll = False
@@ -2440,7 +2500,7 @@ class QuattPowerHouseCalibrationSensor(
     """
 
     _attr_has_entity_name = True
-    _attr_name = "OpenQuatt Power House Kalibratie"
+    _attr_translation_key = "power_house_calibration"
     _attr_icon = "mdi:home-search-outline"
 
     def __init__(
@@ -2631,7 +2691,7 @@ class QuattHeatDemandSensor(
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Warmtevraag"
+    _attr_translation_key = "heat_demand"
     _attr_native_unit_of_measurement = "W"
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -2878,17 +2938,22 @@ class QuattChMaxWaterSensor(SensorEntity):
     """Diagnostische sensor: laatste waarde + tijdstip van chMaxWaterTemperatuur schrijfactie."""
 
     _attr_has_entity_name = True
-    _attr_name = "Max Aanvoertemperatuur Instelling"
+    _attr_translation_key = "ch_max_water_setting"
     _attr_native_unit_of_measurement = "°C"
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:thermometer-high"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, entry: ConfigEntry) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_ch_max_water_setting"
         self._attr_device_info = get_device_info(entry.entry_id)
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            "quatt_warmteanalyse_max_aanvoertemperatuur_instelling",
+            hass=hass,
+        )
 
     @property
     def _controller(self):
@@ -2905,6 +2970,9 @@ class QuattChMaxWaterSensor(SensorEntity):
         ctrl = self._controller
         if ctrl is None:
             return None
+        # Vóór de eerste schrijfactie is ``target_entity`` nog leeg; dan alsnog
+        # resolven, zodat de kaart meteen na inschakelen iets te tonen heeft.
+        limit_entity = ctrl.target_entity or ctrl._resolve_number_entity()
         return {
             "last_written_at": ctrl.last_written_at.isoformat() if ctrl.last_written_at else None,
             "source": ctrl._source,
@@ -2912,6 +2980,15 @@ class QuattChMaxWaterSensor(SensorEntity):
             # Naar wélke knop geschreven is. Zonder dit is van buitenaf niet te
             # zien of de schrijfactie bij de regelaar landt die ook stuurt.
             "target_entity": ctrl.target_entity,
+            # De limiet die er nú op de regelaar staat, plus de knop waar hij
+            # vandaan komt. Het dashboard las die knop hiervoor onder een vaste
+            # naam (``number.cic_max_water_temperature``) — de ná-migratievorm,
+            # dus op oudere Quatt-installaties bleef die rij leeg. De resolutie
+            # hoort hier thuis, niet in de kaart.
+            "limit_entity": limit_entity,
+            "limit_c": (
+                get_float_state(self.hass, limit_entity) if limit_entity else None
+            ),
             "interval_minutes": int(ctrl._interval.total_seconds() // 60),
         }
 
@@ -2926,13 +3003,16 @@ class QuattSoundLevelSensor(SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Geluidsniveau"
+    _attr_translation_key = "sound_level"
     _attr_icon = "mdi:volume-medium"
 
-    def __init__(self, entry: ConfigEntry) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self._entry_id = entry.entry_id
         self._attr_unique_id = f"{entry.entry_id}_sound_level_sensor"
         self._attr_device_info = get_device_info(entry.entry_id)
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT, "quatt_warmteanalyse_geluidsniveau", hass=hass
+        )
         self._level: str | None = None
 
     @property
@@ -2983,7 +3063,7 @@ class QuattCompressorStartsSensor(SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Compressorstarts"
+    _attr_translation_key = "compressor_starts"
     _attr_icon = "mdi:restart"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "starts/uur"
