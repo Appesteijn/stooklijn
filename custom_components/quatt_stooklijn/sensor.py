@@ -54,7 +54,6 @@ from .const import (
     CONF_RETURN_TEMP_ENTITY,
     CONF_ROOM_SETPOINT_ENTITY,
     CONF_ROOM_SETPOINT_FALLBACK,
-    CONF_SOLAR_ENTITY,
     CONF_SOUND_LEVEL_ENABLED,
     CONF_SUPPLY_TEMP_ENTITY,
     CONF_TEMP_ENTITIES,
@@ -66,7 +65,6 @@ from .const import (
     COMPRESSOR_STORAGE_VERSION,
     DEFAULT_COMFORT_FLOOR_TEMP,
     DEFAULT_ROOM_SETPOINT,
-    DEFAULT_SOLAR_ENTITY,
     DEFAULT_WEATHER_ENTITY,
     DOMAIN,
     MIN_FLOW_LPH,
@@ -861,10 +859,6 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         )
 
     @property
-    def _solar_entity(self) -> str:
-        return {**self._entry.data, **self._entry.options}.get(CONF_SOLAR_ENTITY, DEFAULT_SOLAR_ENTITY)
-
-    @property
     def _weather_entity(self) -> str:
         return {**self._entry.data, **self._entry.options}.get(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
 
@@ -1073,7 +1067,6 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                     # verandering van buitentemp, debiet of retour.
                     (ROLE_OUTDOOR_TEMP, ROLE_FLOW_RATE, ROLE_RETURN_TEMP,
                      ROLE_ROOM_SETPOINT),
-                    extra=(self._solar_entity,),
                 ),
                 self._handle_state_change,
             )
@@ -1316,7 +1309,6 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         t_outdoor = get_float_state(self.hass, self._outdoor_entity)
         t_return = get_float_state(self.hass, self._return_temp_entity)
         flow_lph = get_float_state(self.hass, self._flow_entity)
-        solar_w = get_float_state(self.hass, self._solar_entity) or 0.0
 
         if t_outdoor is None or t_return is None:
             return None
@@ -1375,7 +1367,6 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         t_return = get_float_state(self.hass, self._return_temp_entity)
         flow_lph = get_float_state(self.hass, self._flow_entity)
         effective_flow = get_effective_flow(flow_lph)
-        solar_w = get_float_state(self.hass, self._solar_entity) or 0.0
         room_setpoint, room_setpoint_source = self._resolve_room_setpoint()
 
         # Thermal model parameters
@@ -1464,7 +1455,6 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             "outdoor_temp": t_outdoor,
             "return_temp": t_return,
             "flow_lph": flow_lph,
-            "solar_power_w": round(solar_w),
             "solar_gain_w": round(solar_gain_w),
             # Welke factor die winst opleverde — anders is niet te zien of je
             # naar het geleerde of het hardgecodeerde getal kijkt.

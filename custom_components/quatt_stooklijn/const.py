@@ -103,7 +103,14 @@ CONF_PERFORMANCE_BASELINE_DATE = "performance_baseline_date"
 FORECAST_RETRY_DELAYS = (30, 120, 300)
 
 # MPC / shadow-mode forecast sensor
-CONF_SOLAR_ENTITY = "solar_entity"
+#
+# Er stond hier ook een ``CONF_SOLAR_ENTITY`` voor een PV-sensor. Die is
+# vervallen: de zonneterm van het RC-model komt uit de shortwave_radiation van
+# Open-Meteo (W/m², een fysische maat), niet uit paneelopbrengst. Wat er nog aan
+# hing was een ongebruikte lokale variabele, een attribuut dat niemand las, en
+# een state-listener die de hele twaalfuurstabel opnieuw liet renderen bij elke
+# tik van een omvormer. De configsleutel mag in bestaande entries blijven staan;
+# hij wordt genegeerd.
 CONF_WEATHER_ENTITY = "weather_entity"
 
 # Kamertemperatuur voor RC-regressie (solar gain learning).
@@ -112,24 +119,8 @@ CONF_WEATHER_ENTITY = "weather_entity"
 # Elke kamerthermometer werkt, maar hoe dichter bij de zon, hoe beter.
 CONF_INDOOR_TEMP_ENTITY = "indoor_temp_entity"
 
-DEFAULT_SOLAR_ENTITY = "sensor.solaredge_ac_power"
 DEFAULT_WEATHER_ENTITY = "weather.home"
 
-# Raamfactor: verhouding PV-opbrengst (W) → zoninstraling woonkamer (W)
-# Empirisch: SolarEdge 2000 W ≈ ~600 W netto zonnewinst via zuidgevel-ramen
-#
-# Dit is een fallback. De voorkeur is om deze factor te leren via RC-regressie
-# op de recorder-data (zie analysis/solar_gain.py als dat geïmplementeerd is):
-#
-#   C × dT_room/dt = Q_hp + factor × solaredge − U × (T_room − T_buiten)
-#
-# Herschreven als 2-parameter OLS:
-#   dT/dt = α × [Q_hp − U × (T_room − T_buiten)] + β × solaredge
-#   → factor = β / α,  thermische massa C = 1 / α
-#
-# Als de regressie beschikbaar is (QuattStooklijnData.solar_gain_factor is not None)
-# gebruikt QuattMpcSensor die waarde; anders valt hij terug op deze constante.
-SOLAR_TO_HEAT_FACTOR = 0.30
 
 # Kamerdoel waar het MPC-advies op rekent.
 #

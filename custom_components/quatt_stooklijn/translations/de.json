@@ -30,7 +30,6 @@
         "data": {
           "flow_entity": "Durchflussmesser-Sensor (L/h)",
           "return_temp_entity": "Rücklauftemperatur-Sensor (°C)",
-          "solar_entity": "Solaranlagen-Leistungssensor (W) — z.B. SolarEdge, Enphase oder Template",
           "weather_entity": "Wettervorhersage-Entität (für MPC-Prognose)",
           "indoor_temp_entity": "Raumtemperatur-Sensor (°C, für Solar-Kalibrierung)",
           "sound_level_enabled": "Schallpegel-Kompensation aktivieren (begrenzt Wärmepumpenleistung über CiC-Schallpegel)",
@@ -67,7 +66,6 @@
           "quatt_end_date": "Quatt Enddatum (JJJJ-MM-TT)",
           "flow_entity": "Durchflussmesser-Sensor (L/h)",
           "return_temp_entity": "Rücklauftemperatur-Sensor (°C)",
-          "solar_entity": "Solaranlagen-Leistungssensor (W) — z.B. SolarEdge, Enphase oder Template",
           "weather_entity": "Wettervorhersage-Entität (für MPC-Prognose)",
           "indoor_temp_entity": "Raumtemperatur-Sensor (°C, für Solar-Kalibrierung)",
           "control_setpoint_entity": "Thermostat-Sollwert-Sensor (°C) — leer lassen für Auto-Erkennung",

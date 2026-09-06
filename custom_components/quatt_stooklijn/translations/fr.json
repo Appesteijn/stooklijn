@@ -30,7 +30,6 @@
         "data": {
           "flow_entity": "Capteur de débit (L/h)",
           "return_temp_entity": "Capteur de température de retour (°C)",
-          "solar_entity": "Capteur de puissance solaire (W) — ex. SolarEdge, Enphase ou template",
           "weather_entity": "Entité de prévisions météo (pour la prévision MPC)",
           "indoor_temp_entity": "Capteur de température intérieure (°C, pour la calibration solaire)",
           "sound_level_enabled": "Activer la compensation du niveau sonore (limite la puissance de la pompe à chaleur via le niveau sonore CiC)",
@@ -67,7 +66,6 @@
           "quatt_end_date": "Date de fin Quatt (AAAA-MM-JJ)",
           "flow_entity": "Capteur de débit (L/h)",
           "return_temp_entity": "Capteur de température de retour (°C)",
-          "solar_entity": "Capteur de puissance solaire (W) — ex. SolarEdge, Enphase ou template",
           "weather_entity": "Entité de prévisions météo (pour la prévision MPC)",
           "indoor_temp_entity": "Capteur de température intérieure (°C, pour la calibration solaire)",
           "control_setpoint_entity": "Capteur de consigne du thermostat (°C) — laisser vide pour la détection auto",

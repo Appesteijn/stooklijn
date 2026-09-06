@@ -30,7 +30,6 @@
         "data": {
           "flow_entity": "Debietmeter sensor (L/h)",
           "return_temp_entity": "Retourtemperatuur sensor (°C)",
-          "solar_entity": "Zonnepanelen vermogen sensor (W) — bijv. SolarEdge, Enphase, of template",
           "weather_entity": "Weersvoorspelling entiteit (voor MPC forecast)",
           "indoor_temp_entity": "Kamertemperatuur sensor (°C, voor solar gain kalibratie)",
           "sound_level_enabled": "Geluidsniveau compensatie inschakelen (beperkt warmtepompvermogen via CiC geluidsniveau)",
@@ -67,7 +66,6 @@
           "quatt_end_date": "Quatt einddatum (JJJJ-MM-DD)",
           "flow_entity": "Debietmeter sensor (L/h)",
           "return_temp_entity": "Retourtemperatuur sensor (°C)",
-          "solar_entity": "Zonnepanelen vermogen sensor (W) — bijv. SolarEdge, Enphase, of template",
           "weather_entity": "Weersvoorspelling entiteit (voor MPC forecast)",
           "indoor_temp_entity": "Kamertemperatuur sensor (°C, voor solar gain kalibratie)",
           "control_setpoint_entity": "Thermostaat setpoint sensor (°C) — leeg laten voor auto-detectie",

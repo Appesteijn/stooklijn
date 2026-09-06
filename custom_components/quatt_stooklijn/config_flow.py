@@ -47,7 +47,6 @@ from .const import (
     CONF_RETURN_TEMP_ENTITY,
     CONF_ROOM_SETPOINT_ENTITY,
     CONF_ROOM_SETPOINT_FALLBACK,
-    CONF_SOLAR_ENTITY,
     CONF_SUPPLY_TEMP_ENTITY,
     CONF_TEMP_ENTITIES,
     CONF_WEATHER_ENTITY,
@@ -61,7 +60,6 @@ from .const import (
     DEFAULT_QUATT_CLOUD_ENABLED,
     DEFAULT_ROOM_SETPOINT,
     DEFAULT_HOT_WATER_TEMP_THRESHOLD,
-    DEFAULT_SOLAR_ENTITY,
     DEFAULT_SOUND_LEVEL_MAX,
     DEFAULT_SOUND_NIGHT_START_HOUR,
     DEFAULT_SOUND_NIGHT_END_HOUR,
@@ -273,10 +271,6 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "sensor"
                 ),
                 # --- MPC / zonnewinst ---
-                # Zonnestroom-sensor in Watt. Gebruik bij voorkeur de output van
-                # je omvormer (bijv. sensor.solaredge_ac_power). Heb je geen PV,
-                # laat dan leeg of gebruik een stralingsensor (W/m² × dakoppervlak).
-                _prefill(CONF_SOLAR_ENTITY, DEFAULT_SOLAR_ENTITY): _entity("sensor"),
                 # Weersverwachting-entiteit voor het MPC forecast-venster.
                 # Standaard weather.home (Open-Meteo via HA weather integratie).
                 _prefill(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY): _entity("weather"),
@@ -412,10 +406,6 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     _prefill(
                         CONF_BOILER_HEAT_ENTITY,
                         _current(CONF_BOILER_HEAT_ENTITY, ROLE_BOILER_HEAT),
-                    ): _entity("sensor"),
-                    _prefill(
-                        CONF_SOLAR_ENTITY,
-                        _current(CONF_SOLAR_ENTITY, fallback=DEFAULT_SOLAR_ENTITY),
                     ): _entity("sensor"),
                     _prefill(
                         CONF_WEATHER_ENTITY,

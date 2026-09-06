@@ -9,8 +9,14 @@ from custom_components.quatt_stooklijn.const import (
     MIN_FLOW_LPH,
     MPC_SUPPLY_TEMP_MIN,
     MPC_SUPPLY_TEMP_MAX,
-    SOLAR_TO_HEAT_FACTOR,
 )
+
+# Rekenfactor voor de testinvoer: PV-watt → zonnewinst-watt. Stond als
+# SOLAR_TO_HEAT_FACTOR in const.py, maar die constante werd nergens in de
+# integratie meer gebruikt sinds de zonneterm op W/m² uit Open-Meteo draait.
+# Hier blijft hij als testgetal: deze tests voeden _calc_mpc_supply_temp een
+# zonnewinst in watt, en dan is een vaste omrekening handig.
+SOLAR_TO_HEAT_FACTOR = 0.30
 
 
 # Voorbeeld parameterisatie op basis van typische woning:
