@@ -87,9 +87,48 @@ class RLSEstimator:
         # Keep large P so new data quickly corrects defaults
         self.P = np.eye(self.n_params) * RLS_INITIAL_COV
 
-    def update(self, x: np.ndarray, y: float) -> None:
-        """One RLS step: x = feature vector (3,), y = measured ΔT."""
+    def update(
+        self, x: np.ndarray, y: float, frozen: tuple[int, ...] = ()
+    ) -> None:
+        """One RLS step: x = feature vector (3,), y = measured ΔT.
+
+        ``frozen`` names parameters this sample carries no information about.
+        Ze houden hun waarde én hun covariantie. Beide zijn nodig:
+
+        * De waarde, omdat een parameter met een (bijna) nulregressor tóch
+          meebeweegt — de gain ``K`` pikt hem op via de covariantie met de
+          andere parameters, zodra die niet meer nul is.
+        * De covariantie, omdat de vergeetfactor ``P`` elke stap met 1/λ
+          opblaast terwijl er in die richting niets is dat hem terugdrukt.
+          Over een Nederlandse zomer is dat een factor ~19 op P[2,2]. Slaat de
+          warmtevraag daarna aan, dan zet die opgeblazen onzekerheid de
+          parameter in één klap ergens anders neer.
+
+        Bevriezen gebeurt door de update op de deelruimte van de actieve
+        parameters te doen: de bekende bijdrage van de bevroren parameters
+        gaat uit het residu, en alleen het bijbehorende blok van P beweegt.
+        """
         lam = self.forgetting
+        if frozen:
+            active = [i for i in range(self.n_params) if i not in frozen]
+            if not active:
+                return
+            held = list(frozen)
+            block = np.ix_(active, active)
+            y = y - float(x[held] @ self.theta[held])
+            xa = x[active]
+            Pa = self.P[block]
+            Px = Pa @ xa
+            denom = lam + float(xa @ Px)
+            if abs(denom) < 1e-12:
+                return  # numerical guard
+            K = Px / denom
+            err = y - float(xa @ self.theta[active])
+            self.theta[active] = self.theta[active] + K * err
+            self.P[block] = (Pa - np.outer(K, Px)) / lam
+            self.n_updates += 1
+            return
+
         Px = self.P @ x
         denom = lam + float(x @ Px)
         if abs(denom) < 1e-12:
@@ -236,23 +275,32 @@ class OnlineRCModel:
             dt_hours * self._prev_q_hp,                               # θ₃ term
         ])
 
-        self._rls.update(x, delta_t)
+        # Zonder warmte-input is C net zo onidentificeerbaar als U: de
+        # regressor van θ₃ (1/C) ís dt·Q_hp. Vandaar dat θ₃ hier bevroren
+        # wordt, waarde én covariantie — zie RLSEstimator.update.
+        #
+        # Dat dit nodig is, is niet vanzelfsprekend. Bij Q_hp exact nul staat
+        # C uit zichzelf stil: x[2] = 0, P blijft diagonaal, de gain in die
+        # richting blijft nul. Maar echte zomers zijn niet exact nul —
+        # standby, tapwater, een enkele stookdag — en bij een paar honderd
+        # watt onder de drempel loopt C in één seizoen volledig weg, aangejaagd
+        # door een P[2,2] die de vergeetfactor intussen heeft opgeblazen.
+        # g blijft wél leren: de zomer is juist de beste periode daarvoor.
+        q_hp_used = self._prev_q_hp or 0.0
+        low_heat = q_hp_used < ANCHOR_MAX_Q_HP_W
+
+        self._rls.update(x, delta_t, frozen=(2,) if low_heat else ())
 
         # Hold U at the seasonal value when this sample could not have said
-        # anything about it. C and g keep learning from the same update — the
-        # summer is in fact the best season for identifying g — but the U/g
-        # degeneracy no longer gets to move U.
+        # anything about it — de U/g-degeneratie mag U niet verplaatsen.
         #
         # Deliberately a hard projection rather than a weighted prior: a soft
         # pull needs a strength constant, and there is no principled value for
         # it. "This sample carries no U information" is a yes/no property, so
         # the correction is too. θ₁ = U/C and θ₃ = 1/C, so pinning U means
-        # θ₁ := U_prior · θ₃. P is left untouched, so as soon as real heat
-        # input returns RLS is free to move U again straight away.
-        q_hp_used = self._prev_q_hp or 0.0
-        self._u_anchored = (
-            self._u_prior is not None and q_hp_used < ANCHOR_MAX_Q_HP_W
-        )
+        # θ₁ := U_prior · θ₃. De covariantie van θ₁ blijft meelopen, zodat RLS
+        # U weer vrij kan bewegen zodra er echt gestookt wordt.
+        self._u_anchored = self._u_prior is not None and low_heat
         if self._u_anchored:
             self._rls.theta[0] = self._u_prior * self._rls.theta[2]
 

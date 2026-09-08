@@ -41,6 +41,40 @@ class TestRLSEstimator:
 
         np.testing.assert_allclose(rls.theta, theta_true, rtol=0.1)
 
+    def test_bevroren_parameter_blijft_exact_staan(self):
+        """Waarde én covariantie: allebei nodig, zie RLSEstimator.update."""
+        rng = np.random.default_rng(11)
+        rls = RLSEstimator()
+        rls.initialise_from_physics(285.0, 20000.0, 3.5)
+        theta2 = rls.theta[2]
+        p22 = rls.P[2, 2]
+        for _ in range(300):
+            x = rng.standard_normal(3) * np.array([10.0, 500.0, 300.0])
+            rls.update(x, float(rng.normal(0, 0.05)), frozen=(2,))
+        assert rls.theta[2] == theta2
+        assert rls.P[2, 2] == p22
+
+    def test_bevriezen_laat_de_rest_gewoon_leren(self):
+        """Alleen de genoemde parameter staat stil."""
+        rng = np.random.default_rng(12)
+        theta_true = np.array([0.04, 0.00006, 0.0002])
+        rls = RLSEstimator()
+        rls.theta = np.array([0.0, 0.0, theta_true[2]])
+        for _ in range(400):
+            x = rng.standard_normal(3) * np.array([10.0, 500.0, 3000.0])
+            y = float(x @ theta_true) + rng.normal(0, 0.01)
+            rls.update(x, y, frozen=(2,))
+        np.testing.assert_allclose(rls.theta[:2], theta_true[:2], rtol=0.1)
+        assert rls.theta[2] == theta_true[2]
+
+    def test_alles_bevriezen_doet_niets(self):
+        rls = RLSEstimator()
+        rls.initialise_from_physics(285.0, 20000.0, 3.5)
+        before = rls.theta.copy()
+        rls.update(np.array([1.0, 2.0, 3.0]), 0.5, frozen=(0, 1, 2))
+        np.testing.assert_array_equal(rls.theta, before)
+        assert rls.n_updates == 0
+
     def test_convergence_flag(self):
         """is_converged wordt True na voldoende updates."""
         rls = RLSEstimator()
@@ -555,6 +589,23 @@ class TestUAnchor:
             t_indoor = t_indoor + dt_true + rng.normal(0, 0.005)
         return model
 
+    @staticmethod
+    def _winter(model: OnlineRCModel, n_hours: int = 800):
+        """Stookweer: echte warmtevraag, dus C is wél identificeerbaar."""
+        rng = np.random.default_rng(3)
+        t_indoor = 20.0
+        t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        U, C, g = 285.0, 20000.0, 3.5
+        for h in range(n_hours):
+            t_outdoor = 4.0 + 6.0 * np.sin(2 * np.pi * (h - 9) / 24) + rng.normal(0, 1.5)
+            q_solar = max(0.0, 250 * np.sin(2 * np.pi * (h - 8) / 24))
+            q_hp = max(0.0, U * (20.5 - t_outdoor) - g * q_solar) + rng.normal(0, 150)
+            dt_true = (q_hp + g * q_solar - U * (t_indoor - t_outdoor)) / C
+            model.update(t_indoor, t_outdoor, q_hp, q_solar,
+                         t0 + timedelta(hours=h))
+            t_indoor = t_indoor + dt_true + rng.normal(0, 0.01)
+        return model
+
     def test_zonder_anker_dwaalt_u_af_in_de_zomer(self):
         """Vastleggen van het probleem — faalt deze test, dan is de oorzaak weg."""
         model = OnlineRCModel()
@@ -581,15 +632,75 @@ class TestUAnchor:
         assert after["g"] != pytest.approx(before["g"], abs=1e-6)
 
     def test_c_beweegt_niet_zonder_warmte_input(self):
-        """Niet het anker, maar de wiskunde: met Q_hp = 0 is x[2] = 0, dus de
-        RLS-gain in de theta3-richting is nul en C staat stil. Zonder warmte-input
-        is C net zo onidentificeerbaar als U — het verschil is dat RLS dat hier
-        zelf al afdwingt en bij U niet."""
+        """Zonder warmte-input is C net zo onidentificeerbaar als U.
+
+        Bij Q_hp *exact* nul dwingt de wiskunde dat zelf al af: x[2] = 0, P
+        blijft diagonaal en de gain in de theta3-richting blijft nul. Dat is
+        precies waarom deze test het probleem jarenlang kon missen — zie
+        ``test_c_stort_in_bij_een_beetje_warmte`` voor het geval dat wel
+        voorkomt.
+        """
         model = OnlineRCModel()
         model.initialise_from_batch(285.0)
         before = model.raw_params["C"]
         self._summer(model)
         assert model.raw_params["C"] == pytest.approx(before, abs=1e-6)
+
+    @pytest.mark.parametrize("q_hp", [50.0, 150.0, 400.0])
+    def test_c_stort_in_bij_een_beetje_warmte(self, q_hp):
+        """Het echte geval: standby, tapwater, een enkele stookdag.
+
+        Allemaal ruim onder ANCHOR_MAX_Q_HP_W, dus buiten het bereik waarin C
+        te leren valt — maar niet nul, dus x[2] is niet nul en zonder
+        bevriezing loopt C in één zomer volledig weg.
+        """
+        assert q_hp < ANCHOR_MAX_Q_HP_W
+        model = OnlineRCModel()
+        model.initialise_from_batch(285.0)
+        model.set_u_prior(285.0)
+        before = model.raw_params["C"]
+        self._summer(model, n_hours=2000, q_hp=q_hp)
+        assert model.raw_params["C"] == pytest.approx(before, rel=1e-6)
+
+    def test_covariantie_loopt_niet_op_in_de_zomer(self):
+        """De stille schade: P[2,2] groeit elke stap met 1/lambda zolang er
+        niets is dat hem terugdrukt. Slaat de warmtevraag daarna aan, dan zet
+        die opgeblazen onzekerheid C in één klap ergens anders neer."""
+        model = OnlineRCModel()
+        model.initialise_from_batch(285.0)
+        model.set_u_prior(285.0)
+        before = model._rls.P[2, 2]
+        self._summer(model, n_hours=2000, q_hp=120.0)
+        assert model._rls.P[2, 2] == pytest.approx(before, rel=1e-9)
+
+    def test_c_leert_wel_met_echte_stookvermogens(self):
+        """Bevriezen mag het leren niet blokkeren zodra er warmte in gaat."""
+        model = OnlineRCModel()
+        model.initialise_from_batch(285.0)
+        model.set_u_prior(285.0)
+        self._winter(model)
+        assert model.raw_params["C"] == pytest.approx(20000.0, rel=0.15)
+
+    def test_c_overleeft_de_zomer(self):
+        """De hele reden voor deze fix: in oktober moet het model met zijn
+        winterwaarde beginnen, niet met wat de zomer ervan gemaakt heeft."""
+        model = OnlineRCModel()
+        model.initialise_from_batch(285.0)
+        model.set_u_prior(285.0)
+        self._winter(model)
+        learned = model.raw_params["C"]
+        self._summer(model, n_hours=2000, q_hp=120.0)
+        assert model.raw_params["C"] == pytest.approx(learned, rel=1e-6)
+
+    def test_g_blijft_leren_terwijl_c_bevroren_is(self):
+        """Bevriezen is gericht: alleen theta3. De zomer is juist de beste
+        periode om de zonnewinst te schatten."""
+        model = OnlineRCModel()
+        model.initialise_from_batch(285.0)
+        model.set_u_prior(285.0)
+        before = model.raw_params["g"]
+        self._summer(model, n_hours=2000, q_hp=120.0)
+        assert model.raw_params["g"] != pytest.approx(before, abs=1e-6)
 
     def test_anker_laat_u_los_zodra_er_gestookt_wordt(self):
         """Boven de drempel moet RLS U weer vrij kunnen bewegen."""

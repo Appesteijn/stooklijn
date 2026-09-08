@@ -115,6 +115,7 @@ _COMPRESSOR_STORE_KEYS = {
     ROLE_COMPRESSOR: "runs_hp1",
     ROLE_COMPRESSOR_2: "runs_hp2",
 }
+from .highres_log import SAMPLE_INTERVAL, HighResLogStore
 from .thermal_store import ThermalModelStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -830,6 +831,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         self._solar_fetched_at = None
         # Online thermal model
         self._thermal_store = ThermalModelStore(coordinator.hass)
+        self._highres_store = HighResLogStore(coordinator.hass)
+        self._highres_loaded = False
         self._thermal_loaded = False
 
     # ------------------------------------------------------------------ helpers
@@ -1078,8 +1081,16 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 timedelta(hours=1),
             )
         )
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass,
+                self._async_highres_sample,
+                SAMPLE_INTERVAL,
+            )
+        )
         # Laad thermal model + forecast direct bij opstarten
         await self._async_load_thermal_model()
+        await self._async_load_highres_log()
         await self._async_refresh_forecast()
         await self._async_refresh_solar_radiation()
 
@@ -1128,6 +1139,36 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                     t_indoor, self._indoor_temp_entity,
                     t_outdoor, self._outdoor_entity,
                 )
+
+    async def _async_load_highres_log(self) -> None:
+        """Laad het meetlogboek. Faalt dit, dan loopt de rest gewoon door."""
+        try:
+            await self._highres_store.async_load()
+        except Exception:
+            _LOGGER.warning("Meetlogboek laden mislukt", exc_info=True)
+        self._highres_loaded = True
+
+    async def _async_highres_sample(self, _now=None) -> None:
+        """Leg elke vijf minuten een monster vast.
+
+        Dit voedt het model niet — het is grondstof voor latere identificatie
+        van de snelle tijdconstante, die op uurdata niet te bepalen is. Zie
+        ``highres_log`` voor waarom dat een eigen logboek vraagt.
+        """
+        if not self._highres_loaded:
+            return
+        t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
+        t_outdoor = get_float_state(self.hass, self._outdoor_entity)
+        q_solar_wm2 = self._get_current_solar_radiation_wm2()
+        # Zelfde afweging als bij het model: een verzonnen nul voor de zon
+        # maakt het monster onbruikbaar voor identificatie, en dan is
+        # overslaan eerlijker dan bewaren.
+        if t_indoor is None or t_outdoor is None or q_solar_wm2 is None:
+            return
+        q_hp = get_float_state(self.hass, self._power_entity) or 0.0
+        self._highres_store.record(
+            dt_util.utcnow(), t_indoor, t_outdoor, q_hp, q_solar_wm2
+        )
 
     def _refresh_u_prior(self) -> None:
         """Keep the RC model's U anchor in step with the batch regression.
@@ -1186,6 +1227,15 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                     t_indoor, self._indoor_temp_entity,
                     t_outdoor, self._outdoor_entity,
                 )
+
+        # Meetlogboek wegschrijven: in geheugen verzameld, één keer per uur
+        # naar schijf. Bij elk monster schrijven zou een bestand van ongeveer
+        # een megabyte 288 keer per dag herschrijven.
+        if self._highres_loaded:
+            try:
+                await self._highres_store.async_save()
+            except Exception:
+                _LOGGER.warning("Meetlogboek opslaan mislukt", exc_info=True)
 
         # Refresh forecasts (previously separate timers, now combined)
         await self._async_refresh_forecast()

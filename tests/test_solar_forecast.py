@@ -264,6 +264,9 @@ def _learning_sensor(monkeypatch, solar_known: bool):
     sensor._thermal_store = MagicMock()
     sensor._thermal_store.model.update = MagicMock(return_value=True)
     sensor._thermal_store.async_save = AsyncMock()
+    sensor._highres_loaded = True
+    sensor._highres_store = MagicMock()
+    sensor._highres_store.async_save = AsyncMock()
     sensor.coordinator = MagicMock(data=None)
     sensor._refresh_u_prior = MagicMock()
     sensor._async_refresh_forecast = AsyncMock()
@@ -290,6 +293,16 @@ class TestLerenZonderStraling:
         sensor._thermal_store.model.update.assert_called_once()
         # 10:00 lokaal → index 10 → 10.0 W/m² gaat het model in, niet nul.
         assert sensor._thermal_store.model.update.call_args[0][3] == 10.0
+
+    def test_meetlogboek_wordt_per_uur_weggeschreven(self, monkeypatch):
+        """Verzamelen gebeurt elke vijf minuten in geheugen, wegschrijven
+        eens per uur — anders herschrijft een bestand van ongeveer een
+        megabyte zichzelf 288 keer per dag."""
+        import asyncio
+
+        sensor = _learning_sensor(monkeypatch, solar_known=True)
+        asyncio.run(sensor._async_hourly_update())
+        sensor._highres_store.async_save.assert_awaited_once()
 
     def test_de_forecast_wordt_wel_ververst(self, monkeypatch):
         """Niet leren betekent niet stilvallen: de volgende ronde moet slagen."""
