@@ -174,14 +174,22 @@ def _expm_2x2(A: np.ndarray) -> np.ndarray:
     return ((e1 - e2) * A + (l1 * e2 - l2 * e1) * np.eye(2)) / (l1 - l2)
 
 
-def discretize(p: TwoStateParams) -> tuple[np.ndarray, np.ndarray]:
-    """Discretiseer naar stappen van één uur met zero-order hold.
+def discretize(
+    p: TwoStateParams, dt_hours: float = 1.0
+) -> tuple[np.ndarray, np.ndarray]:
+    """Discretiseer naar stappen van ``dt_hours`` met zero-order hold.
 
-    Ad = e^{A}, Bd = A^-1 (Ad - I) B. A is hier altijd inverteerbaar: beide
+    Ad = e^{A dt}, Bd = A^-1 (Ad - I) B. A is hier altijd inverteerbaar: beide
     eigenwaarden zijn strikt negatief zolang U, Hm, Ci en Cm positief zijn.
+
+    De stapgrootte is vrij omdat het meetlogboek op vijf minuten bemonstert.
+    Op uurdata is een tijdconstante van een paar uur nauwelijks te scheiden
+    van de bemonsteringsstap; op vijfminutendata wel. Omdat dit een exacte
+    discretisatie is en geen Euler-benadering, verandert de betekenis van de
+    parameters niet als de stapgrootte verandert.
     """
     A = _system_matrix(p)
-    Ad = _expm_2x2(A)
+    Ad = _expm_2x2(A * dt_hours)
     Bd = np.linalg.solve(A, (Ad - np.eye(2)) @ _input_matrix(p))
     return Ad, Bd
 
@@ -192,6 +200,7 @@ def track_hidden_state(
     t_outdoor: np.ndarray,
     q_solar: np.ndarray,
     q_hp: np.ndarray,
+    dt_hours: float = 1.0,
 ) -> np.ndarray:
     """Reconstrueer de massatemperatuur uit gemeten binnentemperatuur.
 
@@ -201,7 +210,7 @@ def track_hidden_state(
     is de eerste binnentemperatuur; die keuze sterft uit met de trage
     tijdconstante, vandaar de inlooptijd bij fitten en evalueren.
     """
-    Ad, Bd = discretize(p)
+    Ad, Bd = discretize(p, dt_hours)
     n = len(t_indoor)
     tm = np.empty(n)
     tm[0] = t_indoor[0]
@@ -220,9 +229,15 @@ def simulate(
     t_outdoor: np.ndarray,
     q_solar: np.ndarray,
     q_hp: np.ndarray,
+    dt_hours: float = 1.0,
 ) -> np.ndarray:
-    """Vrijloop-simulatie: geen enkele gemeten binnentemperatuur onderweg."""
-    Ad, Bd = discretize(p)
+    """Vrijloop-simulatie: geen enkele gemeten binnentemperatuur onderweg.
+
+    Let op de uitlijning: ``out[k]`` is de binnentemperatuur op tijdstip
+    ``k+1``, want het is het resultaat van invoer ``u[k]``. De uitvoer is dus
+    één stap opgeschoven ten opzichte van de invoerreeksen.
+    """
+    Ad, Bd = discretize(p, dt_hours)
     x = np.array([t_indoor0, t_mass0])
     out = np.empty(len(t_outdoor))
     for k in range(len(t_outdoor)):
@@ -273,15 +288,18 @@ def _to_bounded(free: np.ndarray) -> np.ndarray:
 
 
 def one_step_residuals(
-    p: TwoStateParams, segments: list[Segment], burn_in: int = BURN_IN
+    p: TwoStateParams,
+    segments: list[Segment],
+    burn_in: int = BURN_IN,
+    dt_hours: float = 1.0,
 ) -> np.ndarray:
-    """Fout in de voorspelling van de binnentemperatuur, één uur vooruit."""
-    Ad, Bd = discretize(p)
+    """Fout in de voorspelling van de binnentemperatuur, één stap vooruit."""
+    Ad, Bd = discretize(p, dt_hours)
     parts = []
     for ti, to, sol, q in segments:
         if len(ti) <= burn_in + 1:
             continue
-        tm = track_hidden_state(p, ti, to, sol, q)
+        tm = track_hidden_state(p, ti, to, sol, q, dt_hours)
         u = np.column_stack([to, sol, q, np.ones(len(ti))])
         pred = Ad[0, 0] * ti[:-1] + Ad[0, 1] * tm[:-1] + u[:-1] @ Bd[0]
         parts.append(pred[burn_in:] - ti[1:][burn_in:])
@@ -295,6 +313,7 @@ def fit(
     initial: dict | None = None,
     burn_in: int = BURN_IN,
     max_iter: int = _LM_MAX_ITER,
+    dt_hours: float = 1.0,
 ) -> tuple[TwoStateParams, dict]:
     """Fit de zeven parameters op eenstaps-voorspelfout.
 
@@ -309,7 +328,7 @@ def fit(
 
     def cost_at(free: np.ndarray) -> tuple[np.ndarray, float]:
         r = one_step_residuals(TwoStateParams.from_array(_to_bounded(free)),
-                               segments, burn_in)
+                               segments, burn_in, dt_hours)
         return r, float(r @ r)
 
     r, cost = cost_at(x)
@@ -368,8 +387,9 @@ def rmse_at_horizon(
     segments: list[Segment],
     horizon: int,
     burn_in: int = BURN_IN,
+    dt_hours: float = 1.0,
 ) -> float | None:
-    """RMSE van een vrijloop-voorspelling over ``horizon`` uur.
+    """RMSE van een vrijloop-voorspelling over ``horizon`` stappen.
 
     Dit is de maat die telt. Eenstapsfout zegt weinig: daar wint bijna elk
     model van 'aannemen dat er niets verandert'. Pas over uren loopt het
@@ -379,11 +399,152 @@ def rmse_at_horizon(
     for ti, to, sol, q in segments:
         if len(ti) <= burn_in + horizon + 1:
             continue
-        tm = track_hidden_state(p, ti, to, sol, q)
+        tm = track_hidden_state(p, ti, to, sol, q, dt_hours)
         for k in range(burn_in, len(ti) - horizon):
-            pred = simulate(p, ti[k], tm[k],
-                            to[k:k + horizon], sol[k:k + horizon], q[k:k + horizon])
+            pred = simulate(p, ti[k], tm[k], to[k:k + horizon],
+                            sol[k:k + horizon], q[k:k + horizon], dt_hours)
             errs.append(pred - ti[k + 1:k + 1 + horizon])
     if not errs:
         return None
     return float(np.sqrt((np.concatenate(errs) ** 2).mean()))
+
+
+# --------------------------------------------------------------------------- #
+#  Validatie                                                                   #
+# --------------------------------------------------------------------------- #
+#
+# Een beter model op papier is niet genoeg. Deze poort bestaat omdat een fit
+# op te weinig of te eenzijdige data er prima uit kan zien en toch slechter
+# voorspelt dan het model dat er al staat.
+
+#: Hoeveel beter het nieuwe model moet zijn voordat het het overneemt. Zonder
+#: marge wisselt de integratie heen en weer op ruis.
+DEFAULT_MARGIN = 0.05
+
+#: Blokgrootte voor de train/test-splitsing, in stappen van een uur. Een week
+#: om en om, zodat koude en zachte periodes in beide helften zitten. Een
+#: chronologische knip zou het model op de winter trainen en op het voorjaar
+#: beoordelen, en dat meet iets anders dan wat je wil weten.
+SPLIT_BLOCK_HOURS = 168
+
+
+@dataclass(frozen=True)
+class Validation:
+    """Uitkomst van fitten plus toetsen op weggehouden data."""
+
+    params: TwoStateParams | None
+    report: dict
+    rmse: float | None
+    reference_rmse: float | None
+    persistence_rmse: float | None
+    accepted: bool
+    reason: str
+
+    def to_dict(self) -> dict:
+        return {
+            "accepted": self.accepted,
+            "reason": self.reason,
+            "rmse_k": round(self.rmse, 4) if self.rmse is not None else None,
+            "reference_rmse_k": (
+                round(self.reference_rmse, 4)
+                if self.reference_rmse is not None else None
+            ),
+            "persistence_rmse_k": (
+                round(self.persistence_rmse, 4)
+                if self.persistence_rmse is not None else None
+            ),
+            "fit": self.report,
+            "params": self.params.to_dict() if self.params else None,
+        }
+
+
+def split_alternating(
+    segments: list[Segment], block: int = SPLIT_BLOCK_HOURS, min_len: int = 72
+) -> tuple[list[Segment], list[Segment]]:
+    """Splits in om-en-om blokken: even blokken train, oneven test.
+
+    De blokteller loopt door over segmentgrenzen heen. Zou hij per segment
+    opnieuw beginnen, dan belandt een reeks segmenten die elk korter zijn dan
+    één blok allemaal in train en blijft de testverzameling leeg — precies wat
+    er gebeurt bij data met veel onderbrekingen.
+    """
+    train: list[Segment] = []
+    test: list[Segment] = []
+    index = 0
+    for seg in segments:
+        n = len(seg[0])
+        for start in range(0, n, block):
+            piece = tuple(arr[start:start + block] for arr in seg)
+            if len(piece[0]) < min_len:
+                continue
+            (train if index % 2 == 0 else test).append(piece)
+            index += 1
+    return train, test
+
+
+def persistence_rmse(
+    segments: list[Segment], horizon: int, burn_in: int = BURN_IN
+) -> float | None:
+    """Referentie: aannemen dat de binnentemperatuur niet verandert.
+
+    Verrassend sterk op korte horizon, en daarom de eerlijke ondergrens. Een
+    model dat hier niet overheen komt, voegt niets toe.
+    """
+    errs = []
+    for ti, _to, _sol, _q in segments:
+        for k in range(burn_in, len(ti) - horizon):
+            errs.append(np.full(horizon, ti[k]) - ti[k + 1:k + 1 + horizon])
+    if not errs:
+        return None
+    return float(np.sqrt((np.concatenate(errs) ** 2).mean()))
+
+
+def fit_and_validate(
+    segments: list[Segment],
+    horizon: int,
+    reference_rmse: float | None = None,
+    margin: float = DEFAULT_MARGIN,
+    burn_in: int = BURN_IN,
+    dt_hours: float = 1.0,
+    min_train_steps: int = 336,
+) -> Validation:
+    """Fit op de helft van de data en toets op de andere helft.
+
+    ``reference_rmse`` is de fout van het model dat er nu staat, gemeten op
+    dezelfde testverzameling en dezelfde horizon. Laat hem weg en alleen de
+    persistentiedrempel geldt.
+    """
+    def _no(reason: str, **kw) -> Validation:
+        return Validation(params=None, report=kw.pop("report", {}), rmse=None,
+                          reference_rmse=reference_rmse, persistence_rmse=None,
+                          accepted=False, reason=reason)
+
+    train, test = split_alternating(segments)
+    if sum(len(s[0]) for s in train) < min_train_steps:
+        return _no("te weinig trainingsdata")
+    if not test:
+        return _no("te weinig testdata")
+
+    try:
+        params, report = fit(train, burn_in=burn_in, dt_hours=dt_hours)
+    except (ValueError, np.linalg.LinAlgError) as err:
+        return _no(f"fit mislukt: {err}")
+    if not report.get("converged"):
+        return _no("fit convergeerde niet", report=report)
+
+    rmse = rmse_at_horizon(params, test, horizon, burn_in, dt_hours)
+    persist = persistence_rmse(test, horizon, burn_in)
+    if rmse is None:
+        return _no("geen bruikbare testvensters", report=report)
+
+    def _verdict() -> tuple[bool, str]:
+        if persist is not None and rmse >= persist * (1.0 - margin):
+            return False, "niet beter dan aannemen dat er niets verandert"
+        if reference_rmse is not None and rmse >= reference_rmse * (1.0 - margin):
+            return False, "niet genoeg beter dan het huidige model"
+        return True, "beter op weggehouden data"
+
+    accepted, reason = _verdict()
+    return Validation(params=params, report=report, rmse=rmse,
+                      reference_rmse=reference_rmse, persistence_rmse=persist,
+                      accepted=accepted, reason=reason)

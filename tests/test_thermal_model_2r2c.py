@@ -18,8 +18,11 @@ from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import (
     _to_free,
     discretize,
     fit,
+    fit_and_validate,
     one_step_residuals,
+    persistence_rmse,
     rmse_at_horizon,
+    split_alternating,
     simulate,
     track_hidden_state,
 )
@@ -28,17 +31,29 @@ WAAR = TwoStateParams(U=260.0, Ci=1400.0, Cm=35000.0, Hm=2500.0,
                       g=3.2, P_int=450.0, alpha=0.65)
 
 
-def _genereer(p: TwoStateParams, n: int = 1500, ruis: float = 0.01, seed: int = 1):
-    """Synthetisch huis dat exact dit model gehoorzaamt."""
+def _genereer(p: TwoStateParams, n: int = 1500, ruis: float = 0.01, seed: int = 1,
+              dt_hours: float = 1.0, pendelen: bool = False):
+    """Synthetisch huis dat exact dit model gehoorzaamt.
+
+    De reeksen worden stap voor stap opgebouwd zodat ``t_in[i]`` en de invoer
+    op index ``i`` bij hetzelfde tijdstip horen. Dat is niet dezelfde
+    uitlijning als de uitvoer van ``simulate``, die een stap opschuift.
+    """
     rng = np.random.default_rng(seed)
     k = np.arange(n)
-    t_out = 4.0 + 7.0 * np.sin(2 * np.pi * (k - 9) / 24) + rng.normal(0, 1.5, n)
-    solar = np.maximum(0.0, 300 * np.sin(2 * np.pi * (k - 8) / 24))
+    uur = k * dt_hours
+    t_out = 4.0 + 7.0 * np.sin(2 * np.pi * (uur - 9) / 24) + rng.normal(0, 1.5, n)
+    solar = np.maximum(0.0, 300 * np.sin(2 * np.pi * (uur - 8) / 24))
     t_in = np.empty(n); t_mass = np.empty(n); q = np.empty(n)
     t_in[0] = t_mass[0] = 20.0
-    Ad, Bd = discretize(p)
+    Ad, Bd = discretize(p, dt_hours)
     for i in range(n - 1):
-        q[i] = max(0.0, p.U * (20.5 - t_out[i]) - p.g * solar[i])
+        vraag = max(0.0, p.U * (20.5 - t_out[i]) - p.g * solar[i])
+        # Aan/uit-pendelen met een periode van ongeveer een uur. Zonder die
+        # snelle prikkel valt de snelle tijdconstante niet te leren: een
+        # gladde dagcyclus wekt hem simpelweg niet op.
+        q[i] = vraag * (1.0 + 0.8 * np.sign(np.sin(2 * np.pi * i * dt_hours)))\
+            if pendelen else vraag
         x = Ad @ np.array([t_in[i], t_mass[i]]) + Bd @ np.array(
             [t_out[i], solar[i], q[i], 1.0])
         t_in[i + 1] = x[0] + rng.normal(0, ruis)
@@ -198,3 +213,102 @@ class TestSerialisatie:
 
     def test_array_roundtrip(self):
         assert TwoStateParams.from_array(WAAR.as_array()) == WAAR
+
+
+class TestStapgrootte:
+    """De discretisatie is exact, dus de parameters horen niet van de
+    bemonsteringsstap af te hangen. Dat is precies wat een Euler-benadering
+    wél zou doen — en de reden dat die hier niet gebruikt wordt."""
+
+    def test_zelfde_parameters_bij_vijf_minuten_en_een_uur(self):
+        p = TwoStateParams(**INITIAL)
+        Ad_h, _ = discretize(p, 1.0)
+        Ad_5, _ = discretize(p, 1.0 / 12.0)
+        np.testing.assert_allclose(
+            np.linalg.matrix_power(Ad_5, 12), Ad_h, atol=1e-12)
+
+    def test_simulatie_komt_op_hetzelfde_uit(self):
+        p = TwoStateParams(**INITIAL)
+        n = 200
+        to = np.full(n * 12, 3.0); sol = np.zeros(n * 12); q = np.full(n * 12, 2000.0)
+        fijn = simulate(p, 20.0, 20.0, to, sol, q, 1.0 / 12.0)
+        grof = simulate(p, 20.0, 20.0, to[:n], sol[:n], q[:n], 1.0)
+        assert fijn[11::12][:n] == pytest.approx(grof, abs=1e-9)
+
+    def test_fit_op_vijfminutendata_vindt_dezelfde_fysica(self):
+        """De discretisatie is exact, dus dezelfde fysica moet er uit komen
+        ongeacht hoe fijn je bemonstert."""
+        p = TwoStateParams(**INITIAL)
+        seg = _genereer(p, n=8000, ruis=0.002, seed=5,
+                        dt_hours=1.0 / 12.0, pendelen=True)
+        gevonden, rep = fit(seg, burn_in=288, dt_hours=1.0 / 12.0)
+        assert rep["converged"]
+        for got, want in zip(gevonden.time_constants, p.time_constants):
+            assert got == pytest.approx(want, rel=0.15)
+
+    def test_ware_parameters_zijn_het_optimum(self):
+        """Vangnet tegen scheef gegenereerde testdata: als een gevonden set
+        beter scoort dan de set die de data maakte, is de uitlijning stuk."""
+        p = TwoStateParams(**INITIAL)
+        seg = _genereer(p, n=4000, ruis=0.0, seed=8,
+                        dt_hours=1.0 / 12.0, pendelen=True)
+        gevonden, _ = fit(seg, burn_in=288, dt_hours=1.0 / 12.0)
+        waar_rms = np.sqrt((one_step_residuals(p, seg, 288, 1 / 12) ** 2).mean())
+        fit_rms = np.sqrt((one_step_residuals(gevonden, seg, 288, 1 / 12) ** 2).mean())
+        assert waar_rms <= fit_rms * 1.05
+
+
+class TestValidatie:
+    def _seg(self, n=1200, ruis=0.01):
+        return _genereer(WAAR, n=n, ruis=ruis)
+
+    def test_splitsing_verdeelt_om_en_om(self):
+        seg = [(np.arange(1000.0),) * 4]
+        train, test = split_alternating(seg, block=168, min_len=72)
+        assert len(train) == 3 and len(test) == 3
+        assert train[0][0][0] == 0.0
+        assert test[0][0][0] == 168.0
+
+    def test_te_korte_stukken_vallen_af(self):
+        seg = [(np.arange(200.0),) * 4]
+        train, test = split_alternating(seg, block=168, min_len=72)
+        assert len(train) == 1 and len(test) == 0  # rest van 32 is te kort
+
+    def test_telling_loopt_door_over_segmenten(self):
+        """Anders belandt data met veel onderbrekingen volledig in train en
+        blijft er niets over om op te toetsen."""
+        segs = [(np.arange(100.0),) * 4 for _ in range(6)]
+        train, test = split_alternating(segs, block=168, min_len=72)
+        assert len(train) == 3 and len(test) == 3
+
+    def test_accepteert_een_model_dat_echt_beter_is(self):
+        v = fit_and_validate(self._seg(), horizon=12)
+        assert v.accepted, v.reason
+        assert v.rmse < v.persistence_rmse
+        assert v.params is not None
+
+    def test_weigert_bij_te_weinig_data(self):
+        v = fit_and_validate(self._seg(n=200), horizon=12)
+        assert not v.accepted
+        assert "te weinig" in v.reason
+
+    def test_weigert_als_het_huidige_model_al_beter_is(self):
+        v = fit_and_validate(self._seg(), horizon=12, reference_rmse=1e-6)
+        assert not v.accepted
+        assert "huidige model" in v.reason
+
+    def test_marge_voorkomt_wisselen_op_ruis(self):
+        """Net zo goed is niet goed genoeg."""
+        basis = fit_and_validate(self._seg(), horizon=12)
+        gelijk = fit_and_validate(self._seg(), horizon=12,
+                                  reference_rmse=basis.rmse * 1.01)
+        assert not gelijk.accepted
+
+    def test_uitkomst_is_serialiseerbaar(self):
+        d = fit_and_validate(self._seg(), horizon=12).to_dict()
+        assert d["accepted"] is True
+        assert d["params"]["tau_fast_h"] > 0
+        assert d["persistence_rmse_k"] > d["rmse_k"]
+
+    def test_persistentie_op_leeg_segment(self):
+        assert persistence_rmse([], horizon=12) is None
