@@ -3,6 +3,23 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.1 — 2026-09-08
+
+Stabiele release die de beta-serie van 0.10.1 afsluit. Bevat alles uit
+v0.10.1-beta.1 t/m beta.3, plus twee dashboardfixes.
+
+- **De drie analysegrafieken ververste 33 keer per seconde.** Het thermisch
+  profiel, COP vs buitentemperatuur en de stooklijnvergelijking hadden hun
+  verversinterval als `00:30:00` staan. Die notatie kent apexcharts-card niet:
+  zonder eenheidletters leest hij de getallen als milliseconden en komt uit op
+  30 ms in plaats van een half uur. Gevolg: de grafiek tekende zichzelf continu
+  opnieuw, een tooltip verdween binnen een oogwenk en bij het laden bleef er
+  "Loading..." staan. Nu `30min`.
+- **De gasdatapunten in het thermisch profiel waren onzichtbaar.** De lijst met
+  markergroottes had één waarde te veel, waardoor alles een plek opschoof: de
+  gasmetingen kregen grootte 0 (en hebben geen lijn, dus je zag niets) en de
+  gastrendlijn kreeg juist stippen.
+
 ## v0.10.1-beta.3 — 2026-09-06
 
 Pre-release. Deze ronde gaat niet over nieuwe functies maar over aannames: de

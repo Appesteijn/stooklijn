@@ -196,7 +196,7 @@ views:
             header:
               title: Huis thermisch profiel
               show: true
-            update_interval: "00:30:00"
+            update_interval: 30min
             apex_config:
               chart:
                 height: 350
@@ -224,7 +224,6 @@ views:
               markers:
                 size:
                   - 4
-                  - 0
                   - 0
                   - 0
                   - 0
@@ -383,7 +382,7 @@ views:
             header:
               title: COP vs Buitentemperatuur
               show: true
-            update_interval: "00:30:00"
+            update_interval: 30min
             apex_config:
               chart:
                 height: 300
@@ -831,7 +830,7 @@ views:
             header:
               title: Stooklijn — Optimaal vs Huidig
               show: true
-            update_interval: "00:30:00"
+            update_interval: 30min
             apex_config:
               chart:
                 height: 300
