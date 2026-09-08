@@ -3,6 +3,45 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.2-beta.1 — 2026-09-08
+
+Betaversie. Draait om één meetfout in het lerende huismodel, plus voorbereiding
+op een nauwkeuriger model.
+
+- **De warmtebuffer en de veilige uitlooptijd stonden bijna een factor twee te
+  optimistisch.** Het model leert de warmtecapaciteit van je huis, maar dat kan
+  alleen als er warmte in gaat. In de zomer is dat niet zo, en dan liep die
+  waarde weg zonder dat iets het tegenhield. Gemeten op de ontwikkelinstallatie:
+  27.933 Wh/K terwijl een fit op winterdata 15.900 geeft. Gevolg: het model
+  dacht 31 uur te kunnen teren bij 5 °C buiten waar het er 18 zijn, en meldde
+  118 kWh buffer in plaats van 67. De capaciteit wordt nu bevroren zolang er
+  geen warmtevraag is — waarde én onzekerheid, want anders zet die opgeblazen
+  onzekerheid hem bij de eerste stookdag alsnog ergens anders neer. De
+  zonnewinst blijft wél doorleren; de zomer is daar juist de beste periode voor.
+- **Een nieuwe installatie meldde "model gekalibreerd" terwijl dat niet zo was.**
+  Werd de integratie in de zomer in gebruik genomen, dan haalde hij na twee
+  dagen de drempel voor "geconvergeerd" terwijl de warmtecapaciteit nog op de
+  fabriekswaarde stond. De buffer- en uitlooptijdsensoren draaiden dan op een
+  verzonnen getal alsof het gemeten was. Er wordt nu per modelparameter
+  bijgehouden of die werkelijk iets geleerd heeft. Bestaande installaties merken
+  hier niets van en blijven gewoon gekalibreerd.
+- **De integratie legt vanaf nu elke vijf minuten een meting vast**, negentig
+  dagen in een ringbuffer van ongeveer een megabyte. Je ziet er niets van; het
+  is grondstof. Home Assistant gooit zijn eigen vijfminutenstatistieken na tien
+  dagen weg, en op uurgemiddelden is de snelle reactietijd van een huis — de
+  paar uur waarin de binnenlucht op verwarming reageert — niet te bepalen.
+  Zonder dit logboek is een winter aan meetgegevens elk voorjaar weer weg.
+- **Een tweetoestandsmodel van het huis is toegevoegd, maar staat nog uit.** Het
+  huidige model heeft één warmtecapaciteit en dus één reactietijd; een huis
+  heeft er minstens twee die ver uit elkaar liggen. Op winterdata voorspelt het
+  nieuwe model de binnentemperatuur twaalf uur vooruit met 0,32 °C afwijking
+  tegen 0,50 °C voor het huidige. Het kan pas aan zodra het meetlogboek een
+  stookseizoen bevat, en het neemt alleen over als het op weggehouden data
+  aantoonbaar beter blijkt.
+
+Verder: het meetlogboek liep vast na een klokcorrectie, en overschreef zichzelf
+na een leesfout. Allebei verholpen voordat er data in zat.
+
 ## v0.10.1 — 2026-09-08
 
 Stabiele release die de beta-serie van 0.10.1 afsluit. Bevat alles uit
