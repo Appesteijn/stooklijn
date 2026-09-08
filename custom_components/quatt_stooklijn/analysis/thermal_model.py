@@ -74,12 +74,27 @@ class RLSEstimator:
     theta: np.ndarray = field(default=None)
     P: np.ndarray = field(default=None)
     n_updates: int = 0
+    #: Aantal updates per parameter waarin die parameter écht meebewoog.
+    #: Nodig omdat n_updates alleen zegt hoe vaak er iets is bijgewerkt, niet
+    #: of de parameter waar je naar kijkt daarbij iets geleerd heeft. Zonder
+    #: dit onderscheid meldt een installatie die in de zomer in gebruik wordt
+    #: genomen na 48 uur "geconvergeerd", terwijl C nog op de fabriekswaarde
+    #: staat en er geen enkel monster is geweest waaruit hij te leren viel.
+    n_updates_per_param: np.ndarray = field(default=None)
 
     def __post_init__(self) -> None:
         if self.theta is None:
             self.theta = np.zeros(self.n_params)
         if self.P is None:
             self.P = np.eye(self.n_params) * RLS_INITIAL_COV
+        # Expliciet float: het bevroren pad schrijft in-place (theta[active] =)
+        # en zou op een int-array stilzwijgend afkappen. Het gewone pad bindt
+        # theta opnieuw en heeft dat probleem niet — die asymmetrie is precies
+        # het soort verschil dat je pas maanden later merkt.
+        self.theta = np.asarray(self.theta, dtype=float)
+        self.P = np.asarray(self.P, dtype=float)
+        if self.n_updates_per_param is None:
+            self.n_updates_per_param = np.zeros(self.n_params, dtype=int)
 
     def initialise_from_physics(self, U: float, C: float, g: float) -> None:
         """Set initial θ from physical parameters (cold start)."""
@@ -127,6 +142,7 @@ class RLSEstimator:
             self.theta[active] = self.theta[active] + K * err
             self.P[block] = (Pa - np.outer(K, Px)) / lam
             self.n_updates += 1
+            self.n_updates_per_param[active] += 1
             return
 
         Px = self.P @ x
@@ -138,16 +154,21 @@ class RLSEstimator:
         self.theta = self.theta + K * err
         self.P = (self.P - np.outer(K, Px)) / lam
         self.n_updates += 1
+        self.n_updates_per_param += 1
 
     @property
     def is_converged(self) -> bool:
-        return self.n_updates >= RLS_MIN_UPDATES
+        return bool(
+            self.n_updates >= RLS_MIN_UPDATES
+            and self.n_updates_per_param.min() >= RLS_MIN_UPDATES
+        )
 
     def to_dict(self) -> dict:
         return {
             "theta": self.theta.tolist(),
             "P": self.P.tolist(),
             "n_updates": self.n_updates,
+            "n_updates_per_param": self.n_updates_per_param.tolist(),
             "forgetting": self.forgetting,
         }
 
@@ -157,9 +178,17 @@ class RLSEstimator:
             n_params=len(data["theta"]),
             forgetting=data.get("forgetting", RLS_FORGETTING),
         )
-        est.theta = np.array(data["theta"])
-        est.P = np.array(data["P"])
+        est.theta = np.asarray(data["theta"], dtype=float)
+        est.P = np.asarray(data["P"], dtype=float)
         est.n_updates = data.get("n_updates", 0)
+        # Bestaande modellen kennen het veld niet. Terugvallen op n_updates
+        # gaat uit van het oude gedrag — alles bewoog altijd mee — zodat een
+        # draaiende installatie niet plotseling naar de batch-terugval springt.
+        per_param = data.get("n_updates_per_param")
+        est.n_updates_per_param = (
+            np.asarray(per_param, dtype=int) if per_param is not None
+            else np.full(est.n_params, est.n_updates, dtype=int)
+        )
         return est
 
 

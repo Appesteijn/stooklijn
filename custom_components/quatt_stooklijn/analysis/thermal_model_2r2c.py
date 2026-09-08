@@ -337,6 +337,12 @@ def fit(
 
     lam = 1e-3
     iterations = 0
+    rel = float("inf")
+    # Standaard aannemen dat de lus is uitgelopen; alleen een echte
+    # stopreden overschrijft dat. Andersom — "converged" op de laatste
+    # gelukte stap zetten — meldt een fit die tegen de iteratielimiet aan
+    # loopt als geconvergeerd, en dan laat de validatiepoort hem door.
+    stop_reason = "iteratielimiet"
     for iterations in range(1, max_iter + 1):
         # Numerieke Jacobiaan met voorwaartse differenties. De stap is
         # relatief aan de schaal van de vrije variabele, niet absoluut:
@@ -369,13 +375,18 @@ def fit(
             lam *= 3.0
             if lam > 1e12:
                 break
-        if not improved or rel < _LM_TOL:
+        if not improved:
+            stop_reason = "geen verbetering meer"
+            break
+        if rel < _LM_TOL:
+            stop_reason = "tolerantie bereikt"
             break
 
     params = TwoStateParams.from_array(_to_bounded(x))
     report = {
         "iterations": iterations,
-        "converged": improved,
+        "converged": stop_reason != "iteratielimiet",
+        "stop_reason": stop_reason,
         "rms_k": float(np.sqrt(cost / max(r.size, 1))),
         "n_residuals": int(r.size),
     }
@@ -507,6 +518,7 @@ def fit_and_validate(
     burn_in: int = BURN_IN,
     dt_hours: float = 1.0,
     min_train_steps: int = 336,
+    max_iter: int = _LM_MAX_ITER,
 ) -> Validation:
     """Fit op de helft van de data en toets op de andere helft.
 
@@ -526,7 +538,8 @@ def fit_and_validate(
         return _no("te weinig testdata")
 
     try:
-        params, report = fit(train, burn_in=burn_in, dt_hours=dt_hours)
+        params, report = fit(train, burn_in=burn_in, dt_hours=dt_hours,
+                             max_iter=max_iter)
     except (ValueError, np.linalg.LinAlgError) as err:
         return _no(f"fit mislukt: {err}")
     if not report.get("converged"):

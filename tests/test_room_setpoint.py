@@ -73,7 +73,11 @@ def _converged_model() -> OnlineRCModel:
     """Een model dat door ``is_converged`` komt, met plausibele huiswaarden."""
     model = OnlineRCModel()
     model._rls.initialise_from_physics(U=250.0, C=6000.0, g=5.0)
-    model._rls.n_updates = 100  # ruim boven RLS_MIN_UPDATES
+    # Ruim boven RLS_MIN_UPDATES, en per parameter — anders telt het model
+    # als niet-geconvergeerd omdat C nooit een monster heeft gezien waaruit
+    # hij te leren viel.
+    model._rls.n_updates = 100
+    model._rls.n_updates_per_param[:] = 100
     return model
 
 

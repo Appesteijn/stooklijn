@@ -67,6 +67,33 @@ class TestRLSEstimator:
         np.testing.assert_allclose(rls.theta[:2], theta_true[:2], rtol=0.1)
         assert rls.theta[2] == theta_true[2]
 
+    def test_int_array_wordt_niet_afgekapt(self):
+        """Het bevroren pad schrijft in-place; op een int-array zou dat de
+        update stilzwijgend afkappen terwijl het gewone pad wel goed gaat."""
+        rls = RLSEstimator()
+        rls.theta = np.array([0, 0, 0])
+        rls.P = np.eye(3) * 1000
+        rls.__post_init__()
+        rls.update(np.array([1.0, 2.0, 3.0]), 0.5, frozen=(2,))
+        assert rls.theta.dtype.kind == "f"
+        assert rls.theta[0] != 0.0
+
+    def test_teller_loopt_per_parameter(self):
+        rls = RLSEstimator()
+        for _ in range(10):
+            rls.update(np.array([1.0, 2.0, 3.0]), 0.5, frozen=(2,))
+        assert rls.n_updates == 10
+        assert list(rls.n_updates_per_param) == [10, 10, 0]
+        rls.update(np.array([1.0, 2.0, 3.0]), 0.5)
+        assert list(rls.n_updates_per_param) == [11, 11, 1]
+
+    def test_teller_overleeft_serialisatie(self):
+        rls = RLSEstimator()
+        for _ in range(5):
+            rls.update(np.array([1.0, 2.0, 3.0]), 0.5, frozen=(2,))
+        terug = RLSEstimator.from_dict(rls.to_dict())
+        assert list(terug.n_updates_per_param) == [5, 5, 0]
+
     def test_alles_bevriezen_doet_niets(self):
         rls = RLSEstimator()
         rls.initialise_from_physics(285.0, 20000.0, 3.5)
@@ -750,6 +777,37 @@ class TestUAnchor:
         )
         restored.update(21.0, 5.0, 0.0, 0.0,
                         datetime(2026, 7, 5, tzinfo=timezone.utc))
+
+    def test_niet_geconvergeerd_zolang_c_nooit_geleerd_is(self):
+        """Een installatie die in de zomer in gebruik wordt genomen ziet
+        maandenlang geen enkel monster waaruit C te leren valt. Meldde het
+        model zich dan toch als geconvergeerd, dan draaien de buffer- en
+        uitlooptijdsensoren op de fabriekswaarde alsof die gemeten was."""
+        model = OnlineRCModel()
+        model.initialise_from_batch(285.0)
+        model.set_u_prior(285.0)
+        self._summer(model, n_hours=300, q_hp=120.0)
+        assert model._rls.n_updates > RLS_MIN_UPDATES
+        assert model.raw_params["C"] == pytest.approx(DEFAULT_C)
+        assert not model.is_converged
+
+    def test_wel_geconvergeerd_na_echt_stoken(self):
+        model = OnlineRCModel()
+        model.initialise_from_batch(285.0)
+        model.set_u_prior(285.0)
+        self._winter(model)
+        assert model.is_converged
+
+    def test_bestaand_model_zonder_teller_blijft_geconvergeerd(self):
+        """Een draaiende installatie mag door deze wijziging niet ineens
+        terugvallen op het batchmodel."""
+        model = OnlineRCModel()
+        model.initialise_from_batch(285.0)
+        self._winter(model, n_hours=200)
+        oud = model.to_dict()
+        oud["rls"].pop("n_updates_per_param", None)
+        hersteld = OnlineRCModel.from_dict(oud)
+        assert hersteld.is_converged
 
     def test_params_maakt_ankering_zichtbaar(self):
         """Een bevroren U mag niet ononderscheidbaar zijn van een geleerde."""

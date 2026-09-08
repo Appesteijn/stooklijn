@@ -65,8 +65,14 @@ class HighResLog:
     ) -> bool:
         """Leg één monster vast. Geeft False als het is overgeslagen."""
         ts = int(timestamp.timestamp())
-        if self._samples and ts - self._samples[-1][0] < MIN_SPACING.total_seconds():
-            return False
+        if self._samples:
+            gap = ts - self._samples[-1][0]
+            # Een negatieve sprong is geen te dicht monster maar een klok die
+            # terugloopt (NTP-correctie na een herstart zonder RTC). Die wél
+            # accepteren: anders ligt het logboek stil tot de echte tijd het
+            # oude laatste tijdstip heeft ingehaald.
+            if 0 <= gap < MIN_SPACING.total_seconds():
+                return False
         self._samples.append([
             ts,
             round(float(t_indoor), 2),
@@ -81,10 +87,15 @@ class HighResLog:
 
     @property
     def span_hours(self) -> float | None:
-        """Hoeveel uur er tussen het oudste en nieuwste monster zit."""
+        """Hoeveel uur er tussen het oudste en nieuwste monster zit.
+
+        Op min en max, niet op eerste en laatste: na een teruglopende klok
+        staat het logboek niet meer op tijdsvolgorde.
+        """
         if len(self._samples) < 2:
             return None
-        return (self._samples[-1][0] - self._samples[0][0]) / 3600.0
+        ts = [row[0] for row in self._samples]
+        return (max(ts) - min(ts)) / 3600.0
 
     def to_dict(self) -> dict:
         return {
@@ -117,6 +128,11 @@ class HighResLogStore:
         self._store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self.log = HighResLog()
         self._dirty = False
+        #: Opslaan blijft geblokkeerd tot er één keer met succes is gelezen.
+        #: Anders overschrijft de eerstvolgende opslag na een mislukte lezing
+        #: een heel stookseizoen aan monsters met een leeg logboek — data die
+        #: per definitie niet opnieuw te verzamelen is.
+        self._loaded = False
 
     async def async_load(self) -> None:
         data = await self._store.async_load()
@@ -130,9 +146,12 @@ class HighResLogStore:
                 )
             except Exception:
                 _LOGGER.warning(
-                    "Meetlogboek onleesbaar, begin opnieuw", exc_info=True
+                    "Meetlogboek onleesbaar; er wordt niets weggeschreven tot "
+                    "het bestand hersteld of verwijderd is", exc_info=True
                 )
                 self.log = HighResLog()
+                return
+        self._loaded = True
 
     def record(self, *args, **kwargs) -> bool:
         recorded = self.log.record(*args, **kwargs)
@@ -145,7 +164,7 @@ class HighResLogStore:
         Bewust niet bij elk monster: een vol logboek is ongeveer een
         megabyte en veel installaties draaien op een SD-kaart.
         """
-        if not self._dirty:
+        if not self._dirty or not self._loaded:
             return
         await self._store.async_save(self.log.to_dict())
         self._dirty = False

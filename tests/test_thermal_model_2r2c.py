@@ -160,7 +160,15 @@ class TestFit:
         p, rep = fit(_genereer(WAAR))
         assert rep["n_residuals"] > 0
         assert rep["rms_k"] < 0.05
-        assert set(rep) == {"iterations", "converged", "rms_k", "n_residuals"}
+        assert set(rep) == {"iterations", "converged", "stop_reason",
+                            "rms_k", "n_residuals"}
+        assert rep["stop_reason"] in {"tolerantie bereikt", "geen verbetering meer"}
+
+    def test_iteratielimiet_telt_niet_als_convergentie(self):
+        """Anders laat de validatiepoort een half afgemaakte fit door."""
+        _, rep = fit(_genereer(WAAR), max_iter=2)
+        assert rep["stop_reason"] == "iteratielimiet"
+        assert not rep["converged"]
 
     def test_te_korte_segmenten_geven_een_nette_fout(self):
         with pytest.raises(ValueError):
@@ -303,6 +311,11 @@ class TestValidatie:
         gelijk = fit_and_validate(self._seg(), horizon=12,
                                   reference_rmse=basis.rmse * 1.01)
         assert not gelijk.accepted
+
+    def test_poort_weigert_een_fit_die_de_limiet_raakte(self):
+        v = fit_and_validate(self._seg(), horizon=12, max_iter=2)
+        assert not v.accepted
+        assert "convergeerde niet" in v.reason
 
     def test_uitkomst_is_serialiseerbaar(self):
         d = fit_and_validate(self._seg(), horizon=12).to_dict()

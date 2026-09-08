@@ -45,6 +45,26 @@ class TestRecord:
         assert len(log) == 2
 
 
+class TestKlok:
+    def test_terugspringende_klok_blokkeert_het_logboek_niet(self):
+        """NTP-correctie na een herstart zonder RTC. Zonder deze uitzondering
+        ligt het logboek stil tot de echte tijd het oude laatste tijdstip
+        heeft ingehaald — bij een sprong van een half uur dus een half uur."""
+        log = HighResLog()
+        log.record(T0, 20.0, 4.0, 0.0, 0.0)
+        assert log.record(T0 - timedelta(minutes=30), 20.0, 4.0, 0.0, 0.0) is True
+        n = sum(log.record(T0 - timedelta(minutes=30) + SAMPLE_INTERVAL * i,
+                           20.0, 4.0, 0.0, 0.0) for i in range(1, 5))
+        assert n == 4
+        assert len(log) == 6
+
+    def test_span_klopt_als_de_reeks_niet_op_volgorde_staat(self):
+        log = HighResLog()
+        log.record(T0 + timedelta(hours=2), 20.0, 4.0, 0.0, 0.0)
+        log.record(T0, 20.0, 4.0, 0.0, 0.0)
+        assert log.span_hours == pytest.approx(2.0)
+
+
 class TestRingbuffer:
     def test_houdt_maximum_aan(self):
         log = _fill(HighResLog(max_samples=10), 25)
@@ -97,3 +117,57 @@ class TestSerialisatie:
     def test_maximum_wordt_gerespecteerd_bij_inlezen(self):
         log = _fill(HighResLog(), 50)
         assert len(HighResLog.from_dict(log.to_dict(), max_samples=10)) == 10
+
+
+class TestStore:
+    """De store mag nooit een winter aan data wegvagen na een leesfout."""
+
+    def _store(self, load_result):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from custom_components.quatt_stooklijn.highres_log import HighResLogStore
+        with patch("custom_components.quatt_stooklijn.highres_log.Store") as St:
+            inst = St.return_value
+            if isinstance(load_result, BaseException):
+                inst.async_load = AsyncMock(side_effect=load_result)
+            else:
+                inst.async_load = AsyncMock(return_value=load_result)
+            inst.async_save = AsyncMock()
+            return HighResLogStore(MagicMock()), inst
+
+    def test_schrijft_niet_weg_na_een_mislukte_lezing(self):
+        """Het geval dat telt: HA's Store gooit zelf, bijvoorbeeld op ongeldige
+        JSON of een I/O-fout. Zou de store daarna gewoon opslaan, dan wist de
+        eerstvolgende uurtick een heel stookseizoen."""
+        import asyncio
+        store, inner = self._store(OSError("schijf weg"))
+        with pytest.raises(OSError):
+            asyncio.run(store.async_load())
+        store.record(T0, 20.0, 4.0, 0.0, 0.0)
+        asyncio.run(store.async_save())
+        inner.async_save.assert_not_awaited()
+
+    def test_rommelige_rijen_zijn_geen_leesfout(self):
+        """from_dict slaat onbruikbare rijen over in plaats van te gooien, dus
+        dit telt als een geslaagde lezing en opslaan mag gewoon."""
+        import asyncio
+        store, inner = self._store({"samples": ["onzin", None, [1, 2]]})
+        asyncio.run(store.async_load())
+        assert len(store.log) == 0
+        store.record(T0, 20.0, 4.0, 0.0, 0.0)
+        asyncio.run(store.async_save())
+        inner.async_save.assert_awaited_once()
+
+    def test_schrijft_wel_na_een_goede_lezing(self):
+        import asyncio
+        store, inner = self._store(None)
+        asyncio.run(store.async_load())
+        store.record(T0, 20.0, 4.0, 0.0, 0.0)
+        asyncio.run(store.async_save())
+        inner.async_save.assert_awaited_once()
+
+    def test_schrijft_niets_zonder_nieuwe_monsters(self):
+        import asyncio
+        store, inner = self._store(None)
+        asyncio.run(store.async_load())
+        asyncio.run(store.async_save())
+        inner.async_save.assert_not_awaited()
