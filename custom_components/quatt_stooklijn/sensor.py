@@ -32,6 +32,7 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
+from .analysis.model_benchmark import Comparison, compare
 from .analysis.thermal_model import (
     OnlineRCModel,
     simulate_coast_time,
@@ -392,6 +393,8 @@ async def async_setup_entry(
     # Coast-time sensor deelt het RC-model + forecast van de MPC-sensor.
     entities.append(QuattCoastTimeSensor(coordinator, entry, mpc_sensor))
     entities.append(QuattStoredHeatSensor(coordinator, entry, mpc_sensor))
+    # Deelt hetzelfde model en meetlogboek; scoort alleen, stuurt niets aan.
+    entities.append(QuattModelBenchmarkSensor(coordinator, entry, mpc_sensor))
 
     # Geen entity-ID's meer meegeven: die werden hier één keer bij het opstarten
     # bepaald en daarna nooit meer. De sensor zoekt ze nu zelf op via de
@@ -980,6 +983,18 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         te trainen — beide gebruiken hetzelfde online-geleerde model.
         """
         return self._thermal_store.model if self._thermal_loaded else None
+
+    @property
+    def highres_samples(self) -> list[list[float]]:
+        """Momentopname van het meetlogboek, voor analyse buiten de event loop.
+
+        Een kopie van de lijst, geen kopie van de rijen — die worden na het
+        vastleggen niet meer aangeraakt, dus een executor-thread mag er
+        rustig overheen lopen terwijl er hier nieuwe monsters bij komen.
+        """
+        if not self._highres_loaded:
+            return []
+        return list(self._highres_store.log.to_dict()["samples"])
 
     @property
     def thermal_params(self) -> dict:
@@ -1819,6 +1834,122 @@ class QuattStoredHeatSensor(
         )
 
     async def _handle_state_change(self, event) -> None:
+        self.async_write_ha_state()
+
+
+class QuattModelBenchmarkSensor(
+    CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity
+):
+    """Scoort het tweetoestandsmodel tegen het model dat nu draait.
+
+    Het 2R2C-model staat uit tot het op weggehouden data aantoonbaar beter
+    voorspelt dan het 1R1C dat er nu is. Die poort zat tot nu toe onzichtbaar
+    in de code: je kon niet zien of het model nog niet aan de beurt was, was
+    afgewezen, of nooit had gedraaid. Deze sensor maakt hem zichtbaar.
+
+    Hij verandert niets aan de regeling. Er wordt gefit op een kopie van het
+    meetlogboek en gescoord op de helft die niet in de fit zat; het draaiende
+    model wordt alleen uitgelezen.
+
+    Draait 's nachts, want de fit plus de vrijloop-evaluatie kosten seconden
+    en horen niet in de event loop. Na een herstart staat hij op "nog niet
+    gemeten" tot de eerste meting; het resultaat wordt bewust niet bewaard,
+    want een score van gisteren op de data van gisteren is geen antwoord op de
+    vraag van vandaag.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "model_benchmark"
+    _attr_icon = "mdi:scale-balance"
+
+    #: Eén keer per etmaal. Vaker heeft geen zin: het logboek groeit met een
+    #: dag per dag, en de uitkomst verschuift navenant traag.
+    INTERVAL = timedelta(hours=24)
+
+    #: Wachttijd na het opstarten. Niet meteen: bij een herstart heeft HA het
+    #: eerst druk genoeg, en op een Pi met een SD-kaart is dit precies het
+    #: soort werk dat je daar niet doorheen wil duwen.
+    STARTUP_DELAY = timedelta(minutes=10)
+
+    def __init__(
+        self,
+        coordinator: QuattStooklijnCoordinator,
+        entry: ConfigEntry,
+        mpc_sensor: QuattMpcSensor,
+    ) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._mpc = mpc_sensor
+        self._result: Comparison | None = None
+        self._running = False
+        self._attr_unique_id = f"{entry.entry_id}_model_benchmark"
+        self._attr_device_info = get_device_info(entry.entry_id)
+        # Vastgepind, net als bij de andere sensoren hier: zonder dit leidt HA
+        # de id af uit het gebied van het device en wijst het dashboard naar
+        # een entiteit die niet bestaat.
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            "quatt_warmteanalyse_modelvergelijking",
+            hass=coordinator.hass,
+        )
+
+    @property
+    def native_value(self) -> str:
+        if self._result is None:
+            return "nog niet gemeten"
+        if self._result.accepted:
+            return "beter"
+        reden = self._result.reason
+        if reden.startswith(("te weinig", "nog geen", "geen bruikbare")):
+            return "te weinig data"
+        if reden.startswith("fit "):
+            return "fit mislukt"
+        return "niet beter"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        if self._result is None:
+            return {"gemeten": False}
+        return {"gemeten": True, **self._result.to_dict()}
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass, self._async_run, self.INTERVAL
+            )
+        )
+        self.async_on_remove(
+            async_call_later(
+                self.hass, self.STARTUP_DELAY.total_seconds(), self._async_run
+            )
+        )
+
+    async def _async_run(self, _now=None) -> None:
+        """Meet opnieuw. Een mislukte meting laat de vorige uitkomst staan."""
+        if self._running:
+            # De vorige ronde loopt nog. Dat kan op trage hardware met een vol
+            # logboek; er dan een tweede executor-thread naast zetten maakt het
+            # alleen erger.
+            return
+        rows = self._mpc.highres_samples
+        if not rows:
+            return
+        model = self._mpc.thermal_model
+        self._running = True
+        try:
+            result = await self.hass.async_add_executor_job(compare, rows, model)
+        except Exception:
+            _LOGGER.warning("Modelvergelijking mislukt", exc_info=True)
+            return
+        finally:
+            self._running = False
+        self._result = result
+        _LOGGER.info(
+            "Modelvergelijking: 2R2C %s K, huidig %s K, niets doen %s K — %s",
+            result.rmse_k, result.reference_rmse_k, result.persistence_rmse_k,
+            result.reason,
+        )
         self.async_write_ha_state()
 
 

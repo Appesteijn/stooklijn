@@ -1172,6 +1172,94 @@ views:
               columns: full
               rows: auto
 
+      # ── Modelvergelijking 2R2C vs huidig (volle breedte) ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: markdown
+            title: Modelvergelijking — 2R2C vs huidig model
+            content: >
+              {% set s = 'sensor.quatt_warmteanalyse_modelvergelijking' %}
+
+              {% set gemeten = state_attr(s, 'gemeten') %}
+
+              {% if not gemeten %}
+
+              *Nog niet gemeten. De vergelijking draait elke nacht; na een
+              herstart duurt het tien minuten voor de eerste meting.*
+
+              {% else %}
+
+              {% set rmse = state_attr(s, 'rmse_k') %}
+
+              {% set ref = state_attr(s, 'reference_rmse_k') %}
+
+              {% set niets = state_attr(s, 'persistence_rmse_k') %}
+
+              {% set uren = state_attr(s, 'data_uren') | float(0) %}
+
+              {% set nodig = state_attr(s, 'benodigde_train_uren') | float(0) %}
+
+              {% set horizon = state_attr(s, 'horizon_uren') | int(12) %}
+
+              {% if rmse is not none %}
+
+              Fout in de voorspelde binnentemperatuur **{{ horizon }} uur
+              vooruit**, gemeten op weken die niet in de fit zaten. Lager is
+              beter.
+
+
+              | Model | RMSE |
+
+              |:--|--:|
+
+              | Tweetoestand (2R2C) | **{{ rmse }} K** |
+
+              | Huidig model (1R1C) | {{ ref if ref is not none else '—' }} K |
+
+              | Niets doen | {{ niets if niets is not none else '—' }} K |
+
+              {% set winst = state_attr(s, 'verbetering_pct') %}
+
+              {% if state_attr(s, 'accepted') %}
+
+              ✅ **2R2C is beter**{% if winst %} — {{ winst | round(0) | int }}%
+              scherper dan
+              het model dat nu draait{% endif %}. Het staat nog steeds uit:
+              aanzetten is een aparte stap.
+
+              {% else %}
+
+              ⏸️ **Nog niet overgenomen** — {{ state_attr(s, 'reason') }}.
+
+              {% endif %}
+
+              {% else %}
+
+              ⏳ **{{ state_attr(s, 'reason') }}**
+
+
+              Het meetlogboek bevat **{{ uren | round(0) | int }} uur**; er is
+              ongeveer **{{ nodig | round(0) | int }} uur** nodig voordat er
+              gefit kan worden — de helft daarvan is trainingsdata, de andere
+              helft dient om op te toetsen.
+
+              {% if uren > 0 %}
+
+              {{ ((uren / nodig) * 100) | round(0) | int }}% van de benodigde
+              meetdata. Het logboek vult alleen bij warmtevraag én bekende
+              zonnestraling, dus buiten het stookseizoen groeit het wel maar
+              leert het niets over hoe het huis op verwarming reageert.
+
+              {% endif %}
+
+              {% endif %}
+
+              {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
+
       # ── Veilige uitlooptijd / comfort-vloer (volle breedte) ──
       - type: grid
         column_span: 2

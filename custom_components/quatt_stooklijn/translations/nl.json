@@ -194,6 +194,9 @@
       "last_analysis": {
         "name": "Laatste analyse"
       },
+      "model_benchmark": {
+        "name": "Modelvergelijking"
+      },
       "mpc_recommended_supply_temp": {
         "name": "MPC aanbevolen aanvoertemperatuur"
       },

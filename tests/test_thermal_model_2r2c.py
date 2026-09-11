@@ -9,6 +9,10 @@ import pytest
 
 from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import (
     BOUNDS,
+    BURN_IN_HOURS,
+    MIN_BLOCK_HOURS,
+    MIN_TRAIN_HOURS,
+    SPLIT_BLOCK_HOURS,
     INITIAL,
     ORDER,
     TwoStateParams,
@@ -20,6 +24,7 @@ from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import (
     fit,
     fit_and_validate,
     one_step_residuals,
+    steps_in,
     persistence_rmse,
     rmse_at_horizon,
     split_alternating,
@@ -325,3 +330,54 @@ class TestValidatie:
 
     def test_persistentie_op_leeg_segment(self):
         assert persistence_rmse([], horizon=12) is None
+
+
+class TestDrempelsVolgenDeStapgrootte:
+    """De poort moet even streng zijn op vijfminutendata als op uurdata.
+
+    Elke drempel stond hier als een aantal stappen met uren in zijn naam. Dat
+    klopte zolang alles op uurdata draaide, maar ``dt_hours`` bestaat juist
+    omdat het meetlogboek op vijf minuten bemonstert — en daar betekende
+    dezelfde 24 ineens twee uur inlooptijd, werd de week-om-week-splitsing een
+    splitsing per veertien uur, en zakte de eis van twee weken trainingsdata
+    naar 28 uur. Precies de poort die een slecht model moet tegenhouden werd zo
+    twaalf keer zwakker, zonder dat er iets aan te zien was.
+    """
+
+    def test_omrekenen(self):
+        assert steps_in(BURN_IN_HOURS, 1.0) == 24
+        assert steps_in(BURN_IN_HOURS, 1.0 / 12.0) == 288
+        assert steps_in(SPLIT_BLOCK_HOURS, 1.0 / 12.0) == 2016
+
+    def test_nooit_nul_stappen(self):
+        """Een venster korter dan één stap is nog steeds één stap."""
+        assert steps_in(0.01, 1.0) == 1
+
+    def test_blokken_blijven_een_week(self):
+        """Op vijfminutendata hoort een blok 168 uur te beslaan, niet 168 stappen."""
+        seg = [tuple(np.zeros(6000) for _ in range(4))]
+        train, test = split_alternating(seg, dt_hours=1.0 / 12.0)
+        assert len(train[0][0]) == steps_in(SPLIT_BLOCK_HOURS, 1.0 / 12.0)
+        # 6000 stappen is bijna drie blokken: twee hele plus een rest die met
+        # 1968 stappen (164 uur) net boven de ondergrens van 72 uur uitkomt.
+        assert len(train) == 2 and len(test) == 1
+
+    def test_korte_stukken_vallen_af(self):
+        """Onder MIN_BLOCK_HOURS telt een stuk niet mee, ook op fijne data."""
+        kort = steps_in(MIN_BLOCK_HOURS, 1.0 / 12.0) - 1
+        seg = [tuple(np.zeros(kort) for _ in range(4))]
+        train, test = split_alternating(seg, dt_hours=1.0 / 12.0)
+        assert train == [] and test == []
+
+    def test_trainingseis_schaalt_mee(self):
+        """Ruim drie dagen vijfminutendata is geen twee weken trainingsdata.
+
+        Met de oude drempel in stappen haalde dit de eis moeiteloos: 1000
+        monsters is meer dan 336. In uren is het 83, en dat is het niet.
+        """
+        seg = _genereer(WAAR, n=1000, dt_hours=1.0 / 12.0, pendelen=True)
+        v = fit_and_validate(seg, horizon=steps_in(12, 1.0 / 12.0),
+                             dt_hours=1.0 / 12.0)
+        assert not v.accepted
+        assert v.reason == "te weinig trainingsdata"
+        assert steps_in(MIN_TRAIN_HOURS, 1.0 / 12.0) == 4032

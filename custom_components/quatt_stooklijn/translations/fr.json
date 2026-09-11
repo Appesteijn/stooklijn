@@ -194,6 +194,9 @@
       "last_analysis": {
         "name": "Dernière analyse"
       },
+      "model_benchmark": {
+        "name": "Comparaison des modèles"
+      },
       "mpc_recommended_supply_temp": {
         "name": "Température de départ recommandée MPC"
       },

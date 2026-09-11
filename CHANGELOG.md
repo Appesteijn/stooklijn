@@ -3,6 +3,39 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.2-beta.2 — 2026-09-11
+
+Betaversie, bovenop beta.1. Die voegde een tweetoestandsmodel toe dat uit staat
+tot het zich bewijst. Deze maakt zichtbaar hóé het zich houdt.
+
+- **Het dashboard laat nu zien of het nieuwe huismodel al beter voorspelt.**
+  Elke nacht worden drie modellen op dezelfde weggehouden meetweken gescoord:
+  het tweetoestandsmodel, het model dat nu draait, en de kale aanname dat de
+  binnentemperatuur niet verandert. Die laatste hoort erbij — op korte termijn
+  is hij verrassend sterk, en een model dat er niet overheen komt voegt niets
+  toe. Op het MPC-tabblad staat de uitkomst als tabel, met het oordeel erbij.
+  Tot die tijd zegt de kaart hoeveel meetdata er is en hoeveel er nodig is.
+  Er verandert niets aan de regeling: het tweetoestandsmodel blijft uit en het
+  draaiende model wordt alleen uitgelezen.
+- **De drempels die dat oordeel bewaken stonden in metingen, niet in tijd.**
+  Ze heetten wel uren, maar telden monsters. Zolang alles op uurdata draaide
+  kwam dat op hetzelfde neer; op de vijfminutenmetingen die sinds beta.1
+  vastgelegd worden betekende dezelfde drempel ineens twaalf keer minder.
+  De eis van twee weken trainingsdata was daar 28 uur geworden, en de
+  splitsing die koude en zachte weken over beide helften moet verdelen viel
+  terug op een halve dag — waarmee het model beoordeeld zou worden op weer dat
+  te veel lijkt op dat waarop het geleerd heeft. De drempels staan nu in uren
+  en worden omgerekend.
+- Het meegeleverde dashboard staat twee keer in de repo: één kopie die de
+  integratie uitlevert en één voor wie hem met de hand installeert. Ze waren
+  gelijk, maar niets hield dat zo — één ervan aanpassen ziet er van beide
+  kanten compleet uit. Nu bewaakt.
+
+De vergelijking rekent bewust op uurgemiddelden en niet op de
+vijfminutenmetingen: het huidige model leert op uurbasis, en het op een
+fijnere stap beoordelen zou het afrekenen op iets wat het in bedrijf nooit
+doet. Voor de vijfminutendata is een volgende modelstap het doel.
+
 ## v0.10.2-beta.1 — 2026-09-08
 
 Betaversie. Draait om één meetfout in het lerende huismodel, plus voorbereiding

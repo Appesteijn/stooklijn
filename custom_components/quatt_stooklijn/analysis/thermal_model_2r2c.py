@@ -263,9 +263,29 @@ def simulate(
 
 _LM_MAX_ITER = 60
 _LM_TOL = 1e-10
-BURN_IN = 24  # uren voordat de aanname T_massa(0) = T_binnen(0) is uitgestorven
+
+#: Uren voordat de aanname T_massa(0) = T_binnen(0) is uitgestorven.
+BURN_IN_HOURS = 24.0
 
 Segment = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+
+
+def steps_in(hours: float, dt_hours: float) -> int:
+    """Reken een venster in uren om naar een aantal stappen.
+
+    Elke drempel in dit bestand is natuurkunde, geen array-boekhouding: een
+    inlooptijd van een dag blijft een dag, of je nu op uren of op vijf minuten
+    bemonstert. Ze staan daarom in uren en worden hier omgerekend.
+
+    Dit stond er niet altijd zo. De drempels waren rechtstreeks in stappen
+    genoteerd met uren in hun naam, wat klopte zolang alles op uurdata draaide.
+    Sinds ``dt_hours`` bestaat is dat een val: op vijfminutendata betekende een
+    inlooptijd van 24 twee uur, werd de week-om-week-splitsing een splitsing per
+    veertien uur, en zakte de eis van twee weken trainingsdata naar 28 uur. De
+    poort die een slecht model moet tegenhouden werd zo twaalf keer zwakker,
+    zonder dat er iets aan te zien was.
+    """
+    return max(1, int(round(hours / dt_hours)))
 
 
 def _to_free(values: np.ndarray) -> np.ndarray:
@@ -290,10 +310,16 @@ def _to_bounded(free: np.ndarray) -> np.ndarray:
 def one_step_residuals(
     p: TwoStateParams,
     segments: list[Segment],
-    burn_in: int = BURN_IN,
+    burn_in: int | None = None,
     dt_hours: float = 1.0,
 ) -> np.ndarray:
-    """Fout in de voorspelling van de binnentemperatuur, één stap vooruit."""
+    """Fout in de voorspelling van de binnentemperatuur, één stap vooruit.
+
+    ``burn_in`` is een aantal stappen; laat hem weg voor de inlooptijd van
+    ``BURN_IN_HOURS``, omgerekend naar de gebruikte stapgrootte.
+    """
+    if burn_in is None:
+        burn_in = steps_in(BURN_IN_HOURS, dt_hours)
     Ad, Bd = discretize(p, dt_hours)
     parts = []
     for ti, to, sol, q in segments:
@@ -311,7 +337,7 @@ def one_step_residuals(
 def fit(
     segments: list[Segment],
     initial: dict | None = None,
-    burn_in: int = BURN_IN,
+    burn_in: int | None = None,
     max_iter: int = _LM_MAX_ITER,
     dt_hours: float = 1.0,
 ) -> tuple[TwoStateParams, dict]:
@@ -397,15 +423,20 @@ def rmse_at_horizon(
     p: TwoStateParams,
     segments: list[Segment],
     horizon: int,
-    burn_in: int = BURN_IN,
+    burn_in: int | None = None,
     dt_hours: float = 1.0,
 ) -> float | None:
     """RMSE van een vrijloop-voorspelling over ``horizon`` stappen.
+
+    ``horizon`` telt stappen, geen uren — op vijfminutendata is twaalf uur
+    vooruit dus ``horizon=144``. Reken hem om met ``steps_in()``.
 
     Dit is de maat die telt. Eenstapsfout zegt weinig: daar wint bijna elk
     model van 'aannemen dat er niets verandert'. Pas over uren loopt het
     verschil tussen modelstructuren op.
     """
+    if burn_in is None:
+        burn_in = steps_in(BURN_IN_HOURS, dt_hours)
     errs = []
     for ti, to, sol, q in segments:
         if len(ti) <= burn_in + horizon + 1:
@@ -432,11 +463,19 @@ def rmse_at_horizon(
 #: marge wisselt de integratie heen en weer op ruis.
 DEFAULT_MARGIN = 0.05
 
-#: Blokgrootte voor de train/test-splitsing, in stappen van een uur. Een week
-#: om en om, zodat koude en zachte periodes in beide helften zitten. Een
-#: chronologische knip zou het model op de winter trainen en op het voorjaar
-#: beoordelen, en dat meet iets anders dan wat je wil weten.
-SPLIT_BLOCK_HOURS = 168
+#: Blokgrootte voor de train/test-splitsing. Een week om en om, zodat koude en
+#: zachte periodes in beide helften zitten. Een chronologische knip zou het
+#: model op de winter trainen en op het voorjaar beoordelen, en dat meet iets
+#: anders dan wat je wil weten.
+SPLIT_BLOCK_HOURS = 168.0
+
+#: Kortste stuk dat nog als blok meetelt. Korter dan dit past er geen
+#: inlooptijd plus een horizon in.
+MIN_BLOCK_HOURS = 72.0
+
+#: Minimale hoeveelheid trainingsdata. Twee weken is niet veel voor zeven
+#: parameters, maar het is de ondergrens waaronder een fit niets betekent.
+MIN_TRAIN_HOURS = 336.0
 
 
 @dataclass(frozen=True)
@@ -470,15 +509,25 @@ class Validation:
 
 
 def split_alternating(
-    segments: list[Segment], block: int = SPLIT_BLOCK_HOURS, min_len: int = 72
+    segments: list[Segment],
+    block: int | None = None,
+    min_len: int | None = None,
+    dt_hours: float = 1.0,
 ) -> tuple[list[Segment], list[Segment]]:
     """Splits in om-en-om blokken: even blokken train, oneven test.
+
+    ``block`` en ``min_len`` tellen stappen; laat ze weg voor de vensters uit
+    ``SPLIT_BLOCK_HOURS`` en ``MIN_BLOCK_HOURS`` bij deze stapgrootte.
 
     De blokteller loopt door over segmentgrenzen heen. Zou hij per segment
     opnieuw beginnen, dan belandt een reeks segmenten die elk korter zijn dan
     één blok allemaal in train en blijft de testverzameling leeg — precies wat
     er gebeurt bij data met veel onderbrekingen.
     """
+    if block is None:
+        block = steps_in(SPLIT_BLOCK_HOURS, dt_hours)
+    if min_len is None:
+        min_len = steps_in(MIN_BLOCK_HOURS, dt_hours)
     train: list[Segment] = []
     test: list[Segment] = []
     index = 0
@@ -494,13 +543,18 @@ def split_alternating(
 
 
 def persistence_rmse(
-    segments: list[Segment], horizon: int, burn_in: int = BURN_IN
+    segments: list[Segment],
+    horizon: int,
+    burn_in: int | None = None,
+    dt_hours: float = 1.0,
 ) -> float | None:
     """Referentie: aannemen dat de binnentemperatuur niet verandert.
 
     Verrassend sterk op korte horizon, en daarom de eerlijke ondergrens. Een
     model dat hier niet overheen komt, voegt niets toe.
     """
+    if burn_in is None:
+        burn_in = steps_in(BURN_IN_HOURS, dt_hours)
     errs = []
     for ti, _to, _sol, _q in segments:
         for k in range(burn_in, len(ti) - horizon):
@@ -515,9 +569,9 @@ def fit_and_validate(
     horizon: int,
     reference_rmse: float | None = None,
     margin: float = DEFAULT_MARGIN,
-    burn_in: int = BURN_IN,
+    burn_in: int | None = None,
     dt_hours: float = 1.0,
-    min_train_steps: int = 336,
+    min_train_steps: int | None = None,
     max_iter: int = _LM_MAX_ITER,
 ) -> Validation:
     """Fit op de helft van de data en toets op de andere helft.
@@ -525,13 +579,22 @@ def fit_and_validate(
     ``reference_rmse`` is de fout van het model dat er nu staat, gemeten op
     dezelfde testverzameling en dezelfde horizon. Laat hem weg en alleen de
     persistentiedrempel geldt.
+
+    ``horizon``, ``burn_in`` en ``min_train_steps`` tellen stappen. De
+    weggelaten waarden volgen de vensters in uren uit dit bestand, omgerekend
+    naar ``dt_hours``; ``horizon`` heeft geen standaard en moet dus zelf al
+    omgerekend zijn.
     """
+    if burn_in is None:
+        burn_in = steps_in(BURN_IN_HOURS, dt_hours)
+    if min_train_steps is None:
+        min_train_steps = steps_in(MIN_TRAIN_HOURS, dt_hours)
     def _no(reason: str, **kw) -> Validation:
         return Validation(params=None, report=kw.pop("report", {}), rmse=None,
                           reference_rmse=reference_rmse, persistence_rmse=None,
                           accepted=False, reason=reason)
 
-    train, test = split_alternating(segments)
+    train, test = split_alternating(segments, dt_hours=dt_hours)
     if sum(len(s[0]) for s in train) < min_train_steps:
         return _no("te weinig trainingsdata")
     if not test:
@@ -546,7 +609,7 @@ def fit_and_validate(
         return _no("fit convergeerde niet", report=report)
 
     rmse = rmse_at_horizon(params, test, horizon, burn_in, dt_hours)
-    persist = persistence_rmse(test, horizon, burn_in)
+    persist = persistence_rmse(test, horizon, burn_in, dt_hours)
     if rmse is None:
         return _no("geen bruikbare testvensters", report=report)
 

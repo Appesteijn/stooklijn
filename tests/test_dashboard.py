@@ -527,3 +527,28 @@ class TestNieuweGebruiker:
         )
         manifest = json.loads(pad.read_text(encoding="utf-8"))
         assert "lovelace" in manifest.get("after_dependencies", [])
+
+
+class TestBeideKopieenGelijk:
+    """Het dashboard staat twee keer in de repo en moet dat gelijk blijven.
+
+    ``custom_components/quatt_stooklijn/dashboard.yaml`` is wat de integratie
+    uitlevert; ``dashboards/quatt_stooklijn_dashboard.yaml`` is de kopie voor
+    wie hem met de hand installeert. Niets hield ze tot nu toe bij elkaar, en
+    één van de twee aanpassen ziet er van beide kanten compleet uit — je merkt
+    het pas als het uitgeleverde dashboard iets anders toont dan het bestand
+    waar je in gekeken hebt.
+    """
+
+    def test_identiek(self):
+        import pathlib
+
+        wortel = pathlib.Path(__file__).parent.parent
+        uitgeleverd = wortel / "custom_components/quatt_stooklijn/dashboard.yaml"
+        handmatig = wortel / "dashboards/quatt_stooklijn_dashboard.yaml"
+        assert uitgeleverd.read_text(encoding="utf-8") == handmatig.read_text(
+            encoding="utf-8"
+        ), (
+            "de twee dashboardkopieën lopen uiteen — kopieer de gewijzigde "
+            "over de andere heen"
+        )
