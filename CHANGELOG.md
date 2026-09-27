@@ -3,7 +3,7 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
-## Nog niet uitgebracht
+## v0.10.4-beta.2 — 2026-09-27
 
 - **De prijsverschuiving rekent niet meer op een verzonnen dag.** Voor uren
   zonder weersverwachting valt de vooruitblik terug op de huidige
