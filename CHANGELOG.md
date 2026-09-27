@@ -3,6 +3,13 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## Nog niet uitgebracht
+
+- De voorvertoning van `prijsverschuiving` ververst nu ook zodra er nieuwe
+  analysedata binnenkomt. Na een herstart of herlaad rekende hij vóór de
+  analyse klaar was, en bleef hij een uur "geen warmteverliescoëfficiënt"
+  melden. De nachtelijke telling had er geen last van.
+
 ## v0.10.3 — 2026-09-27
 
 - **Nieuwe schaduwmeting: wat had verschuiven naar goedkope uren opgeleverd?**

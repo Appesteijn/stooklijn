@@ -240,3 +240,20 @@ class TestZonderIngangen:
         assert {"prijs", "vlak_w", "verschoven_w"} <= set(etmaal["uren"][0])
         # Een voorvertoning is geen meetdag.
         assert sensor._days == []
+
+
+class TestVersVanDeAnalyse:
+    def test_nieuwe_analysedata_ververst_de_voorvertoning(self):
+        """Eerst zonder data (net na herstart), dan komt de analyse binnen."""
+        sensor = _sensor(options=NORMAAL_DAL, temps=STOOKDAG, data=False)
+        with patch(
+            "custom_components.quatt_stooklijn.sensor.dt_util.now", return_value=NU
+        ):
+            asyncio.run(sensor._handle_preview())
+            assert sensor._reason == "geen analysedata"
+            sensor.coordinator = _sensor(
+                options=NORMAAL_DAL, temps=STOOKDAG
+            ).coordinator
+            sensor._handle_coordinator_update()
+        assert sensor._reason is None
+        assert "komend_etmaal" in sensor.extra_state_attributes

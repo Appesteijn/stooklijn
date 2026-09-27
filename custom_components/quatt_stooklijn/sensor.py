@@ -3388,6 +3388,18 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
         self._preview = self._evaluate(dt_util.now())
         self.async_write_ha_state()
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Nieuwe analysedata: de voorvertoning meteen opnieuw rekenen.
+
+        Zonder dit bleef na een herstart of herlaad de eerste voorvertoning een
+        uur staan — en die draait vóór de analyse klaar is, dus met "geen
+        warmteverliescoëfficiënt" als reden. Gezien op 27-09-2026: de sensor
+        rekende om 10:20:10, de data kwam om 10:20:14.
+        """
+        self._preview = self._evaluate(dt_util.now())
+        self.async_write_ha_state()
+
     async def _handle_daily(self, _now=None) -> None:
         """Leg het komende etmaal vast en tel de voorspelde besparing op."""
         if not self._loaded:
