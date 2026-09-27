@@ -1037,6 +1037,44 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         model = self.thermal_model
         return model.params if model is not None else {"converged": False}
 
+    def simulate_heat_need(
+        self, fc_temps: list[float], fc_solar_wm2: list[float]
+    ) -> tuple[list[float] | None, str | None]:
+        """Warmte per uur (W) die het RC-model nodig heeft om het setpoint te houden.
+
+        Gedeeld met de prijsverschuivingssensor, als de basisreeks die daar
+        herverdeeld wordt. Zelfde simulatie als de vooruitblik, dus met zon,
+        kamertemperatuur en thermische massa — alleen over de lengte van de
+        aangeleverde reeks in plaats van ``MPC_FORECAST_HOURS``.
+
+        De simulatie start op ``max(kamer, setpoint)``. Staat de kamer nu onder
+        het setpoint, dan vraagt ``calc_required_power`` in uur 0 het hele tekort
+        in één keer — bij deze C al snel meer dan het firmwareplafond. Dat
+        inhalen moet nú gebeuren en valt niet te verschuiven; het hoort niet in
+        de reeks die herverdeeld wordt.
+
+        Retourneert ``(reeks, None)`` of ``(None, reden)``.
+        """
+        model = self.thermal_model
+        if model is None or not model.is_converged:
+            return None, "huismodel nog niet gekalibreerd"
+        t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
+        if t_indoor is None:
+            return None, "geen kamertemperatuur"
+        setpoint, _source = self._resolve_room_setpoint()
+        sim = simulate_forward(
+            model,
+            t_indoor_now=max(t_indoor, setpoint),
+            # Alleen voor de aanvoertemperatuur, die hier niet gebruikt wordt.
+            t_return=setpoint,
+            flow_lph=0.0,
+            forecast_t_outdoor=fc_temps,
+            forecast_q_solar=fc_solar_wm2,
+            t_setpoint=setpoint,
+            comfort_floor=self._comfort_floor,
+        )
+        return [float(step["q_hp_needed_w"]) for step in sim], None
+
     def build_forecast_arrays(
         self, t_outdoor: float | None, n_hours: int = MPC_FORECAST_HOURS
     ) -> tuple[list[float], list[float], list[dict]]:
@@ -3092,17 +3130,23 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
     """Schaduwmeting: wat had verschuiven naar goedkope uren opgeleverd?
 
     **Deze sensor stuurt niets aan.** Elke nacht rekent hij het komende etmaal
-    door: dezelfde warmte als ``warmtevraag`` zou publiceren, herverdeeld naar
-    de uren met de meeste warmte per euro — ``(COP / prijs)^γ`` — binnen dezelfde
-    kamerdrift-grenzen. De voorspelde besparing van die dag gaat de teller in.
-    De state is het totaal sinds het begin van de meting, in euro's.
+    door: de warmte die het RC-model nodig heeft om het setpoint te houden,
+    herverdeeld naar de uren met de meeste warmte per euro — ``(COP / prijs)^γ``
+    — binnen dezelfde kamerdrift-grenzen. De voorspelde besparing van die dag
+    gaat de teller in. De state is het totaal sinds het begin van de meting, in
+    euro's.
 
     Wat het is en wat niet:
 
     * Een **modelvoorspelling**, geen meting van werkelijk verbruik. De vlakke
-      reeks is ``UA · (T0 − T_buiten)`` over de weersverwachting, de COP komt uit
-      de gemeten referentiecurve. Zon en kamertemperatuur doen niet mee — om
-      dezelfde reden als in ``demand_shift.py``: die zijn van de firmware.
+      reeks komt uit ``simulate_forward`` van de MPC-sensor: zon,
+      kamertemperatuur, setpoint en thermische massa doen mee. Tot en met
+      v0.10.4-beta.3 was het ``UA · (T0 − T_buiten)``, de reeks van
+      ``warmtevraag``. Die is voor de firmware bedoeld, die er zelf de kamerfout
+      en de zonnewinst vanaf haalt; als bedrag telde hij warmte die nooit
+      geleverd wordt — op 27-09-2026 9 kWh voor een etmaal waarin het RC-model
+      0 W gaf, in een maand waarin de warmtepomp niets leverde. De COP komt uit
+      de gemeten referentiecurve.
     * Het **extra warmteverlies** van voorverwarmen wordt wel meegerekend
       (``UA · drift`` per uur). Zonder die term is een warmer huis gratis.
     * γ wordt **per dag gekozen** met ``scan_gamma``: de rustigste die vrijwel
@@ -3112,9 +3156,8 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
     * Ter vergelijking loopt een **pure COP-verschuiving** mee, in euro's tegen
       dezelfde prijzen. Het verschil tussen de twee is wat de prijs toevoegt.
 
-    Erft nulpunt, UA, versheidsbewaking en OpenQuatt-detectie van
-    ``QuattHeatDemandSensor``, zodat de vlakke reeks precies is wat daar
-    gepubliceerd wordt.
+    Erft UA, versheidsbewaking en OpenQuatt-detectie van
+    ``QuattHeatDemandSensor``.
     """
 
     _attr_translation_key = "price_shift"
@@ -3221,13 +3264,12 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             return None
 
         openquatt = self._openquatt()
-        zero_point = self._zero_point(openquatt)
         t_outdoor = self._outdoor_temp()
-        if zero_point is None or t_outdoor is None:
-            self._reason = "geen nulpunt of verse buitentemperatuur"
+        if t_outdoor is None:
+            self._reason = "geen verse buitentemperatuur"
             return None
 
-        fc_temps, _solar, fc_meta = self._mpc.build_forecast_arrays(
+        fc_temps, fc_solar, fc_meta = self._mpc.build_forecast_arrays(
             t_outdoor, n_hours=DEMAND_SHIFT_HOURS
         )
         # Uren zonder verwachting krijgen de huidige buitentemperatuur, en zijn
@@ -3244,6 +3286,12 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
         # Een dynamische reeks kan korter zijn dan de weersverwachting (morgen
         # nog niet bekend). Dan het venster inkorten, niet de prijs verzinnen.
         fc_temps = fc_temps[: len(prices)]
+        fc_solar = fc_solar[: len(prices)]
+
+        baseline, reden = self._mpc.simulate_heat_need(fc_temps, fc_solar)
+        if baseline is None or len(baseline) != len(fc_temps):
+            self._reason = reden or "huismodel gaf geen reeks"
+            return None
 
         # De COP-curve van de seizoenshelft waarin het venster valt. Ontbreekt
         # die helft nog, dan de andere: voor een weging tellen de verhoudingen
@@ -3264,8 +3312,10 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             "thermal_mass_wh_k": c_whk,
             "max_drift_k": DEMAND_SHIFT_MAX_DRIFT_K,
             "max_overshoot_k": DEMAND_SHIFT_MAX_OVERSHOOT_K,
+            "baseline": baseline,
         }
-        args = (fc_temps, curve, float(hlc), zero_point[0])
+        # Nulpunt ``None``: met een basisreeks rekent demand_shift er niet mee.
+        args = (fc_temps, curve, float(hlc), None)
 
         # Begrensde punten tellen mee: een teruggeschaalde verschuiving blijft
         # binnen de comfortgrens en is dus een geldig plan. Zie scan_gamma.

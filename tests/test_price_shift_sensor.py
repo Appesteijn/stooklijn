@@ -50,7 +50,15 @@ class _State:
         self.last_updated = stamp
 
 
-def _sensor(*, options, temps, states=None, data=True, forecast=True):
+def _formule(temps):
+    """De oude basisreeks: UA · (T0 − T). Als nep-RC-model goed genoeg voor
+    tests die over de sensor gaan en niet over waar de vraag vandaan komt."""
+    return [max(0.0, HLC * (BALANCE - t)) for t in temps]
+
+
+def _sensor(
+    *, options, temps, states=None, data=True, forecast=True, heat_need=_formule
+):
     from custom_components.quatt_stooklijn.sensor import QuattPriceShiftSensor
 
     class _Fake(QuattPriceShiftSensor):
@@ -91,6 +99,14 @@ def _sensor(*, options, temps, states=None, data=True, forecast=True):
         return list(temps[:n]), [0.0] * n, meta
 
     sensor._mpc.build_forecast_arrays = _fc
+
+    def _need(fc_temps, fc_solar):
+        assert len(fc_solar) == len(fc_temps)
+        if heat_need is None:
+            return None, "huismodel nog niet gekalibreerd"
+        return heat_need(fc_temps), None
+
+    sensor._mpc.simulate_heat_need = _need
     sensor._mpc.entity_id = "sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur"
     sensor._daily_attempt = 0
     sensor._mpc.thermal_params = {"converged": True, "C_whk": 25583.0}
@@ -353,3 +369,107 @@ class TestZonderWeersverwachting:
         sensor._handle_preview = AsyncMock()
         asyncio.run(sensor._handle_mpc_update(None))
         sensor._handle_preview.assert_not_awaited()
+
+
+class TestBasisreeksUitHetHuismodel:
+    """De vlakke reeks komt uit het RC-model, niet uit UA · (T0 − T).
+
+    Aanleiding 27-09-2026: de formule rekende 9 kWh voor een etmaal waarin het
+    RC-model 0 W gaf — de kamer stond ruim boven het setpoint — in een maand
+    waarin de warmtepomp ook niets leverde.
+    """
+
+    def test_koude_nacht_zonder_modelvraag_is_geen_stookdag(self):
+        """Koud genoeg voor de formule, maar het huis heeft niets nodig."""
+        sensor = _sensor(
+            options=NORMAAL_DAL,
+            temps=[12.0] * 24,
+            heat_need=lambda temps: [0.0] * len(temps),
+        )
+        _run_daily(sensor)
+        assert sensor._days == []
+        assert sensor._reason is None
+
+    def test_de_modelreeks_is_de_vlakke_reeks(self):
+        vraag = [0.0] * 6 + [800.0] * 12 + [0.0] * 6
+        sensor = _sensor(
+            options=NORMAAL_DAL, temps=STOOKDAG, heat_need=lambda t: list(vraag)
+        )
+        with patch(
+            "custom_components.quatt_stooklijn.sensor.dt_util.now", return_value=NU
+        ):
+            asyncio.run(sensor._handle_preview())
+        uren = sensor.extra_state_attributes["komend_etmaal"]["uren"]
+        assert [u["vlak_w"] for u in uren] == [round(v) for v in vraag]
+        # Dezelfde warmte, alleen anders verdeeld.
+        assert sum(u["verschoven_w"] for u in uren) == pytest.approx(
+            sum(vraag), abs=len(vraag)
+        )
+
+    def test_zonder_gekalibreerd_model_geen_uitkomst(self):
+        """Niet stil terugvallen op de formule: dan telt weer warmte die er niet is."""
+        sensor = _sensor(options=NORMAAL_DAL, temps=STOOKDAG, heat_need=None)
+        with patch("custom_components.quatt_stooklijn.sensor.async_call_later"):
+            _run_daily(sensor)
+        assert sensor._days == []
+        assert sensor._reason == "huismodel nog niet gekalibreerd"
+
+
+class TestSimulateHeatNeed:
+    """De kant van de MPC-sensor: de uurvraag uit het RC-model."""
+
+    def _sensor(self, **states):
+        from .test_room_setpoint import _mpc_sensor
+
+        return _mpc_sensor(**states)
+
+    def test_warm_huis_vraagt_eerst_niets(self):
+        from .test_room_setpoint import INDOOR, SETPOINT, _sources
+
+        sensor = self._sensor(**{INDOOR: 23.0, SETPOINT: 20.0})
+        with _sources():
+            reeks, reden = sensor.simulate_heat_need([12.0] * 24, [0.0] * 24)
+        assert reden is None
+        assert len(reeks) == 24
+        # Eerst teren op de buffer, pas als de kamer bij het setpoint is stoken.
+        assert reeks[0] == 0.0
+        assert reeks[-1] > 0.0
+
+    def test_kamer_onder_setpoint_geen_inhaalpiek(self):
+        """Het tekort van nu is niet te verschuiven en hoort niet in de reeks."""
+        from .test_room_setpoint import INDOOR, SETPOINT, _sources
+
+        koud = self._sensor(**{INDOOR: 19.0, SETPOINT: 20.0})
+        op_setpoint = self._sensor(**{INDOOR: 20.0, SETPOINT: 20.0})
+        with _sources():
+            a, _ = koud.simulate_heat_need([5.0] * 6, [0.0] * 6)
+            b, _ = op_setpoint.simulate_heat_need([5.0] * 6, [0.0] * 6)
+        assert a == b
+
+    def test_zon_verlaagt_de_vraag(self):
+        from .test_room_setpoint import INDOOR, SETPOINT, _sources
+
+        sensor = self._sensor(**{INDOOR: 20.0, SETPOINT: 20.0})
+        with _sources():
+            donker, _ = sensor.simulate_heat_need([5.0] * 6, [0.0] * 6)
+            zonnig, _ = sensor.simulate_heat_need([5.0] * 6, [300.0] * 6)
+        assert sum(zonnig) < sum(donker)
+
+    def test_zonder_kamertemperatuur_een_reden(self):
+        from .test_room_setpoint import SETPOINT, _sources
+
+        sensor = self._sensor(**{SETPOINT: 20.0})
+        with _sources():
+            reeks, reden = sensor.simulate_heat_need([5.0] * 6, [0.0] * 6)
+        assert reeks is None
+        assert reden == "geen kamertemperatuur"
+
+    def test_niet_gekalibreerd_een_reden(self):
+        from .test_room_setpoint import INDOOR, _sources
+
+        sensor = self._sensor(**{INDOOR: 20.0})
+        sensor._thermal_loaded = False
+        with _sources():
+            reeks, reden = sensor.simulate_heat_need([5.0] * 6, [0.0] * 6)
+        assert reeks is None
+        assert reden == "huismodel nog niet gekalibreerd"

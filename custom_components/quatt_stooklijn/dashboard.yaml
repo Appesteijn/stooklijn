@@ -1402,7 +1402,9 @@ views:
 
               Wat het had opgeleverd om de warmte van elke stookdag te
               verschuiven naar de uren met de meeste warmte per euro. Er gaat
-              evenveel warmte in, alleen op andere momenten. **Er wordt niets
+              evenveel warmte in, alleen op andere momenten. Uitgangspunt is de
+              warmte die het huismodel nodig heeft om het setpoint te houden,
+              met zon en kamertemperatuur erin. **Er wordt niets
               aangestuurd**: dit is een voorspelling van het model, geen
               meting van je verbruik. Tarief: {{ state_attr(s, 'tariefbron') }}.
 
@@ -1437,7 +1439,11 @@ views:
               **Komend etmaal:** γ {{ ke.gamma }}, verwacht €
               {{ '%.2f' | format(ke.besparing_eur) }} (alleen COP €
               {{ '%.2f' | format(ke.besparing_alleen_cop_eur) }}) over
-              {{ ke.venster_uren }} uur.
+              {{ ke.venster_uren }} uur, op € {{ '%.2f' | format(ke.kosten_vlak_eur) }}
+              stroomkosten zonder verschuiven.
+              {% set pr = ke.uren | map(attribute='prijs') | list %}
+              {% if pr %}Prijsverschil in dit venster:
+              {{ '%.1f' | format((pr | max - pr | min) * 100) }} ct/kWh.{% endif %}
 
               {% endif %}
 
@@ -1472,9 +1478,14 @@ views:
                 apex_config:
                   title:
                     text: "W"
+              # Zachte nul: bij een vast normaal/dal-tarief liggen de prijzen
+              # vaak een paar tiende cent uit elkaar, en een automatisch
+              # geschaalde as blaast dat op tot een sprong over de hele hoogte.
+              # Een dynamische reeks mag er nog steeds onder zakken.
               - id: eur
                 opposite: true
-                decimals: 2
+                min: "~0"
+                decimals: 3
                 apex_config:
                   title:
                     text: "€/kWh"
@@ -1486,6 +1497,10 @@ views:
             series:
               - entity: sensor.quatt_warmteanalyse_prijsverschuiving
                 name: Zonder verschuiven
+                unit: W
+                float_precision: 0
+                show:
+                  legend_value: false
                 yaxis_id: w
                 type: area
                 curve: stepline
@@ -1497,6 +1512,10 @@ views:
                   return u.map(h => [new Date(h.tijd).getTime(), h.vlak_w]);
               - entity: sensor.quatt_warmteanalyse_prijsverschuiving
                 name: Verschoven
+                unit: W
+                float_precision: 0
+                show:
+                  legend_value: false
                 yaxis_id: w
                 type: line
                 curve: stepline
@@ -1507,6 +1526,10 @@ views:
                   return u.map(h => [new Date(h.tijd).getTime(), h.verschoven_w]);
               - entity: sensor.quatt_warmteanalyse_prijsverschuiving
                 name: Stroomprijs
+                unit: €/kWh
+                float_precision: 4
+                show:
+                  legend_value: false
                 yaxis_id: eur
                 type: line
                 curve: stepline

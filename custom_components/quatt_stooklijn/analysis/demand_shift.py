@@ -31,6 +31,15 @@ melden dat er niets werd aangestuurd, en een knop die op elke stand hetzelfde
 deed. De prijssensor heeft wél een vraag om te beantwoorden — wat had verschuiven
 naar goedkope uren een stookseizoen opgeleverd — en kiest γ per dag zelf via
 ``scan_gamma``, zodat er geen knop zonder schaalverdeling terugkomt.
+
+**Een eigen basisreeks (``baseline``).** Voor de feedforward naar de firmware
+is ``UA · (T0 − T_buiten)`` per uur de juiste reeks: de firmware haalt er zelf
+de kamerfout en de zonnewinst vanaf. Voor een bedrag in euro's niet — dan telt
+warmte mee die nooit geleverd wordt. Op 27-09-2026 rekende die formule 9 kWh
+voor een etmaal waarin het RC-model 0 W gaf, en de warmtepomp had de hele maand
+ook 0 W geleverd: de kamer stond 1,5–3,5 K boven het setpoint en de zon maakte
+de koude nachten ruim goed. De prijssensor geeft daarom de uurvraag van het
+RC-model mee. Zonder ``baseline`` blijft alles zoals het was.
 """
 
 from __future__ import annotations
@@ -160,6 +169,7 @@ def scan_gamma(
     grove_stap: float = 0.5,
     fijne_stap: float = 0.1,
     begrenzing_toegestaan: bool = False,
+    baseline: list[float] | None = None,
 ) -> GammaScan:
     """Reken het hele bereik van gamma door en wijs de bruikbaarste aan.
 
@@ -199,6 +209,7 @@ def scan_gamma(
             max_drift_k=max_drift_k,
             prices=prices,
             max_overshoot_k=max_overshoot_k,
+            baseline=baseline,
         )
         return GammaPunt(
             gamma=round(gamma, 2),
@@ -219,7 +230,7 @@ def scan_gamma(
     # gelijke opbrengst wint immers de laagste gamma — en levert hij een tabel
     # met veertien nullen op die suggereert dat er iets te kiezen valt.
     nulmeting = calculate_demand_shift(
-        forecast_temps, reference_curve, ua, t_zero, 0.0
+        forecast_temps, reference_curve, ua, t_zero, 0.0, baseline=baseline
     )
     if not nulmeting.flat or sum(nulmeting.flat) <= 0:
         return GammaScan()
@@ -299,6 +310,7 @@ def calculate_demand_shift(
     prices: list[float] | None = None,
     max_overshoot_k: float | None = None,
     weigh_prices: bool = True,
+    baseline: list[float] | None = None,
 ) -> DemandShiftResult:
     """Herverdeel de warmtevraag over het venster naar COP, en optioneel prijs.
 
@@ -325,16 +337,29 @@ def calculate_demand_shift(
         weigh_prices: ``False`` = de prijzen alleen gebruiken om de kosten uit
             te rekenen, niet in de weging. Zo is een pure COP-verschuiving in
             euro's naast de prijsverschuiving te leggen.
+        baseline: vraag per uur (W) die herverdeeld wordt, in plaats van
+            ``UA · (t_zero − T)``. Even lang als ``forecast_temps``; ``t_zero``
+            is dan niet nodig. ``ua`` wel: die prijst het extra warmteverlies
+            van voorverwarmen.
     """
     result = DemandShiftResult(gamma=gamma)
-    if not forecast_temps or ua is None or t_zero is None or ua <= 0:
+    if not forecast_temps or ua is None or ua <= 0:
+        return result
+    if baseline is None and t_zero is None:
+        return result
+    if baseline is not None and len(baseline) != len(forecast_temps):
+        # Zelfde reden als bij de prijzen: een verschoven reeks rekent elk uur
+        # met de verkeerde temperatuur en COP.
         return result
     if prices is not None and len(prices) != len(forecast_temps):
         # Een verschoven prijsreeks zou elk uur de verkeerde prijs geven —
         # zonder foutmelding. Dan liever geen uitkomst.
         return result
 
-    flat = [max(0.0, ua * (t_zero - t)) for t in forecast_temps]
+    if baseline is not None:
+        flat = [max(0.0, float(p)) for p in baseline]
+    else:
+        flat = [max(0.0, ua * (t_zero - t)) for t in forecast_temps]
     result.flat = flat
     result.now_flat = round(flat[0], 1)
 

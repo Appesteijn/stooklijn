@@ -3,6 +3,27 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.4-beta.4 — 2026-09-27
+
+- **De prijsverschuiving telde warmte die nooit geleverd wordt.** De reeks
+  "zonder verschuiven" was de Power House-formule `UA × (T0 − T_buiten)` per
+  uur. Die is bedoeld voor de firmware, die er zelf de kamerfout en de
+  zonnewinst vanaf haalt. Als bedrag klopte hij niet: op de
+  ontwikkelinstallatie rekende hij 9 kWh warmte voor een septemberetmaal
+  waarin het huismodel 0 W nodig had. De warmtepomp had die hele maand ook
+  niets geleverd, want de kamer stond boven het setpoint en de zon maakte de
+  koude nachten goed. Zo'n dag telde als stookdag mee in het totaal. De reeks
+  komt nu uit het RC-huismodel, met zon, kamertemperatuur, setpoint en
+  thermische massa. Is dat model nog niet gekalibreerd, dan is er geen uitkomst
+  (reden "huismodel nog niet gekalibreerd"). De sensor valt dan niet terug op
+  de formule. `sensor.…_warmtevraag` zelf is niet veranderd.
+- **Dashboard, grafiek Komend etmaal:** de reeksen in watt stonden in de
+  tooltip en de legenda als "EUR", omdat de kaart de eenheid van de sensor
+  overnam. De prijsas begint nu bij nul met drie decimalen. Een verschil van
+  0,2 ct tussen normaal en dal zag er eerst uit als een sprong over de hele
+  hoogte. De regel "Komend etmaal" noemt nu ook de stroomkosten zonder
+  verschuiven en het prijsverschil in het venster.
+
 ## v0.10.4-beta.3 — 2026-09-27
 
 - **Het Quatt-advies noemt geen verzonnen "huidige" instelling meer.** De

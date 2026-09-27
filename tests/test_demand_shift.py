@@ -510,3 +510,27 @@ class TestKouderIsGeenWinst:
         )
         assert r.worst_drift_k < 0
         assert r.drift_loss_eur >= 0
+
+
+class TestBasisreeks:
+    """Een meegegeven vraag per uur vervangt UA · (T0 − T)."""
+
+    def test_basisreeks_wordt_de_vlakke_reeks(self):
+        vraag = [0.0, 0.0, 500.0, 900.0, 900.0, 500.0] * 2
+        r = calculate_demand_shift(DAG, CURVE, UA, None, 2.0, baseline=vraag)
+        assert r.flat == vraag
+        assert sum(r.shifted) == pytest.approx(sum(vraag))
+        # Uren zonder vraag blijven leeg, ook na verschuiven.
+        assert r.shifted[0] == 0.0 and r.shifted[1] == 0.0
+
+    def test_nulreeks_levert_geen_gamma_op(self):
+        scan = scan_gamma(DAG, CURVE, UA, None, baseline=[0.0] * len(DAG))
+        assert scan.advies is None
+
+    def test_verkeerde_lengte_geen_uitkomst(self):
+        r = calculate_demand_shift(DAG, CURVE, UA, None, 2.0, baseline=[500.0] * 3)
+        assert r.flat == []
+
+    def test_zonder_basisreeks_en_nulpunt_geen_uitkomst(self):
+        r = calculate_demand_shift(DAG, CURVE, UA, None, 2.0)
+        assert r.flat == []
