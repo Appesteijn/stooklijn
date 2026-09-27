@@ -3,7 +3,7 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
-## Nog niet uitgebracht
+## v0.10.4-beta.1 — 2026-09-27
 
 - De voorvertoning van `prijsverschuiving` ververst nu ook zodra er nieuwe
   analysedata binnenkomt. Na een herstart of herlaad rekende hij vóór de
