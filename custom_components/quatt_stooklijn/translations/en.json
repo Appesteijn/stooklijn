@@ -95,12 +95,20 @@
           "power_entity": "Heat pump heat output sensor (W)",
           "supply_temp_entity": "Supply temperature sensor (°C) — reference for the advice",
           "power_input_entity": "Electrical power input sensor (W) — for COP calculation",
-          "boiler_heat_entity": "Gas boiler heat output sensor (W) — for gas detection"
+          "boiler_heat_entity": "Gas boiler heat output sensor (W) — for gas detection",
+          "price_shift_mode": "Price shift (shadow measurement, controls nothing) — off, fixed normal/off-peak, or dynamic",
+          "price_normal": "Normal tariff (€/kWh, incl. taxes)",
+          "price_dal": "Off-peak tariff (€/kWh, incl. taxes)",
+          "price_dal_start_hour": "Off-peak starts on weekdays (hour, 0–23, e.g. 23)",
+          "price_dal_end_hour": "Off-peak ends on weekdays (hour, 0–23, e.g. 7)",
+          "price_dal_weekend": "Whole weekend is off-peak",
+          "price_entity": "Price sensor for a dynamic tariff (with today/tomorrow hourly prices as attributes)"
         }
       }
     },
     "error": {
-      "invalid_date_format": "Invalid date format. Use YYYY-MM-DD"
+      "invalid_date_format": "Invalid date format. Use YYYY-MM-DD",
+      "price_entity_required": "A dynamic tariff needs a price sensor with hourly prices as attributes"
     }
   },
   "services": {
@@ -244,6 +252,9 @@
       },
       "thermostaat_setpoint": {
         "name": "Thermostat setpoint"
+      },
+      "price_shift": {
+        "name": "Price shift savings (shadow)"
       }
     },
     "binary_sensor": {

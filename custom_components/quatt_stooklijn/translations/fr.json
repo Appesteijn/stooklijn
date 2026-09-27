@@ -95,12 +95,20 @@
           "power_entity": "Capteur de puissance thermique de la pompe à chaleur (W)",
           "supply_temp_entity": "Capteur de température de départ (°C) — référence pour le conseil",
           "power_input_entity": "Capteur de puissance électrique absorbée (W) — pour le calcul du COP",
-          "boiler_heat_entity": "Capteur de puissance thermique de la chaudière (W) — détection gaz"
+          "boiler_heat_entity": "Capteur de puissance thermique de la chaudière (W) — détection gaz",
+          "price_shift_mode": "Décalage tarifaire (mesure fantôme, ne pilote rien) — désactivé, heures pleines/creuses fixes ou dynamique",
+          "price_normal": "Tarif heures pleines (€/kWh, taxes comprises)",
+          "price_dal": "Tarif heures creuses (€/kWh, taxes comprises)",
+          "price_dal_start_hour": "Début des heures creuses en semaine (heure, 0–23, ex. 23)",
+          "price_dal_end_hour": "Fin des heures creuses en semaine (heure, 0–23, ex. 7)",
+          "price_dal_weekend": "Tout le week-end en heures creuses",
+          "price_entity": "Capteur de prix pour un tarif dynamique (prix horaires d'aujourd'hui/demain en attribut)"
         }
       }
     },
     "error": {
-      "invalid_date_format": "Format de date invalide. Utilisez AAAA-MM-JJ"
+      "invalid_date_format": "Format de date invalide. Utilisez AAAA-MM-JJ",
+      "price_entity_required": "Un tarif dynamique nécessite un capteur de prix avec les prix horaires en attribut"
     }
   },
   "services": {
@@ -244,6 +252,9 @@
       },
       "thermostaat_setpoint": {
         "name": "Consigne du thermostat"
+      },
+      "price_shift": {
+        "name": "Économie par décalage tarifaire (fantôme)"
       }
     },
     "binary_sensor": {

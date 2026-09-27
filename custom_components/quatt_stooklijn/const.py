@@ -305,3 +305,61 @@ COMPRESSOR_STORAGE_KEY = f"{DOMAIN}.compressor_starts"
 # zonder tik blijft de state hangen op het aantal van het moment waarop de
 # compressor voor het laatst iets deed.
 COMPRESSOR_REFRESH_INTERVAL = timedelta(minutes=5)
+
+# --- Prijsverschuiving (schaduwmeting) ---
+#
+# Wat had het opgeleverd om de warmtevraag naar goedkope uren te verschuiven?
+# Rekent elke nacht het komende etmaal door en telt de voorspelde besparing op.
+# Stuurt niets aan. Uit = geen sensor.
+CONF_PRICE_MODE = "price_shift_mode"
+PRICE_MODE_OFF = "uit"
+PRICE_MODE_NORMAL_DAL = "normaal_dal"
+PRICE_MODE_DYNAMIC = "dynamisch"
+PRICE_MODES = [PRICE_MODE_OFF, PRICE_MODE_NORMAL_DAL, PRICE_MODE_DYNAMIC]
+DEFAULT_PRICE_MODE = PRICE_MODE_OFF
+
+# Vast contract: tarieven in €/kWh, inclusief belasting en btw — het bedrag dat
+# op de rekening staat, want dat is waartegen verschoven wordt.
+CONF_PRICE_NORMAL = "price_normal"
+CONF_PRICE_DAL = "price_dal"
+DEFAULT_PRICE_NORMAL = 0.25
+DEFAULT_PRICE_DAL = 0.23
+
+# Daluren doordeweeks, lokale tijd. Bij de meeste netbeheerders 23–7; in een
+# deel van het land 21–7. Het weekend is standaard volledig dal.
+CONF_DAL_START_HOUR = "price_dal_start_hour"
+CONF_DAL_END_HOUR = "price_dal_end_hour"
+CONF_DAL_WEEKEND = "price_dal_weekend"
+DEFAULT_DAL_START_HOUR = 23
+DEFAULT_DAL_END_HOUR = 7
+DEFAULT_DAL_WEEKEND = True
+
+# Dynamisch contract: een prijssensor die de uurprijzen van vandaag en morgen
+# als attribuut meelevert (Nord Pool, ENTSO-e, EnergyZero en verwanten).
+CONF_PRICE_ENTITY = "price_entity"
+
+# Venster van de herverdeling. 24 uur: de winst zit in de dagzwaai van prijs en
+# temperatuur, en de day-ahead-prijzen van morgen zijn rond 13:00 bekend, dus om
+# middernacht ligt het hele komende etmaal vast. Zie ook de meting in
+# analysis/demand_shift.py: met zes uur valt er niets te verdelen.
+DEMAND_SHIFT_HOURS = 24
+
+# Hoeveel de kamer maximaal onder (drift) of boven (overshoot) de vlakke baan
+# mag uitkomen, in K. Onder: dezelfde grens als de oude COP-schaduwsensor,
+# gemeten op 20 januari 2026. Boven: voorverwarmen op een goedkoop uur is
+# precies wat de prijsweging wil, maar een huis dat een graad te warm staat
+# merk je, en het extra warmteverlies eet de winst op. Geen configuratie-optie:
+# γ wordt per dag gekozen, dit is de rand waarbinnen dat gebeurt.
+DEMAND_SHIFT_MAX_DRIFT_K = 0.3
+DEMAND_SHIFT_MAX_OVERSHOOT_K = 0.5
+
+# Tijdstip van de dagelijkse meting (lokale tijd). Net na middernacht: het
+# venster valt dan samen met de kalenderdag en alle prijzen liggen vast.
+PRICE_SHIFT_RUN_HOUR = 0
+PRICE_SHIFT_RUN_MINUTE = 5
+
+# Eigen store, los van de recorder: de vraag is wat het een heel stookseizoen
+# oplevert, en de recorder bewaart ruwe states maar tien dagen.
+PRICE_SHIFT_STORAGE_VERSION = 1
+PRICE_SHIFT_STORAGE_KEY = f"{DOMAIN}.price_shift"
+PRICE_SHIFT_KEEP_DAYS = 400

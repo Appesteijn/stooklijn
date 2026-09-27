@@ -19,13 +19,18 @@ hem nergens. Daarom is dit additief in plaats van overlappend.
 De opbrengstschatting is het punt van deze module in de schaduwfase: zonder een
 voorspeld getal valt γ niet te kiezen.
 
-**Deze module heeft sinds v0.9.14 geen aanroeper.** De schaduwsensor en de
-γ-optie zijn verwijderd: een kaart die alleen kon melden dat er niets werd
-aangestuurd, en een knop die op elke stand hetzelfde deed, kostten de lezer
-aandacht zonder er een handeling voor terug te geven. De rekenkern en zijn tests
-blijven staan omdat de wiskunde klopt en de validatie geld waard is — komt er een
-pad waarlangs de herverdeling de gepubliceerde warmtevraag écht aanstuurt, dan is
-dit waar het weer aangehangen wordt. Tot die tijd hoort er geen sensor bij.
+**Optioneel weegt de prijs mee.** Met een prijsreeks wordt het gewicht
+``(COP / prijs)^γ`` in plaats van ``COP^γ``: warmte per euro in plaats van
+warmte per kWh. Zonder prijzen, of met een vlakke prijs, is de uitkomst exact de
+COP-weging — de prijs is een extra noemer, geen ander model. Het huismodel zelf
+kent geen prijs; die hoort in wat er geoptimaliseerd wordt, niet in de fysica.
+
+**Aanroeper sinds v0.10.3: de prijsverschuivingssensor.** De eerdere
+schaduwsensor en de γ-optie zijn in v0.9.14 verwijderd: een kaart die alleen kon
+melden dat er niets werd aangestuurd, en een knop die op elke stand hetzelfde
+deed. De prijssensor heeft wél een vraag om te beantwoorden — wat had verschuiven
+naar goedkope uren een stookseizoen opgeleverd — en kiest γ per dag zelf via
+``scan_gamma``, zodat er geen knop zonder schaalverdeling terugkomt.
 """
 
 from __future__ import annotations
@@ -38,6 +43,12 @@ import numpy as np
 # vrijwel alles in één uur belandt, en dan bepaalt de verzadigingsclamp van de
 # firmware het resultaat in plaats van dit model.
 GAMMA_MAX = 3.0
+
+# Ondergrens op de prijs in de weging (€/kWh). Het gewicht deelt door de prijs,
+# en bij een negatieve of nul-prijs zou één uur alle warmte opeisen. Dat is ook
+# fysiek onzin: de warmtepomp heeft een plafond, en daarboven kapt de firmware af.
+# De kostenberekening zelf rekent wél met de echte, eventueel negatieve, prijs.
+PRICE_FLOOR = 0.01
 
 
 @dataclass
@@ -65,6 +76,24 @@ class DemandShiftResult:
     # Factor waarmee de verschuiving is teruggeschaald om binnen max_drift_k te
     # blijven. 1,0 = onbeperkt, kleiner = de limiter greep in.
     drift_limit_factor: float = 1.0
+    # Hoogste voorspelde uitwijking naar boven (K). Voorverwarmen op een
+    # goedkoop uur maakt het huis tijdelijk warmer dan nodig.
+    peak_drift_k: float | None = None
+    # Alleen met prijzen: stroomkosten over het venster, vlak en verschoven (€),
+    # en de besparing als fractie van de vlakke kosten.
+    cost_flat_eur: float | None = None
+    cost_shifted_eur: float | None = None
+    expected_cost_saving: float | None = None
+    # Wat het extra warmteverlies door voorverwarmen kost (€). Een warmer huis
+    # verliest meer: UA · drift per uur, alleen over de uren boven de vlakke
+    # baan. Al verrekend in ``cost_shifted_eur``; apart vermeld omdat het de
+    # verborgen prijs van voorverwarmen is.
+    drift_loss_eur: float | None = None
+    # Alleen met prijzen: stroomverbruik over het venster (kWh). Naar een
+    # goedkoop maar koud uur schuiven kan méér stroom kosten en toch goedkoper
+    # zijn; zonder dit getal is dat niet te zien.
+    elec_flat_kwh: float | None = None
+    elec_shifted_kwh: float | None = None
 
 
 @dataclass
@@ -88,6 +117,17 @@ class GammaPunt:
         de begrenzing.
         """
         return self.uren_boven_plafond == 0 and self.drift_begrenzing >= 1.0
+
+    @property
+    def binnen_plafond(self) -> bool:
+        """Blijft de verdeling onder het firmwareplafond?
+
+        Zwakker dan ``schoon``: een teruggeschaalde verschuiving telt hier wél.
+        Voor een meting van wat een dag had opgeleverd is dat de juiste maat —
+        het begrensde plan houdt zich per constructie aan de comfortgrens en is
+        dus uitvoerbaar. Boven het plafond niet: daar kapt de firmware af.
+        """
+        return self.uren_boven_plafond == 0
 
 
 @dataclass
@@ -115,8 +155,11 @@ def scan_gamma(
     ceiling_w: float | None = None,
     thermal_mass_wh_k: float | None = None,
     max_drift_k: float | None = None,
+    prices: list[float] | None = None,
+    max_overshoot_k: float | None = None,
     grove_stap: float = 0.5,
     fijne_stap: float = 0.1,
+    begrenzing_toegestaan: bool = False,
 ) -> GammaScan:
     """Reken het hele bereik van gamma door en wijs de bruikbaarste aan.
 
@@ -128,6 +171,17 @@ def scan_gamma(
 
     Het advies is de láágste gamma die nog vrijwel de volle winst pakt, niet de
     hoogste opbrengst: zie ADVIES_DREMPEL.
+
+    ``begrenzing_toegestaan`` laat punten meetellen waarop de driftlimiter de
+    verschuiving terugschaalde. Voor het kiezen van een vaste knop is dat fout —
+    het getal zegt dan niets over wat die gamma doet. Voor een dagmeting is het
+    juist goed: op een dag met een scherpe temperatuursprong grijpt de limiter
+    al bij de kleinste gamma in, en zonder deze optie noteert de meting nul
+    terwijl een begrensde verschuiving wel degelijk iets had opgeleverd.
+
+    Met ``prices`` is de opbrengst de kostenbesparing, zonder de stroom-
+    besparing. Dat zijn verschillende dingen: naar een goedkoop maar koud uur
+    schuiven kost méér kWh en toch minder euro's.
 
     Bewust zonder Home Assistant: het gedrag dat ertoe doet — waar de knik ligt
     en welke gamma eruit komt — hoort testbaar te zijn zonder draaiende HA.
@@ -143,10 +197,14 @@ def scan_gamma(
             ceiling_w=ceiling_w,
             thermal_mass_wh_k=thermal_mass_wh_k,
             max_drift_k=max_drift_k,
+            prices=prices,
+            max_overshoot_k=max_overshoot_k,
         )
         return GammaPunt(
             gamma=round(gamma, 2),
-            besparing=r.expected_saving,
+            besparing=(
+                r.expected_cost_saving if prices is not None else r.expected_saving
+            ),
             drift_k=r.worst_drift_k,
             uren_boven_plafond=r.hours_above_ceiling,
             drift_begrenzing=r.drift_limit_factor,
@@ -170,7 +228,11 @@ def scan_gamma(
         meet(round(grove_stap * i, 2))
         for i in range(1, int(GAMMA_MAX / grove_stap) + 1)
     ]
-    bruikbaar = [p for p in grof if p.schoon and p.besparing is not None]
+    def bruikbaar_punt(p: GammaPunt) -> bool:
+        ok = p.binnen_plafond if begrenzing_toegestaan else p.schoon
+        return ok and p.besparing is not None
+
+    bruikbaar = [p for p in grof if bruikbaar_punt(p)]
     if not bruikbaar:
         return GammaScan(punten=grof)
 
@@ -188,7 +250,7 @@ def scan_gamma(
             punten[g] = meet(g)
 
     reeks = [punten[g] for g in sorted(punten)]
-    schoon = [p for p in reeks if p.schoon and p.besparing is not None]
+    schoon = [p for p in reeks if bruikbaar_punt(p)]
     if not schoon:
         return GammaScan(punten=reeks)
 
@@ -234,8 +296,11 @@ def calculate_demand_shift(
     ceiling_w: float | None = None,
     thermal_mass_wh_k: float | None = None,
     max_drift_k: float | None = None,
+    prices: list[float] | None = None,
+    max_overshoot_k: float | None = None,
+    weigh_prices: bool = True,
 ) -> DemandShiftResult:
-    """Herverdeel de warmtevraag over het venster naar COP.
+    """Herverdeel de warmtevraag over het venster naar COP, en optioneel prijs.
 
     Args:
         forecast_temps: buitentemperatuur per uur, index 0 = nu.
@@ -250,9 +315,23 @@ def calculate_demand_shift(
             Wordt die overschreden, dan wordt de héle verschuiving evenredig
             teruggeschaald in plaats van verworpen — dat houdt het gedrag
             voorspelbaar en de energie-neutraliteit intact.
+        prices: stroomprijs per uur (€/kWh), even lang als ``forecast_temps``.
+            Weegt mee als noemer en levert de kosten in euro's op. ``None`` =
+            alleen COP, precies het gedrag van vóór de prijsweging.
+        max_overshoot_k: hoeveel de kamer maximaal boven de vlakke baan mag
+            uitkomen (K, positief). Zelfde terugschaling als ``max_drift_k``.
+            Alleen zinvol met prijzen: de COP-weging trekt warmte naar de warme
+            middag en drijft vooral omlaag, de prijsweging kan juist voorverwarmen.
+        weigh_prices: ``False`` = de prijzen alleen gebruiken om de kosten uit
+            te rekenen, niet in de weging. Zo is een pure COP-verschuiving in
+            euro's naast de prijsverschuiving te leggen.
     """
     result = DemandShiftResult(gamma=gamma)
     if not forecast_temps or ua is None or t_zero is None or ua <= 0:
+        return result
+    if prices is not None and len(prices) != len(forecast_temps):
+        # Een verschoven prijsreeks zou elk uur de verkeerde prijs geven —
+        # zonder foutmelding. Dan liever geen uitkomst.
         return result
 
     flat = [max(0.0, ua * (t_zero - t)) for t in forecast_temps]
@@ -263,17 +342,22 @@ def calculate_demand_shift(
     gamma = max(0.0, min(GAMMA_MAX, float(gamma)))
     result.gamma = gamma
 
+    cops = [_cop_for_weighting(reference_curve, t) for t in forecast_temps]
+    cops_ok = not any(c is None or c <= 0 for c in cops)
+
     # Geen vraag, of uitgeschakeld: de verschoven reeks is de vlakke reeks.
     # Dit is niet alleen een optimalisatie maar de gedefinieerde uit-stand —
-    # gamma=0 hoort exact het huidige gedrag te geven.
+    # gamma=0 hoort exact het huidige gedrag te geven. Met prijzen komen de
+    # kosten er wel bij, zodat de nulmeting een bedrag heeft om tegen af te zetten.
     if total <= 0 or gamma == 0.0:
         result.shifted = list(flat)
         result.now_shifted = result.now_flat
         result.expected_saving = 0.0
+        if prices is not None and cops_ok:
+            _fill_costs(result, flat, flat, cops, prices, None, ua)
         return result
 
-    cops = [_cop_for_weighting(reference_curve, t) for t in forecast_temps]
-    if any(c is None or c <= 0 for c in cops):
+    if not cops_ok:
         # Zonder bruikbare COP-curve valt er niets te wegen. Terugvallen op de
         # vlakke reeks is dan de juiste uitkomst, niet een foutmelding.
         result.shifted = list(flat)
@@ -290,7 +374,14 @@ def calculate_demand_shift(
     # curverand klemmen: de gewichten worden gelijk en de vraag smeert uit over
     # het hele venster.
     active = np.array(flat, dtype=float) > 0
-    weights = np.where(active, np.array([c ** gamma for c in cops]), 0.0)
+    merit = np.array(cops, dtype=float)
+    if prices is not None and weigh_prices:
+        # Warmte per euro in plaats van per kWh. Genormaliseerd op het gemiddelde
+        # zodat de getallen bij hoge γ niet onder- of overlopen; de verhouding
+        # tussen de uren — het enige wat de verdeling bepaalt — verandert niet.
+        p = np.maximum(np.array(prices, dtype=float), PRICE_FLOOR)
+        merit = merit / (p / p.mean())
+    weights = np.where(active, merit ** gamma, 0.0)
     if weights.sum() <= 0:
         result.shifted = list(flat)
         result.now_shifted = result.now_flat
@@ -308,19 +399,28 @@ def calculate_demand_shift(
     # blijft draaien en is de eigenlijke vangnet. Wat hier gebeurt is begrenzen
     # vóórdat dat vangnet nodig is, want elke correctie die de firmware moet
     # maken landt juist op het koude uur met de slechte COP.
+    drift = None
     if thermal_mass_wh_k and thermal_mass_wh_k > 0:
         drift = np.cumsum(shifted - flat_arr) / thermal_mass_wh_k
         worst = float(drift.min())
+        peak = float(drift.max())
+        # Evenredig terugschalen naar precies de limiet. Σ(shifted−flat) = 0
+        # blijft gelden voor elke factor, dus de energie-neutraliteit overleeft
+        # dit ongeschonden. Omlaag en omhoog elk hun eigen grens; de strengste
+        # bepaalt de factor.
+        factor = 1.0
         if max_drift_k and max_drift_k > 0 and worst < -abs(max_drift_k):
-            # Evenredig terugschalen naar precies de limiet. Σ(shifted−flat) = 0
-            # blijft gelden voor elke factor, dus de energie-neutraliteit
-            # overleeft dit ongeschonden.
-            factor = abs(max_drift_k) / abs(worst)
+            factor = min(factor, abs(max_drift_k) / abs(worst))
+        if max_overshoot_k and max_overshoot_k > 0 and peak > abs(max_overshoot_k):
+            factor = min(factor, abs(max_overshoot_k) / peak)
+        if factor < 1.0:
             shifted = flat_arr + factor * (shifted - flat_arr)
             result.drift_limit_factor = round(factor, 3)
             drift = np.cumsum(shifted - flat_arr) / thermal_mass_wh_k
             worst = float(drift.min())
+            peak = float(drift.max())
         result.worst_drift_k = round(worst, 3)
+        result.peak_drift_k = round(peak, 3)
 
     result.shifted = [float(p) for p in shifted]
     result.now_shifted = round(float(shifted[0]), 1)
@@ -336,4 +436,64 @@ def calculate_demand_shift(
     if ceiling_w is not None and ceiling_w > 0:
         result.hours_above_ceiling = int(np.sum(shifted > ceiling_w))
 
+    if prices is not None:
+        _fill_costs(result, flat, list(shifted), cops, prices, drift, ua)
+
     return result
+
+
+def _fill_costs(
+    result: DemandShiftResult,
+    flat: list[float],
+    shifted: list[float],
+    cops: list[float],
+    prices: list[float],
+    drift: np.ndarray | None,
+    ua: float,
+) -> None:
+    """Zet de stroomkosten van beide reeksen in euro's op het resultaat.
+
+    Elke stap is een uur, dus W is hier Wh; stroom is warmte gedeeld door COP.
+
+    De kamerdrift wordt als warmteverlies meegeteld: een huis dat door
+    voorverwarmen ``drift`` K warmer staat dan in de vlakke baan verliest per uur
+    ``UA · drift`` Wh extra, en die warmte moet ergens vandaan komen. Hij wordt
+    geprijsd tegen de gemiddelde euro per kWh warmte van de verschoven reeks.
+    Dat is een benadering, maar zonder deze term is voorverwarmen gratis, en dat
+    overschat de winst precies in het geval waar de prijsweging om draait.
+
+    Alleen de uren waarin het huis wármer staat tellen. Een kouder huis
+    verliest weliswaar minder, maar dat is comfort inleveren en geen besparing:
+    zou het meetellen, dan leverde elke verschuiving die de kamer tot de
+    driftgrens laat wegzakken er een bonus bij op — op een gewone winterdag een
+    vijfde van het bedrag.
+
+    De drift hangt aan de geleerde thermische massa. Is die te hoog geschat, dan
+    is de drift te laag en valt ook deze correctie te laag uit.
+    """
+    flat_arr = np.array(flat, dtype=float)
+    shift_arr = np.array(shifted, dtype=float)
+    cop_arr = np.array(cops, dtype=float)
+    price_arr = np.array(prices, dtype=float)
+
+    cost_flat = float(np.sum(flat_arr / cop_arr / 1000.0 * price_arr))
+    cost_shift = float(np.sum(shift_arr / cop_arr / 1000.0 * price_arr))
+    result.elec_flat_kwh = round(float(np.sum(flat_arr / cop_arr)) / 1000.0, 3)
+    result.elec_shifted_kwh = round(float(np.sum(shift_arr / cop_arr)) / 1000.0, 3)
+
+    loss_eur = 0.0
+    heat_kwh = float(shift_arr.sum()) / 1000.0
+    if drift is not None and heat_kwh > 0:
+        eur_per_kwh_heat = cost_shift / heat_kwh
+        extra_heat_kwh = float(np.sum(ua * np.maximum(drift, 0.0))) / 1000.0
+        loss_eur = extra_heat_kwh * eur_per_kwh_heat
+    result.drift_loss_eur = round(loss_eur, 4)
+
+    result.cost_flat_eur = round(cost_flat, 4)
+    result.cost_shifted_eur = round(cost_shift + loss_eur, 4)
+    if cost_flat > 0:
+        result.expected_cost_saving = round(
+            (cost_flat - result.cost_shifted_eur) / cost_flat, 4
+        )
+    else:
+        result.expected_cost_saving = 0.0

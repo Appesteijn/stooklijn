@@ -359,3 +359,154 @@ class TestGammaScan:
     def test_met_warmtevraag_wel_een_scan(self):
         """De tegenproef, zodat de uitstap niet stilletjes alles uitschakelt."""
         assert scan_gamma(DAG, CURVE, UA, T0).punten
+
+
+# --- Prijsweging -----------------------------------------------------------
+
+# Een vlakke temperatuur, zodat alleen de prijs iets te wegen heeft.
+VLAK = [0.0] * 24
+# Dal van 23 tot 7 in een etmaal dat om middernacht begint.
+NORMAAL_DAL = [0.23] * 7 + [0.25] * 16 + [0.23]
+
+
+class TestPrijsweging:
+    """De prijs is een extra noemer in de weging, geen ander model."""
+
+    def test_zonder_prijzen_verandert_er_niets(self):
+        met = _shift(1.5)
+        assert _shift(1.5, prices=None).shifted == met.shifted
+        assert met.cost_flat_eur is None
+
+    def test_vlakke_prijs_geeft_de_cop_weging(self):
+        """Een constante prijs valt weg uit de verhouding tussen de uren."""
+        cop = _shift(1.5)
+        prijs = _shift(1.5, prices=[0.25] * len(DAG))
+        assert prijs.shifted == pytest.approx(cop.shifted)
+
+    def test_goedkope_uren_krijgen_meer(self):
+        r = _shift(2.0, temps=VLAK, prices=NORMAAL_DAL)
+        assert r.shifted[0] > r.flat[0]
+        assert r.shifted[12] < r.flat[12]
+
+    @pytest.mark.parametrize("gamma", [0.5, 1.0, 3.0])
+    def test_energieneutraal_met_prijzen(self, gamma):
+        r = _shift(gamma, temps=VLAK, prices=NORMAAL_DAL)
+        assert sum(r.shifted) == pytest.approx(sum(r.flat), rel=1e-6)
+
+    def test_kostenbesparing_bij_vlakke_temperatuur(self):
+        """Zelfde COP overal: de stroom blijft gelijk, de kosten dalen."""
+        r = _shift(2.0, temps=VLAK, prices=NORMAAL_DAL)
+        assert r.expected_cost_saving > 0
+        assert r.elec_shifted_kwh == pytest.approx(r.elec_flat_kwh, rel=1e-6)
+
+    def test_kosten_in_euro(self):
+        """0 °C: UA · 16,5 W per uur, gedeeld door de COP bij 0 °C."""
+        r = _shift(0.0, temps=VLAK, prices=[0.25] * 24)
+        cop0 = float(np.interp(0.0, sorted(CURVE), [CURVE[k] for k in sorted(CURVE)]))
+        verwacht = 24 * UA * T0 / cop0 / 1000 * 0.25
+        assert r.cost_flat_eur == pytest.approx(verwacht, rel=1e-3)
+        assert r.cost_shifted_eur == pytest.approx(verwacht, rel=1e-3)
+        assert r.expected_cost_saving == 0.0
+
+    def test_negatieve_prijs_blaast_niet_op(self):
+        prijzen = [-0.10] + [0.25] * 23
+        r = _shift(3.0, temps=VLAK, prices=prijzen)
+        assert all(np.isfinite(r.shifted))
+        assert sum(r.shifted) == pytest.approx(sum(r.flat), rel=1e-6)
+
+    def test_prijsreeks_van_verkeerde_lengte_geeft_niets(self):
+        r = _shift(1.0, prices=[0.25] * (len(DAG) - 1))
+        assert r.shifted == []
+        assert r.cost_flat_eur is None
+
+    def test_alleen_kosten_zonder_prijsweging(self):
+        """weigh_prices=False: de verdeling van de COP, de kosten van de prijs."""
+        cop = _shift(1.5)
+        r = _shift(1.5, prices=[0.25] * len(DAG), weigh_prices=False)
+        assert r.shifted == pytest.approx(cop.shifted)
+        assert r.cost_flat_eur is not None
+
+    def test_goedkoop_en_koud_kost_meer_stroom_maar_minder_geld(self):
+        """Nacht is koud en goedkoop: meer kWh, toch lagere rekening."""
+        nacht_koud = [-3.0] * 7 + [4.0] * 16 + [-3.0]
+        prijzen = [0.10] * 7 + [0.40] * 16 + [0.10]
+        r = _shift(2.0, temps=nacht_koud, prices=prijzen)
+        assert r.elec_shifted_kwh > r.elec_flat_kwh
+        assert r.cost_shifted_eur < r.cost_flat_eur
+
+
+class TestVoorverwarmen:
+    """Warmte naar voren halen maakt het huis warmer — en dat kost warmte."""
+
+    # Duur in de ochtend, goedkoop ervoor: de weging wil voorverwarmen.
+    PRIJZEN = [0.10] * 6 + [0.40] * 6 + [0.25] * 12
+
+    def test_overshoot_wordt_geschat(self):
+        r = _shift(2.0, temps=VLAK, prices=self.PRIJZEN, thermal_mass_wh_k=C_WH_K)
+        assert r.peak_drift_k > 0
+
+    def test_overshoot_grens_wordt_gehouden(self):
+        r = _shift(
+            3.0, temps=VLAK, prices=self.PRIJZEN,
+            thermal_mass_wh_k=C_WH_K, max_overshoot_k=0.05,
+        )
+        assert r.peak_drift_k <= 0.05 + 1e-6
+        assert r.drift_limit_factor < 1.0
+        assert sum(r.shifted) == pytest.approx(sum(r.flat), rel=1e-6)
+
+    def test_warmer_huis_kost_geld(self):
+        r = _shift(2.0, temps=VLAK, prices=self.PRIJZEN, thermal_mass_wh_k=C_WH_K)
+        assert r.drift_loss_eur > 0
+        zonder = _shift(2.0, temps=VLAK, prices=self.PRIJZEN)
+        # Zonder massa geen drift en dus geen verliesterm: de besparing is hoger.
+        assert zonder.drift_loss_eur == 0.0
+        assert zonder.expected_cost_saving > r.expected_cost_saving
+
+
+class TestScanMetPrijzen:
+    def test_scan_kiest_op_kosten(self):
+        scan = scan_gamma(VLAK, CURVE, UA, T0, prices=NORMAAL_DAL)
+        assert scan.advies is not None
+        assert scan.advies_besparing > 0
+
+    def test_zonder_prijzen_niets_te_winnen_bij_vlakke_temperatuur(self):
+        """Tegenproef: zonder prijs heeft een vlakke dag geen gewin."""
+        scan = scan_gamma(VLAK, CURVE, UA, T0)
+        assert scan.advies is None
+
+
+class TestBegrenzingToegestaan:
+    """Voor een dagmeting telt een teruggeschaald plan gewoon mee."""
+
+    # Scherpe sprong: 7 uur koud, dan zacht. De limiter grijpt overal in.
+    SPRONG = [-2.0] * 7 + [4.0] * 10 + [0.0] * 7
+
+    def test_standaard_geen_advies_als_de_limiter_overal_ingrijpt(self):
+        scan = scan_gamma(
+            self.SPRONG, CURVE, UA, T0, thermal_mass_wh_k=C_WH_K, max_drift_k=0.3
+        )
+        assert scan.advies is None
+
+    def test_met_begrenzing_wel_een_advies(self):
+        scan = scan_gamma(
+            self.SPRONG, CURVE, UA, T0, thermal_mass_wh_k=C_WH_K, max_drift_k=0.3,
+            begrenzing_toegestaan=True,
+        )
+        assert scan.advies is not None
+        assert scan.advies_besparing > 0
+
+    def test_plafond_blijft_uitsluitend(self):
+        scan = scan_gamma(
+            self.SPRONG, CURVE, UA, T0, ceiling_w=1.0, begrenzing_toegestaan=True
+        )
+        assert scan.advies is None
+
+
+class TestKouderIsGeenWinst:
+    def test_verliesterm_is_nooit_negatief(self):
+        """Wegzakken tot de driftgrens mag geen bonus opleveren."""
+        r = _shift(
+            1.0, prices=[0.25] * len(DAG), thermal_mass_wh_k=C_WH_K, max_drift_k=0.3
+        )
+        assert r.worst_drift_k < 0
+        assert r.drift_loss_eur >= 0

@@ -3,6 +3,25 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.3 — 2026-09-27
+
+- **Nieuwe schaduwmeting: wat had verschuiven naar goedkope uren opgeleverd?**
+  Stel in de opties een tarief in, vast normaal/dal of dynamisch via een
+  prijssensor, en de sensor `prijsverschuiving` verschijnt. Elke nacht rekent
+  hij het komende etmaal door: dezelfde warmte, verdeeld naar de uren met de
+  meeste warmte per euro, en telt de voorspelde besparing op. Ter vergelijking
+  loopt een pure COP-verschuiving mee, tegen dezelfde tarieven. Er wordt niets
+  aangestuurd.
+- De herverdeling rekent daarvoor nu optioneel met een prijs per uur: het
+  gewicht wordt `(COP / prijs)^γ`. Zonder prijs of met een vlakke prijs is de
+  uitkomst exact als voorheen. Voorverwarmen kost warmte, en dat extra verlies
+  gaat van de besparing af. Een kouder huis telt niet als winst. De
+  driftbegrenzing kent nu ook een grens naar boven.
+- `scan_gamma` kan begrensde punten laten meetellen. Voor de dagmeting is dat
+  nodig: op een dag met een scherpe temperatuursprong grijpt de begrenzing al
+  bij de kleinste γ in, en zonder deze optie noteerde de meting nul, terwijl
+  een begrensde verschuiving wel iets had opgeleverd.
+
 ## v0.10.2-beta.2 — 2026-09-11
 
 Betaversie, bovenop beta.1. Die voegde een tweetoestandsmodel toe dat uit staat

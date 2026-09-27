@@ -95,12 +95,20 @@
           "power_entity": "Wärmepumpen-Wärmeleistung (W)",
           "supply_temp_entity": "Vorlauftemperatur-Sensor (°C) — Referenz für die Empfehlung",
           "power_input_entity": "Elektrische Leistungsaufnahme (W) — für die COP-Berechnung",
-          "boiler_heat_entity": "Gaskessel-Wärmeleistung (W) — zur Gaserkennung"
+          "boiler_heat_entity": "Gaskessel-Wärmeleistung (W) — zur Gaserkennung",
+          "price_shift_mode": "Preisverschiebung (Schattenmessung, steuert nichts) — aus, fester HT/NT-Tarif oder dynamisch",
+          "price_normal": "Hochtarif (€/kWh, inkl. Steuern)",
+          "price_dal": "Niedertarif (€/kWh, inkl. Steuern)",
+          "price_dal_start_hour": "Niedertarif beginnt werktags (Stunde, 0–23, z. B. 23)",
+          "price_dal_end_hour": "Niedertarif endet werktags (Stunde, 0–23, z. B. 7)",
+          "price_dal_weekend": "Ganzes Wochenende ist Niedertarif",
+          "price_entity": "Preissensor für einen dynamischen Tarif (mit Stundenpreisen für heute/morgen als Attribut)"
         }
       }
     },
     "error": {
-      "invalid_date_format": "Ungültiges Datumsformat. Verwenden Sie YYYY-MM-DD"
+      "invalid_date_format": "Ungültiges Datumsformat. Verwenden Sie YYYY-MM-DD",
+      "price_entity_required": "Ein dynamischer Tarif braucht einen Preissensor mit den Stundenpreisen als Attribut"
     }
   },
   "services": {
@@ -244,6 +252,9 @@
       },
       "thermostaat_setpoint": {
         "name": "Thermostat-Sollwert"
+      },
+      "price_shift": {
+        "name": "Preisverschiebung Ersparnis (Schatten)"
       }
     },
     "binary_sensor": {

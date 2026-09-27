@@ -270,6 +270,7 @@ Each carries `source_entity`, `source_integration`, `candidates` and `switched_a
 | `geluidsniveau` | — | Current compressor sound level (`uit` / `building87` / `silent` / `library` / `normal`) — only when sound level compensation is enabled |
 | `compressorstarts` | starts/uur | Compressor starts in the last hour — see [Short cycling](#short-cycling) |
 | `cop_prestatie` | — | Efficiency against this installation's own norm at the same outdoor temperature and the same half of the season — see [Judging a change](#judging-a-change) |
+| `prijsverschuiving` | EUR | Predicted savings, summed per day, had heat demand been shifted to cheaper hours — only when a tariff is configured, see [Price shift](#price-shift-shadow-measurement) |
 
 Both error sensors return no value while the pump is idle (flow below 30 L/h): comparing advice against actual supply temperature is meaningless without circulation.
 
@@ -327,6 +328,33 @@ The integration uses [Open-Meteo](https://open-meteo.com/) shortwave radiation (
 ### Shadow mode
 
 The MPC sensor only produces advice — it never writes setpoints to your system. After a few weeks of data you can judge on the **MPC** dashboard tab whether the advice tracks reality before taking any further action.
+
+### Price shift (shadow measurement)
+
+Would it pay to heat when electricity is cheap? Set **Price shift** in the options to
+`normaal_dal` (fixed contract with normal and off-peak tariff, off-peak hours and weekend
+configurable) or `dynamisch` (a price sensor that carries today's and tomorrow's hourly prices as
+attributes — Nord Pool, ENTSO-e, EnergyZero and similar; quarter-hour prices are averaged per
+hour). The `prijsverschuiving` sensor then appears.
+
+Every night at 00:05 it takes the coming 24 hours: the same heat that `warmtevraag` would publish,
+redistributed to the hours with the most heat per euro, weighted by `(COP / price)^γ`. The total
+heat stays exactly the same. γ is chosen per day by the same scan as before — the calmest value
+that captures nearly all of the gain without exceeding the firmware ceiling. The room may drift at
+most 0.3 K below and 0.5 K above the flat path. The extra heat loss from preheating
+(`UA · drift` per warmer hour) is charged against the savings. A colder house does not count as a
+gain. The day's predicted savings go into the total. Days without heat demand are skipped.
+
+Alongside it, a pure COP shift (towards the warm afternoon) is priced at the same tariffs
+(`besparing_alleen_cop_eur`). The difference between the two is what the price adds. The
+attribute `komend_etmaal` shows the plan for the next 24 hours hour by hour and refreshes every
+hour.
+
+It is a model prediction, not a metered result, and **it controls nothing**. Solar gain and room
+temperature are not part of it, for the same reason as in [Driving Power House with the measured
+house model](#driving-power-house-with-the-measured-house-model). Actually shifting heat would
+have to go through the room setpoint; the firmware's comfort term cancels a higher power demand
+as soon as the room is above setpoint.
 
 ## Quatt advies sensor
 

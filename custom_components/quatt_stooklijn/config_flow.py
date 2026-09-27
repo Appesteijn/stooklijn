@@ -34,6 +34,21 @@ from .const import (
     CONF_CH_MAX_WATER_INTERVAL,
     CONF_COMFORT_FLOOR_TEMP,
     CONF_THROTTLE_ENTITY,
+    CONF_PRICE_MODE,
+    CONF_PRICE_NORMAL,
+    CONF_PRICE_DAL,
+    CONF_DAL_START_HOUR,
+    CONF_DAL_END_HOUR,
+    CONF_DAL_WEEKEND,
+    CONF_PRICE_ENTITY,
+    DEFAULT_PRICE_MODE,
+    DEFAULT_PRICE_NORMAL,
+    DEFAULT_PRICE_DAL,
+    DEFAULT_DAL_START_HOUR,
+    DEFAULT_DAL_END_HOUR,
+    DEFAULT_DAL_WEEKEND,
+    PRICE_MODE_DYNAMIC,
+    PRICE_MODES,
     CONF_PERFORMANCE_BASELINE_DATE,
     CONF_POWER_INPUT_ENTITY,
     CONF_SOUND_LEVEL_ENABLED,
@@ -339,6 +354,12 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     date.fromisoformat(baseline)
                 except ValueError:
                     errors[CONF_PERFORMANCE_BASELINE_DATE] = "invalid_date_format"
+            # Dynamisch zonder prijssensor zou een sensor opleveren die nooit
+            # iets meet, zonder dat ergens te zien is waarom.
+            if result.get(CONF_PRICE_MODE) == PRICE_MODE_DYNAMIC and not result.get(
+                CONF_PRICE_ENTITY
+            ):
+                errors[CONF_PRICE_ENTITY] = "price_entity_required"
             if not errors:
                 result[CONF_PERFORMANCE_BASELINE_DATE] = baseline
                 return self.async_create_entry(title="", data=result)
@@ -527,6 +548,36 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_THROTTLE_ENTITY,
                         data.get(CONF_THROTTLE_ENTITY, DEFAULT_THROTTLE_ENTITY),
                     ): _entity(["sensor", "input_number", "number"]),
+                    # --- Prijsverschuiving (schaduwmeting, stuurt niets) ---
+                    # Wat had het opgeleverd om de warmtevraag naar goedkope
+                    # uren te schuiven? Uit = geen sensor.
+                    vol.Optional(
+                        CONF_PRICE_MODE,
+                        default=data.get(CONF_PRICE_MODE, DEFAULT_PRICE_MODE),
+                    ): vol.In(PRICE_MODES),
+                    vol.Optional(
+                        CONF_PRICE_NORMAL,
+                        default=data.get(CONF_PRICE_NORMAL, DEFAULT_PRICE_NORMAL),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=2.0)),
+                    vol.Optional(
+                        CONF_PRICE_DAL,
+                        default=data.get(CONF_PRICE_DAL, DEFAULT_PRICE_DAL),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=2.0)),
+                    vol.Optional(
+                        CONF_DAL_START_HOUR,
+                        default=data.get(CONF_DAL_START_HOUR, DEFAULT_DAL_START_HOUR),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=23)),
+                    vol.Optional(
+                        CONF_DAL_END_HOUR,
+                        default=data.get(CONF_DAL_END_HOUR, DEFAULT_DAL_END_HOUR),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=23)),
+                    vol.Optional(
+                        CONF_DAL_WEEKEND,
+                        default=data.get(CONF_DAL_WEEKEND, DEFAULT_DAL_WEEKEND),
+                    ): bool,
+                    _prefill(
+                        CONF_PRICE_ENTITY, data.get(CONF_PRICE_ENTITY, "")
+                    ): _entity("sensor"),
                 }
             ),
             errors=errors,

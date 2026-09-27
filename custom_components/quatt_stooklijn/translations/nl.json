@@ -95,12 +95,20 @@
           "power_entity": "Warmtepomp warmtevermogen sensor (W)",
           "supply_temp_entity": "Aanvoertemperatuur sensor (°C) — vergelijkingsbasis voor het advies",
           "power_input_entity": "Opgenomen elektrisch vermogen sensor (W) — voor COP-berekening",
-          "boiler_heat_entity": "Gasketel warmtevermogen sensor (W) — voor gasdetectie"
+          "boiler_heat_entity": "Gasketel warmtevermogen sensor (W) — voor gasdetectie",
+          "price_shift_mode": "Prijsverschuiving (schaduwmeting, stuurt niets) — uit, vast normaal/dal of dynamisch",
+          "price_normal": "Normaal tarief (€/kWh, incl. belasting en btw)",
+          "price_dal": "Daltarief (€/kWh, incl. belasting en btw)",
+          "price_dal_start_hour": "Dal begint doordeweeks om (uur, 0–23, bijv. 23)",
+          "price_dal_end_hour": "Dal eindigt doordeweeks om (uur, 0–23, bijv. 7)",
+          "price_dal_weekend": "Hele weekend is dal",
+          "price_entity": "Prijssensor voor een dynamisch tarief (met de uurprijzen van vandaag/morgen als attribuut)"
         }
       }
     },
     "error": {
-      "invalid_date_format": "Ongeldige datum. Gebruik YYYY-MM-DD"
+      "invalid_date_format": "Ongeldige datum. Gebruik YYYY-MM-DD",
+      "price_entity_required": "Een dynamisch tarief heeft een prijssensor nodig met de uurprijzen als attribuut"
     }
   },
   "services": {
@@ -244,6 +252,9 @@
       },
       "thermostaat_setpoint": {
         "name": "Thermostaat setpoint"
+      },
+      "price_shift": {
+        "name": "Prijsverschuiving besparing (schaduw)"
       }
     },
     "binary_sensor": {

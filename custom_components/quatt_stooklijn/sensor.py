@@ -27,6 +27,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_state_change_event,
+    async_track_time_change,
     async_track_time_interval,
 )
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -42,6 +43,30 @@ from .analysis.thermal_model import (
 from homeassistant.helpers.storage import Store
 
 from .const import (
+    CONF_DAL_END_HOUR,
+    CONF_DAL_START_HOUR,
+    CONF_DAL_WEEKEND,
+    CONF_PRICE_DAL,
+    CONF_PRICE_ENTITY,
+    CONF_PRICE_MODE,
+    CONF_PRICE_NORMAL,
+    DEFAULT_DAL_END_HOUR,
+    DEFAULT_DAL_START_HOUR,
+    DEFAULT_DAL_WEEKEND,
+    DEFAULT_PRICE_DAL,
+    DEFAULT_PRICE_MODE,
+    DEFAULT_PRICE_NORMAL,
+    DEMAND_SHIFT_HOURS,
+    DEMAND_SHIFT_MAX_DRIFT_K,
+    DEMAND_SHIFT_MAX_OVERSHOOT_K,
+    PRICE_MODE_DYNAMIC,
+    PRICE_MODE_NORMAL_DAL,
+    PRICE_MODE_OFF,
+    PRICE_SHIFT_KEEP_DAYS,
+    PRICE_SHIFT_RUN_HOUR,
+    PRICE_SHIFT_RUN_MINUTE,
+    PRICE_SHIFT_STORAGE_KEY,
+    PRICE_SHIFT_STORAGE_VERSION,
     CONF_CH_MAX_WATER_ENABLED,
     CONF_COMFORT_FLOOR_TEMP,
     CONF_COMPRESSOR_2_ENTITY,
@@ -412,6 +437,13 @@ async def async_setup_entry(
     entities.append(QuattOpenQuattCurveSensor(coordinator, entry))
     entities.append(QuattPowerHouseCalibrationSensor(hass, coordinator, entry))
     entities.append(QuattHeatDemandSensor(hass, coordinator, entry))
+
+    # Schaduwmeting van de prijsverschuiving — alleen als er een tarief is
+    # ingesteld. Zonder tarief valt er niets te meten, en een sensor die altijd
+    # "niet ingesteld" zegt kost alleen aandacht.
+    cfg = {**entry.data, **entry.options}
+    if cfg.get(CONF_PRICE_MODE, DEFAULT_PRICE_MODE) != PRICE_MODE_OFF:
+        entities.append(QuattPriceShiftSensor(hass, coordinator, entry, mpc_sensor))
 
     if {**entry.data, **entry.options}.get(CONF_SOUND_LEVEL_ENABLED, False):
         entities.append(QuattSoundLevelSensor(hass, entry))
@@ -3102,6 +3134,315 @@ class QuattHeatDemandSensor(
         attrs["boven_firmware_plafond"] = (
             bool(rated is not None and value is not None and value > rated)
         )
+        return attrs
+
+
+class QuattPriceShiftSensor(QuattHeatDemandSensor):
+    """Schaduwmeting: wat had verschuiven naar goedkope uren opgeleverd?
+
+    **Deze sensor stuurt niets aan.** Elke nacht rekent hij het komende etmaal
+    door: dezelfde warmte als ``warmtevraag`` zou publiceren, herverdeeld naar
+    de uren met de meeste warmte per euro — ``(COP / prijs)^γ`` — binnen dezelfde
+    kamerdrift-grenzen. De voorspelde besparing van die dag gaat de teller in.
+    De state is het totaal sinds het begin van de meting, in euro's.
+
+    Wat het is en wat niet:
+
+    * Een **modelvoorspelling**, geen meting van werkelijk verbruik. De vlakke
+      reeks is ``UA · (T0 − T_buiten)`` over de weersverwachting, de COP komt uit
+      de gemeten referentiecurve. Zon en kamertemperatuur doen niet mee — om
+      dezelfde reden als in ``demand_shift.py``: die zijn van de firmware.
+    * Het **extra warmteverlies** van voorverwarmen wordt wel meegerekend
+      (``UA · drift`` per uur). Zonder die term is een warmer huis gratis.
+    * γ wordt **per dag gekozen** met ``scan_gamma``: de rustigste die vrijwel
+      de volle winst pakt zonder dat het firmwareplafond of de driftgrens
+      ingrijpt. Geen knop — die kwam in v0.9.14 juist weg omdat hij op elke
+      stand hetzelfde deed.
+    * Ter vergelijking loopt een **pure COP-verschuiving** mee, in euro's tegen
+      dezelfde prijzen. Het verschil tussen de twee is wat de prijs toevoegt.
+
+    Erft nulpunt, UA, versheidsbewaking en OpenQuatt-detectie van
+    ``QuattHeatDemandSensor``, zodat de vlakke reeks precies is wat daar
+    gepubliceerd wordt.
+    """
+
+    _attr_translation_key = "price_shift"
+    _attr_native_unit_of_measurement = "EUR"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_icon = "mdi:cash-clock"
+    _attr_suggested_display_precision = 2
+    # Het uur-voor-uur-overzicht van het komende etmaal is voor het dashboard;
+    # het verandert elk uur en hoort niet elke keer de recorder in.
+    _unrecorded_attributes = frozenset({"komend_etmaal"})
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        coordinator: QuattStooklijnCoordinator,
+        entry: ConfigEntry,
+        mpc_sensor: "QuattMpcSensor",
+    ) -> None:
+        super().__init__(hass, coordinator, entry)
+        self._mpc = mpc_sensor
+        self._attr_unique_id = f"{entry.entry_id}_price_shift"
+        # Entity-ID vastpinnen, zie de toelichting bij MirrorSpec.slug.
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            f"{ENTITY_PREFIX}_prijsverschuiving",
+            hass=hass,
+        )
+        self._store = Store(
+            hass, PRICE_SHIFT_STORAGE_VERSION, PRICE_SHIFT_STORAGE_KEY
+        )
+        self._days: list[dict] = []
+        self._loaded = False
+        # Het komende etmaal, elk uur ververst. Los van de dagtelling: dit is
+        # wat de sensor nú zou kiezen, de telling is wat hij om middernacht koos.
+        self._preview: dict | None = None
+        # Waarom er geen uitkomst is, als die er niet is. Een meting die stil
+        # wegvalt is niet te onderscheiden van een dag zonder winst.
+        self._reason: str | None = None
+
+    # -- configuratie ------------------------------------------------------
+
+    @property
+    def _cfg(self) -> dict:
+        return {**self._entry.data, **self._entry.options}
+
+    @property
+    def _mode(self) -> str:
+        return self._cfg.get(CONF_PRICE_MODE, DEFAULT_PRICE_MODE)
+
+    def _prices(self, start: datetime, n_hours: int) -> list[float]:
+        """Prijs per uur vanaf ``start``; leeg als er geen bruikbare reeks is."""
+        from .analysis.tariff import hourly_prices_from_attributes, normal_dal_prices
+
+        cfg = self._cfg
+        if self._mode == PRICE_MODE_NORMAL_DAL:
+            return normal_dal_prices(
+                start,
+                n_hours,
+                float(cfg.get(CONF_PRICE_NORMAL, DEFAULT_PRICE_NORMAL)),
+                float(cfg.get(CONF_PRICE_DAL, DEFAULT_PRICE_DAL)),
+                int(cfg.get(CONF_DAL_START_HOUR, DEFAULT_DAL_START_HOUR)),
+                int(cfg.get(CONF_DAL_END_HOUR, DEFAULT_DAL_END_HOUR)),
+                bool(cfg.get(CONF_DAL_WEEKEND, DEFAULT_DAL_WEEKEND)),
+                tz=start.tzinfo,
+            )
+        if self._mode == PRICE_MODE_DYNAMIC:
+            entity_id = cfg.get(CONF_PRICE_ENTITY)
+            state = self.hass.states.get(entity_id) if entity_id else None
+            if state is None:
+                return []
+            return hourly_prices_from_attributes(
+                state.attributes,
+                start,
+                n_hours,
+                unit=state.attributes.get("unit_of_measurement"),
+                tz=start.tzinfo,
+            )
+        return []
+
+    # -- rekenen -----------------------------------------------------------
+
+    def _evaluate(self, start: datetime) -> dict | None:
+        """Reken het venster vanaf ``start`` door, of ``None`` met een reden."""
+        from .analysis.cop_performance import (
+            SEASON_AUTUMN,
+            SEASON_SPRING,
+            season_of,
+        )
+        from .analysis.demand_shift import calculate_demand_shift, scan_gamma
+        from .discovery import ROLE_PH_RATED_POWER
+
+        data = self.coordinator.data
+        if data is None:
+            self._reason = "geen analysedata"
+            return None
+        hlc = data.heat_loss_hp.heat_loss_coefficient
+        if not hlc or hlc <= 0:
+            self._reason = "geen warmteverliescoëfficiënt"
+            return None
+
+        openquatt = self._openquatt()
+        zero_point = self._zero_point(openquatt)
+        t_outdoor = self._outdoor_temp()
+        if zero_point is None or t_outdoor is None:
+            self._reason = "geen nulpunt of verse buitentemperatuur"
+            return None
+
+        fc_temps, _solar, _meta = self._mpc.build_forecast_arrays(
+            t_outdoor, n_hours=DEMAND_SHIFT_HOURS
+        )
+        prices = self._prices(start, len(fc_temps))
+        if not fc_temps or not prices:
+            self._reason = (
+                "geen weersverwachting" if not fc_temps else "geen prijzen voor het venster"
+            )
+            return None
+        # Een dynamische reeks kan korter zijn dan de weersverwachting (morgen
+        # nog niet bekend). Dan het venster inkorten, niet de prijs verzinnen.
+        fc_temps = fc_temps[: len(prices)]
+
+        # De COP-curve van de seizoenshelft waarin het venster valt. Ontbreekt
+        # die helft nog, dan de andere: voor een weging tellen de verhoudingen
+        # tussen de uren, en die liggen in beide helften dicht bij elkaar.
+        reference = data.cop_performance.reference or {}
+        season = season_of(start.month)
+        other = SEASON_SPRING if season == SEASON_AUTUMN else SEASON_AUTUMN
+        curve = reference.get(season) or reference.get(other) or {}
+
+        params = self._mpc.thermal_params
+        c_whk = params.get("C_whk") if params.get("converged") else None
+        ceiling = get_float_state(
+            self.hass, openquatt.get(ROLE_PH_RATED_POWER) or ""
+        ) if openquatt else None
+
+        common = {
+            "ceiling_w": ceiling,
+            "thermal_mass_wh_k": c_whk,
+            "max_drift_k": DEMAND_SHIFT_MAX_DRIFT_K,
+            "max_overshoot_k": DEMAND_SHIFT_MAX_OVERSHOOT_K,
+        }
+        args = (fc_temps, curve, float(hlc), zero_point[0])
+
+        # Begrensde punten tellen mee: een teruggeschaalde verschuiving blijft
+        # binnen de comfortgrens en is dus een geldig plan. Zie scan_gamma.
+        scan_p = scan_gamma(
+            *args, prices=prices, begrenzing_toegestaan=True, **common
+        )
+        gamma_p = scan_p.advies or 0.0
+        r_p = calculate_demand_shift(*args, gamma_p, prices=prices, **common)
+
+        # Dezelfde dag met alleen de COP-weging, geprijsd tegen dezelfde tarieven.
+        scan_c = scan_gamma(*args, begrenzing_toegestaan=True, **common)
+        gamma_c = scan_c.advies or 0.0
+        r_c = calculate_demand_shift(
+            *args, gamma_c, prices=prices, weigh_prices=False, **common
+        )
+
+        if r_p.cost_flat_eur is None:
+            self._reason = "geen bruikbare COP-curve"
+            return None
+
+        self._reason = None
+
+        def _eur(r) -> float:
+            return round((r.cost_flat_eur or 0.0) - (r.cost_shifted_eur or 0.0), 4)
+
+        return {
+            "datum": start.date().isoformat(),
+            "tariefbron": self._mode,
+            "venster_uren": len(prices),
+            "gamma": gamma_p,
+            "kosten_vlak_eur": r_p.cost_flat_eur,
+            "besparing_eur": _eur(r_p),
+            "verlies_eur": r_p.drift_loss_eur,
+            "stroom_vlak_kwh": r_p.elec_flat_kwh,
+            "stroom_verschoven_kwh": r_p.elec_shifted_kwh,
+            "drift_k": r_p.worst_drift_k,
+            "overshoot_k": r_p.peak_drift_k,
+            "uren_boven_plafond": r_p.hours_above_ceiling,
+            "gamma_alleen_cop": gamma_c,
+            "besparing_alleen_cop_eur": _eur(r_c),
+            # Per uur, alleen voor de voorvertoning; gaat niet de store in.
+            "_uren": [
+                {
+                    "prijs": round(p, 4),
+                    "vlak_w": round(f),
+                    "verschoven_w": round(v),
+                }
+                for p, f, v in zip(prices, r_p.flat, r_p.shifted)
+            ],
+        }
+
+    # -- lifecycle ---------------------------------------------------------
+
+    async def async_added_to_hass(self) -> None:
+        # Bewust niet de listeners van QuattHeatDemandSensor: die schrijven bij
+        # elke buitentemperatuur, en deze sensor verandert één keer per uur.
+        await super(QuattHeatDemandSensor, self).async_added_to_hass()
+
+        stored = await self._store.async_load() or {}
+        self._days = list(stored.get("dagen", []))
+        self._loaded = True
+
+        self.async_on_remove(
+            async_track_time_change(
+                self.hass,
+                self._handle_daily,
+                hour=PRICE_SHIFT_RUN_HOUR,
+                minute=PRICE_SHIFT_RUN_MINUTE,
+                second=0,
+            )
+        )
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass, self._handle_preview, timedelta(hours=1)
+            )
+        )
+        await self._handle_preview()
+
+    async def _handle_preview(self, _now=None) -> None:
+        self._preview = self._evaluate(dt_util.now())
+        self.async_write_ha_state()
+
+    async def _handle_daily(self, _now=None) -> None:
+        """Leg het komende etmaal vast en tel de voorspelde besparing op."""
+        if not self._loaded:
+            return
+        now = dt_util.now()
+        record = self._evaluate(now)
+        self._preview = record
+        # Zonder warmtevraag valt er niets te verschuiven. Zo'n dag telt niet
+        # mee: anders loopt het aantal meetdagen de hele zomer door op zonder
+        # dat er iets gemeten is.
+        if record is not None and (record["kosten_vlak_eur"] or 0) > 0:
+            opgeslagen = {k: v for k, v in record.items() if not k.startswith("_")}
+            self._days = [d for d in self._days if d.get("datum") != record["datum"]]
+            self._days.append(opgeslagen)
+            grens = (now.date() - timedelta(days=PRICE_SHIFT_KEEP_DAYS)).isoformat()
+            self._days = [d for d in self._days if d.get("datum", "") >= grens]
+            await self._store.async_save({"dagen": self._days})
+        self.async_write_ha_state()
+
+    # -- weergave ----------------------------------------------------------
+
+    @property
+    def native_value(self) -> float | None:
+        if not self._loaded:
+            return None
+        return round(sum(d.get("besparing_eur", 0.0) for d in self._days), 2)
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        dagen = self._days
+        kosten = sum(d.get("kosten_vlak_eur", 0.0) for d in dagen)
+        besparing = sum(d.get("besparing_eur", 0.0) for d in dagen)
+        alleen_cop = sum(d.get("besparing_alleen_cop_eur", 0.0) for d in dagen)
+        stroom_extra = sum(
+            (d.get("stroom_verschoven_kwh") or 0.0) - (d.get("stroom_vlak_kwh") or 0.0)
+            for d in dagen
+        )
+        attrs: dict[str, Any] = {
+            "tariefbron": self._mode,
+            "gemeten_dagen": len(dagen),
+            "eerste_dag": dagen[0]["datum"] if dagen else None,
+            "kosten_vlak_eur": round(kosten, 2),
+            "besparing_pct": round(100 * besparing / kosten, 2) if kosten > 0 else None,
+            # Dezelfde dagen met alleen de COP-weging. Het verschil met de state
+            # is wat de prijs toevoegt bovenop verschuiven naar warme uren.
+            "besparing_alleen_cop_eur": round(alleen_cop, 2),
+            # Positief = verschuiven kost méér stroom (goedkoop maar koud uur).
+            "extra_stroom_kwh": round(stroom_extra, 1),
+            "laatste_dag": dagen[-1] if dagen else None,
+            "reden_geen_uitkomst": self._reason,
+        }
+        if self._preview is not None:
+            attrs["komend_etmaal"] = {
+                k.lstrip("_"): v for k, v in self._preview.items()
+            }
         return attrs
 
 
