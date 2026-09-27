@@ -148,15 +148,6 @@ views:
               state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
               'aantal_aanpassingen') | int(0) %}
 
-              {% if n == 0 %}
-
-              ✅ **Alle Quatt-instellingen zijn optimaal.**
-
-              {% else %}
-
-              ⚠️ **{{ advies }}**
-
-
               {% set sg =
               state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
               'stookgrens_advies') %}
@@ -165,15 +156,37 @@ views:
               state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
               'nominaal_vermogen_advies') %}
 
-              {% if sg and 'goed' not in sg %}• {{ sg }}{% endif %}
+              {% set bron =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'stookgrens_bron') %}
 
-              {% if vg and 'goed' not in vg %}• {{ vg }}{% endif %}
+              {% if n > 0 %}
+
+              ⚠️ **{{ advies }}**
+
+
+              • {{ sg }}
+
+              {% elif bron == 'openquatt' %}
+
+              ✅ **Stookgrens staat goed.** Tc en Pr: zie de Power
+              House-kalibratie.
+
+              {% else %}
+
+              ℹ️ **Aanbevolen Quatt-instellingen** — je huidige instellingen
+              zijn niet uit te lezen, vergelijk ze in de Quatt-app.
+
+
+              {% if sg %}• {{ sg }}{% endif %}
+
+              {% if vg %}• {{ vg }}{% endif %}
+
+              {% endif %}
 
 
               *Ga naar het **Advies** tabblad voor alle details en
               stooklijnpunten.*
-
-              {% endif %}
 
               {% endif %}
             grid_options:
@@ -666,24 +679,31 @@ views:
               state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
               'aantal_aanpassingen') | int(0) %}
 
-              {% if n == 0 %}
+              {% set bron =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'stookgrens_bron') %}
 
-              ✅ Alle instellingen zijn optimaal.
+              {% if n > 0 %}
+
+              Pas de volgende instelling aan:
+
+              {% elif bron == 'openquatt' %}
+
+              ✅ De stookgrens staat goed.
 
               {% else %}
 
-              Geef de volgende aanpassingen door aan Quatt:
-
-
-              {% if sg and 'goed' not in sg %}1. **Stookgrens:** {{ sg }}{%
-              endif %}
-
-              {% if vg and 'goed' not in vg %}2. **Vermogen:** {{ vg }}{%
-              endif %}
-
-              {% if sl %}3. **Stooklijn:** {{ sl }}{% endif %}
+              Je huidige instellingen zijn niet uit te lezen. Vergelijk ze in
+              de Quatt-app met deze aanbevolen waarden:
 
               {% endif %}
+
+
+              {% if sg %}1. **Stookgrens:** {{ sg }}{% endif %}
+
+              {% if vg %}2. **Vermogen:** {{ vg }}{% endif %}
+
+              {% if sl %}3. **Stooklijn:** {{ sl }}{% endif %}
 
               {% endif %}
             grid_options:
@@ -721,11 +741,11 @@ views:
 
               |:--|--:|
 
-              | Quatt stooklijn (daggemiddeld) | {% if cur %}**{{ cur }}°C**{% else
-              %}*onbekend*{% endif %} |
+              | Ingesteld | {% if cur is not none %}**{{ cur }}°C**{% else
+              %}*niet uit te lezen*{% endif %} |
 
-              | Huis optimaal (lineair) | {% if opt %}**{{ opt }}°C**{% else %}*onbekend*{%
-              endif %} |
+              | Aanbevolen (gemeten balanspunt) | {% if opt %}**{{ opt }}°C**{%
+              else %}*onbekend*{% endif %} |
 
 
               {% if txt %}{{ txt }}{% endif %}
@@ -750,10 +770,6 @@ views:
 
               {% else %}
 
-              {% set cur =
-              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
-              'nominaal_vermogen_huidig_w') %}
-
               {% set opt =
               state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
               'nominaal_vermogen_optimaal_w') %}
@@ -762,20 +778,14 @@ views:
               state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
               'nominaal_vermogen_advies') %}
 
-              {% set betrouwbaar =
-              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
-              'nominaal_vermogen_betrouwbaar') %}
-
               | | Waarde |
 
               |:--|--:|
 
-              | Huidig (Quatt) | {% if cur %}{{ '~~' if not betrouwbaar }}**{{ cur
-              }} W**{{ '~~' if not betrouwbaar }}{% else %}*niet
-              geconfigureerd*{% endif %} |
+              | Ingesteld | *niet uit te lezen* |
 
-              | Optimaal | {% if opt %}**{{ opt }} W**{% else %}*onbekend*{%
-              endif %} |
+              | Aanbevolen (warmteverlies huis) | {% if opt %}**{{ opt }} W**{%
+              else %}*onbekend*{% endif %} |
 
 
               {% if txt %}{{ txt }}{% endif %}

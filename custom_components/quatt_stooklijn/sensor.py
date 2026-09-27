@@ -756,11 +756,6 @@ ADVICE_BREAKPOINT_TEMPS = (-10, -5, 0, 5, 10, 15)
 # voor -20. Wijzig deze reeks alleen als de firmware zijn knoppen wijzigt.
 OPENQUATT_BREAKPOINT_TEMPS = (-20, -10, 0, 5, 10, 15)
 ADVICE_NOMINAL_RETURN_TEMP = 28.0  # °C — typical return temp for breakpoint calc
-ADVICE_STOOKGRENS_THRESHOLD = 1.0  # °C — significant difference threshold
-ADVICE_VERMOGEN_THRESHOLD = 500  # W — significant difference threshold
-# Warm-side regression is unreliable when the fitted balance point is above this
-# temperature: only mild-weather data available, extrapolation to -10°C is invalid.
-ADVICE_MAX_RELIABLE_BALANCE_TEMP = 20.0  # °C
 
 
 def _calc_heating_curve_breakpoints(
@@ -2237,14 +2232,119 @@ class QuattCopPerformanceSensor(
         }
 
 
+# Waar het advies zijn "huidige" waarde vandaan heeft. Alleen OpenQuatt laat zijn
+# stookgrens zien; de Quatt-integratie heeft geen entity voor stookgrens of
+# nominaal vermogen, dus daar is de huidige instelling onbekend.
+ADVICE_SOURCE_OPENQUATT = "openquatt"
+ADVICE_SOURCE_UNKNOWN = "onbekend"
+
+
+def _calc_quatt_advice(
+    data: QuattStooklijnData,
+    stookgrens_setting: float | None,
+    openquatt: bool,
+) -> dict[str, Any]:
+    """Advies-attributen voor stookgrens, nominaal vermogen en stooklijnpunten.
+
+    Er wordt alleen "van X naar Y" geadviseerd als X echt is uitgelezen. Tot en
+    met v0.10.4 kwam X uit een regressie op de daggemiddelden tussen de knie en
+    het punt waar de vraag onder de minimale modulatie zakt. Dat venster is smal
+    (bij een Quatt-gebruiker ~0–6,5 °C), en het nulpunt daarvan was een
+    extrapolatie over ruim 6 K, geen instelling: die kwam op 13,0 °C uit terwijl
+    Quatt 16 bevestigde, met als advies "verhoog van 13 naar 16". Dagdata meten
+    bovendien wat het huis vraagt — de kamerthermostaat regelt bij — en niet hoe
+    de stooklijn staat. Voor het nominaal vermogen gold hetzelfde.
+
+    Wat wél uit de meting volgt is het aanbevolen getal zelf. Dat wordt altijd
+    getoond; alleen een verschil met een uitgelezen instelling telt als aanpassing.
+    """
+    from .analysis.utils import calc_heat_demand
+    from .power_house import advise_zero_power_temp
+
+    attrs: dict[str, Any] = {}
+    changes = 0
+    where = "in OpenQuatt" if openquatt else "in de Quatt-app"
+
+    # --- Stookgrens ---
+    opt = data.stooklijn.balance_temp_optimal
+    attrs["stookgrens_huidig"] = stookgrens_setting
+    attrs["stookgrens_optimaal"] = round(opt, 1) if opt is not None else None
+    attrs["stookgrens_bron"] = (
+        ADVICE_SOURCE_OPENQUATT
+        if stookgrens_setting is not None
+        else ADVICE_SOURCE_UNKNOWN
+    )
+    if opt is None:
+        attrs["stookgrens_advies"] = None
+    elif stookgrens_setting is not None:
+        target = advise_zero_power_temp(opt, stookgrens_setting)
+        if target is None:
+            attrs["stookgrens_advies"] = "Stookgrens is goed ingesteld"
+        else:
+            changes += 1
+            verb = "Verhoog" if target > stookgrens_setting else "Verlaag"
+            attrs["stookgrens_advies"] = (
+                f"{verb} stookgrens van {stookgrens_setting:.1f} "
+                f"naar {target:.1f}°C"
+            )
+    else:
+        attrs["stookgrens_advies"] = (
+            f"Aanbevolen stookgrens: {opt:.1f}°C (gemeten balanspunt van je "
+            f"huis). Controleer {where} wat er nu staat."
+        )
+
+    # --- Nominaal vermogen bij -10°C ---
+    hl = data.heat_loss_hp
+    vermogen_opt = None
+    if hl.slope is not None and hl.intercept is not None:
+        vermogen_opt = round(calc_heat_demand(hl.slope, hl.intercept, -10))
+    # Nooit uit te lezen; het attribuut blijft voor bestaande dashboards.
+    attrs["nominaal_vermogen_huidig_w"] = None
+    attrs["nominaal_vermogen_optimaal_w"] = vermogen_opt
+    attrs["nominaal_vermogen_bron"] = (
+        ADVICE_SOURCE_OPENQUATT if openquatt else ADVICE_SOURCE_UNKNOWN
+    )
+    if openquatt:
+        # Power House heeft geen vermogen bij -10°C maar Tc en Pr, en die
+        # hangen samen met T0 — dat rekent de kalibratiesensor als drietal uit.
+        attrs["nominaal_vermogen_advies"] = (
+            "OpenQuatt kent geen nominaal vermogen bij -10°C; "
+            "zie de Power House-kalibratie"
+        )
+    elif vermogen_opt is not None:
+        attrs["nominaal_vermogen_advies"] = (
+            f"Aanbevolen nominaal vermogen: {vermogen_opt} W bij -10°C. "
+            f"Controleer {where} wat er nu staat."
+        )
+    else:
+        attrs["nominaal_vermogen_advies"] = None
+
+    # --- Stooklijn breakpoints ---
+    if hl.slope is not None and hl.intercept is not None:
+        breakpoints = _calc_heating_curve_breakpoints(hl.slope, hl.intercept)
+        attrs["stooklijn_punten"] = breakpoints
+        punten_str = ", ".join(
+            f"{bp['buiten_temp']}°C→{bp['aanvoer_temp']}°C"
+            for bp in breakpoints
+        )
+        attrs["stooklijn_advies"] = f"Stel stooklijn in op: {punten_str}"
+    else:
+        attrs["stooklijn_punten"] = None
+        attrs["stooklijn_advies"] = None
+
+    # Stooklijn breakpoints zijn informatief, niet meegeteld.
+    attrs["aantal_aanpassingen"] = changes
+    return attrs
+
+
 class QuattAdviceSensor(
     CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity
 ):
     """Statische advies-sensor: welke parameters moet Quatt aanpassen.
 
-    Toont het aantal aanbevolen aanpassingen als state, met gedetailleerde
-    advies-attributen voor stookgrens, nominaal vermogen, en stooklijnpunten.
-    Bedoeld om één keer per jaar aan Quatt door te geven.
+    State is het aantal aanbevolen aanpassingen, of dat er alleen aanbevolen
+    waarden zijn als de huidige instellingen niet uit te lezen zijn. Details
+    staan in de attributen; zie ``_calc_quatt_advice``.
     """
 
     _attr_has_entity_name = True
@@ -2265,189 +2365,37 @@ class QuattAdviceSensor(
             ENTITY_ID_FORMAT, "quatt_warmteanalyse_quatt_advies_parameters", hass=coordinator.hass
         )
 
-    @property
-    def native_value(self) -> str | None:
+    def _openquatt_stookgrens(self) -> tuple[bool, float | None]:
+        """(OpenQuatt aanwezig, ingestelde stookgrens) — de enige uitleesbare instelling."""
+        from .discovery import ROLE_PH_ZERO_POWER_TEMP, async_discover_openquatt_entities
+
+        found = async_discover_openquatt_entities(self.hass)
+        entity_id = found.get(ROLE_PH_ZERO_POWER_TEMP)
+        setting = get_float_state(self.hass, entity_id) if entity_id else None
+        return bool(found), setting
+
+    def _advice(self) -> dict[str, Any] | None:
         data = self.coordinator.data
         if data is None or data.heat_loss_hp.slope is None:
             return None
+        openquatt, setting = self._openquatt_stookgrens()
+        return _calc_quatt_advice(data, setting, openquatt)
 
-        changes = self._count_changes(data)
-        if changes == 0:
-            return "Instellingen optimaal"
-        return f"{changes} aanpassing{'en' if changes != 1 else ''} aanbevolen"
-
-    def _count_changes(self, data: QuattStooklijnData) -> int:
-        """Tel het aantal significante afwijkingen."""
-        changes = 0
-
-        # Stookgrens: vergelijk daggemiddeld-gebaseerde Quatt stooklijn vs huis-optimaal
-        stookgrens_cur = data.stooklijn.balance_temp_api_daily
-        stookgrens_opt = data.stooklijn.balance_temp_optimal
-        if (
-            stookgrens_cur is not None
-            and stookgrens_opt is not None
-            and abs(stookgrens_cur - stookgrens_opt) > ADVICE_STOOKGRENS_THRESHOLD
-        ):
-            changes += 1
-
-        # Nominaal vermogen — alleen als stooklijn-regressie betrouwbaar is
-        if self._stooklijn_reliable(data):
-            vermogen_cur, vermogen_opt = self._calc_vermogen(data)
-            if (
-                vermogen_cur is not None
-                and vermogen_opt is not None
-                and abs(vermogen_cur - vermogen_opt) > ADVICE_VERMOGEN_THRESHOLD
-            ):
-                changes += 1
-
-        # Stooklijn breakpoints zijn informatief, niet meegeteld in changes
-
-        return changes
-
-    def _stooklijn_reliable(self, data: QuattStooklijnData) -> bool:
-        """True als de daggemiddeld-gebaseerde Quatt stooklijn betrouwbaar is.
-
-        Twee criteria, beide moeten kloppen:
-        1. balance_temp_api_daily <= ADVICE_MAX_RELIABLE_BALANCE_TEMP
-        2. |slope_api_daily| >= 0.8 × |slope_optimal|
-
-        De daily-variant middelt over volledige dagen (inclusief OFF-uren), waardoor
-        modulatie-bias en over-delivery door een te agressieve stooklijn niet de
-        x-intercept opblazen zoals bij de minuut-regressie het geval was.
-        """
-        bt = data.stooklijn.balance_temp_api_daily
-        if bt is None or bt > ADVICE_MAX_RELIABLE_BALANCE_TEMP:
-            return False
-
-        slope_daily = data.stooklijn.slope_api_daily
-        slope_opt = data.heat_loss_hp.slope
-        if slope_daily is not None and slope_opt is not None and slope_opt != 0:
-            if abs(slope_daily) < 0.8 * abs(slope_opt):
-                return False
-
-        return True
-
-    def _calc_vermogen(
-        self, data: QuattStooklijnData
-    ) -> tuple[float | None, float | None]:
-        """Bereken huidig en optimaal vermogen bij -10°C.
-
-        Huidig wordt None als de daggemiddeld-gebaseerde regressie onbetrouwbaar is.
-        """
-        from .analysis.utils import calc_heat_demand
-
-        # Huidig: uit de daggemiddeld-gebaseerde Quatt stooklijn
-        vermogen_cur = None
-        sl = data.stooklijn
-        if (
-            sl.slope_api_daily is not None
-            and sl.intercept_api_daily is not None
-            and self._stooklijn_reliable(data)
-        ):
-            vermogen_cur = round(sl.slope_api_daily * -10 + sl.intercept_api_daily)
-
-        # Optimaal: uit het heat loss model
-        vermogen_opt = None
-        if data.heat_loss_hp.slope is not None and data.heat_loss_hp.intercept is not None:
-            vermogen_opt = round(
-                calc_heat_demand(data.heat_loss_hp.slope, data.heat_loss_hp.intercept, -10)
-            )
-
-        return vermogen_cur, vermogen_opt
+    @property
+    def native_value(self) -> str | None:
+        advice = self._advice()
+        if advice is None:
+            return None
+        changes = advice["aantal_aanpassingen"]
+        if changes:
+            return f"{changes} aanpassing{'en' if changes != 1 else ''} aanbevolen"
+        if advice["stookgrens_bron"] == ADVICE_SOURCE_OPENQUATT:
+            return "Geen afwijking gevonden"
+        return "Aanbevolen instellingen beschikbaar"
 
     @property
     def extra_state_attributes(self) -> dict | None:
-        data = self.coordinator.data
-        if data is None or data.heat_loss_hp.slope is None:
-            return None
-
-        attrs: dict[str, Any] = {}
-
-        # --- Stookgrens ---
-        # "huidig" = nulpunt van de daggemiddeld-gebaseerde Quatt stooklijn
-        # "optimaal" = nulpunt van de huis-optimale regressie op dagdata
-        stookgrens_cur = data.stooklijn.balance_temp_api_daily
-        stookgrens_opt = data.stooklijn.balance_temp_optimal
-        attrs["stookgrens_huidig"] = (
-            round(stookgrens_cur, 1) if stookgrens_cur is not None else None
-        )
-        attrs["stookgrens_optimaal"] = (
-            round(stookgrens_opt, 1) if stookgrens_opt is not None else None
-        )
-        if stookgrens_cur is not None and stookgrens_opt is not None:
-            diff = stookgrens_opt - stookgrens_cur
-            if abs(diff) > ADVICE_STOOKGRENS_THRESHOLD:
-                verb = "Verhoog" if diff > 0 else "Verlaag"
-                attrs["stookgrens_advies"] = (
-                    f"{verb} stookgrens van {stookgrens_cur:.1f} naar {stookgrens_opt:.1f}°C"
-                )
-            else:
-                attrs["stookgrens_advies"] = "Stookgrens is goed ingesteld"
-        else:
-            attrs["stookgrens_advies"] = None
-
-        # --- Nominaal vermogen bij -10°C ---
-        vermogen_cur, vermogen_opt = self._calc_vermogen(data)
-        stooklijn_betrouwbaar = self._stooklijn_reliable(data)
-        # Toon het ruwe getal altijd (ook als onbetrouwbaar), maar markeer het
-        sl = data.stooklijn
-        if sl.slope_api_daily is not None and sl.intercept_api_daily is not None and not stooklijn_betrouwbaar:
-            attrs["nominaal_vermogen_huidig_w"] = round(sl.slope_api_daily * -10 + sl.intercept_api_daily)
-        else:
-            attrs["nominaal_vermogen_huidig_w"] = vermogen_cur
-        attrs["nominaal_vermogen_optimaal_w"] = vermogen_opt
-        attrs["nominaal_vermogen_betrouwbaar"] = stooklijn_betrouwbaar
-        if not stooklijn_betrouwbaar:
-            bt = round(data.stooklijn.balance_temp_api_daily, 1) if data.stooklijn.balance_temp_api_daily else "?"
-            s_daily = round(data.stooklijn.slope_api_daily, 1) if data.stooklijn.slope_api_daily else None
-            s_opt = round(data.heat_loss_hp.slope, 1) if data.heat_loss_hp.slope else None
-            if bt is not None and float(bt) > ADVICE_MAX_RELIABLE_BALANCE_TEMP:
-                reden = f"evenwichtspunt is {bt}°C (te weinig koude daggemiddelden)"
-            elif s_daily is not None and s_opt is not None:
-                reden = (
-                    f"stooklijn-helling ({s_daily} W/°C) is te vlak "
-                    f"t.o.v. warmteverlies ({s_opt} W/°C)"
-                )
-            else:
-                reden = "onvoldoende daggemiddelden beschikbaar"
-            attrs["nominaal_vermogen_advies"] = (
-                f"Onbetrouwbaar: {reden}. "
-                "Vergelijking pas betrouwbaar als het kouder is geweest."
-            )
-        elif vermogen_cur is not None and vermogen_opt is not None:
-            diff = vermogen_opt - vermogen_cur
-            if abs(diff) > ADVICE_VERMOGEN_THRESHOLD:
-                verb = "Verhoog" if diff > 0 else "Verlaag"
-                attrs["nominaal_vermogen_advies"] = (
-                    f"{verb} nominaal vermogen naar {vermogen_opt} W"
-                )
-            else:
-                attrs["nominaal_vermogen_advies"] = "Nominaal vermogen is goed ingesteld"
-        else:
-            attrs["nominaal_vermogen_advies"] = (
-                "Wacht tot voldoende daggemiddelden beschikbaar zijn"
-                if vermogen_cur is None
-                else None
-            )
-
-        # --- Stooklijn breakpoints ---
-        if data.heat_loss_hp.slope is not None and data.heat_loss_hp.intercept is not None:
-            breakpoints = _calc_heating_curve_breakpoints(
-                data.heat_loss_hp.slope,
-                data.heat_loss_hp.intercept,
-            )
-            attrs["stooklijn_punten"] = breakpoints
-            punten_str = ", ".join(
-                f"{bp['buiten_temp']}°C→{bp['aanvoer_temp']}°C"
-                for bp in breakpoints
-            )
-            attrs["stooklijn_advies"] = f"Stel stooklijn in op: {punten_str}"
-        else:
-            attrs["stooklijn_punten"] = None
-            attrs["stooklijn_advies"] = None
-
-        attrs["aantal_aanpassingen"] = self._count_changes(data)
-        return attrs
+        return self._advice()
 
 
 class QuattOpenQuattCurveSensor(

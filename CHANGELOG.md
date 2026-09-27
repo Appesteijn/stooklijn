@@ -3,6 +3,29 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.4-beta.3 — 2026-09-27
+
+- **Het Quatt-advies noemt geen verzonnen "huidige" instelling meer.** De
+  huidige stookgrens en het huidige nominaal vermogen werden geschat met een
+  rechte lijn door de daggemiddelden van een smalle band koude dagen, die ver
+  doorgetrokken werd. Dat is geen uitgelezen instelling. Een gebruiker kreeg
+  "verhoog stookgrens van 13 naar 16" terwijl Quatt bevestigde dat hij al op
+  16 stond. Voor Quatt CiC toont het advies nu alleen de aanbevolen waarden
+  (stookgrens = gemeten balanspunt, vermogen bij -10°C uit het warmteverlies),
+  om te vergelijken in de Quatt-app.
+- Met OpenQuatt wordt de echte stookgrens (`Maximum heating outdoor
+  temperature`) uitgelezen en alleen een verschil daarmee telt als
+  aanpassing. Dezelfde regel als de Power House-kalibratie, afgerond op 0,5 °C,
+  zodat de twee kaarten het niet oneens kunnen zijn.
+- State van `quatt_advies_parameters`: nieuw zijn "Geen afwijking gevonden"
+  (OpenQuatt, stookgrens goed) en "Aanbevolen instellingen beschikbaar" (niets
+  uit te lezen). Nieuwe attributen `stookgrens_bron` en
+  `nominaal_vermogen_bron`; `nominaal_vermogen_huidig_w` blijft maar is altijd
+  leeg; `nominaal_vermogen_betrouwbaar` is vervallen.
+- **Dashboard:** de kaarten Quatt advies, Advies samenvatting, Stookgrens en
+  Nominaal vermogen tonen "Ingesteld" alleen als die waarde echt bekend is, en
+  anders "niet uit te lezen" naast de aanbevolen waarde.
+
 ## v0.10.4-beta.2 — 2026-09-27
 
 - **De prijsverschuiving rekent niet meer op een verzonnen dag.** Voor uren

@@ -363,20 +363,29 @@ as soon as the room is above setpoint.
 
 The `sensor.quatt_warmteanalyse_quatt_advies_parameters` sensor analyzes your heat pump data and tells you exactly what parameters to ask Quatt to change in their app. This is useful because Quatt support can adjust your installation settings remotely, but you need to tell them what to change.
 
-The sensor state shows how many adjustments are recommended (e.g. "3 aanpassingen aanbevolen" or "Instellingen optimaal"). The attributes contain the specific advice:
+The integration can only compare against a setting it can actually read. A Quatt CiC does not expose its stookgrens or rated power to Home Assistant, so for Quatt users the sensor gives the recommended values and leaves the comparison to you: check them against the Quatt app. With OpenQuatt the stookgrens (`Maximum heating outdoor temperature`) is read, and a difference counts as an adjustment. It uses the same rule as the [Power House calibration](#driving-power-house-with-the-measured-house-model), so the two never disagree.
+
+The sensor state is one of:
+
+- `N aanpassing(en) aanbevolen` — a setting that was read differs from the recommendation (OpenQuatt only)
+- `Geen afwijking gevonden` — the stookgrens was read and is fine (OpenQuatt)
+- `Aanbevolen instellingen beschikbaar` — nothing could be read; the attributes hold the recommended values
 
 | Attribute | Description |
 |-----------|-------------|
-| `stookgrens_huidig` | Current Quatt balance temperature (°C) |
-| `stookgrens_optimaal` | Recommended balance temperature based on your home's heat loss |
+| `stookgrens_huidig` | Stookgrens as set in OpenQuatt (°C); `null` for Quatt CiC |
+| `stookgrens_optimaal` | Recommended stookgrens: the measured balance point of your home |
+| `stookgrens_bron` | `openquatt` when the current value was read, otherwise `onbekend` |
 | `stookgrens_advies` | Human-readable advice text |
-| `nominaal_vermogen_huidig_w` | Current Quatt rated power at -10°C (W) |
-| `nominaal_vermogen_optimaal_w` | Recommended rated power based on actual heat demand |
+| `nominaal_vermogen_huidig_w` | Always `null`: no controller exposes it. Kept for existing dashboards |
+| `nominaal_vermogen_optimaal_w` | Recommended rated power at -10°C, from the measured heat loss |
+| `nominaal_vermogen_bron` | `openquatt` (see the Power House calibration instead) or `onbekend` |
 | `nominaal_vermogen_advies` | Human-readable advice text |
 | `stooklijn_punten` | 6 optimal heating curve breakpoints (-10°C to +15°C) |
 | `stooklijn_advies` | All breakpoints as readable text |
+| `aantal_aanpassingen` | Number of verified differences |
 
-> **Note:** The "nominaal vermogen" comparison no longer requires any manual input. The integration automatically estimates your current Quatt stooklijn from Home Assistant recorder data and evaluates the rated power at -10°C. Give it enough measured heating data (cold-weather operation) for a reliable estimate; the `nominaal_vermogen_betrouwbaar` attribute indicates whether the current value is trustworthy yet.
+> **Why no "current" value for Quatt?** Up to v0.10.4 the current stookgrens and rated power were estimated from a regression on daily averages. That fit only covers a narrow band of cold days and had to be extrapolated far to reach its zero point, and daily heat mostly reflects what the house asks for (the room thermostat corrects), not how the heating curve is set. One user got "raise from 13 to 16" while Quatt confirmed the setting was already 16.
 
 ## Geluidsniveaucompensatie
 

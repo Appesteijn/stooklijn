@@ -82,6 +82,24 @@ def _round_to_step(value: float, step: float) -> float:
     return round(value / step) * step
 
 
+def advise_zero_power_temp(measured_balance: float, setting: float) -> float | None:
+    """De stookgrens om naartoe te gaan, of ``None`` als de ingestelde volstaat.
+
+    Dezelfde regel als in ``calc_power_house_calibration`` plus de meldingsdrempel
+    van de kalibratiesensor, zodat de adviessensor en de kalibratiekaart het over
+    dezelfde knop nooit oneens zijn.
+    """
+    if abs(measured_balance - setting) < TEMP_STEP:
+        return None
+    target = _round_to_step(
+        min(ZERO_POWER_TEMP_MAX, max(ZERO_POWER_TEMP_MIN, measured_balance)),
+        TEMP_STEP,
+    )
+    if abs(target - setting) < ZERO_POWER_TEMP_THRESHOLD:
+        return None
+    return target
+
+
 # Waar de gebruikte T0 vandaan komt.
 T0_FROM_CONTROLLER = "regelaar"
 T0_FROM_MEASUREMENT = "meting"

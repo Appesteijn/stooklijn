@@ -11,9 +11,13 @@ from custom_components.quatt_stooklijn.sensor import (
     _calc_heating_curve_breakpoints,
     ADVICE_BREAKPOINT_TEMPS,
     ADVICE_NOMINAL_RETURN_TEMP,
+    ADVICE_SOURCE_OPENQUATT,
+    ADVICE_SOURCE_UNKNOWN,
     OPENQUATT_BREAKPOINT_TEMPS,
     QuattAdviceSensor,
+    _calc_quatt_advice,
 )
+from custom_components.quatt_stooklijn.power_house import calc_power_house_calibration
 from custom_components.quatt_stooklijn.const import (
     MPC_SUPPLY_TEMP_MIN,
     MPC_SUPPLY_TEMP_MAX,
@@ -83,24 +87,24 @@ class TestCalcHeatingCurveBreakpoints:
         assert bp_0["aanvoer_temp"] == expected
 
 
-class TestQuattAdviceSensorLogic:
-    """Test the advice calculation logic without HA runtime."""
+class TestQuattAdviceLogic:
+    """Advies zonder HA-runtime: "van X naar Y" alleen als X is uitgelezen."""
 
     def _make_data(
         self,
-        slope=-200,
-        intercept=4000,
-        balance_opt=20.0,
-        balance_api_daily=17.0,
-        actual_slope=-300,
-        actual_intercept=6000,
+        balance_opt=16.1,
+        balance_api_daily=13.0,
+        slope=-209.2,
+        intercept=3368.0,
     ) -> QuattStooklijnData:
+        # Standaard de getallen van de melding op Tweakers (27-09-2026): Quatt
+        # bevestigt stookgrens 16, de daggemiddelde fit kwam op 13,0 uit.
         return QuattStooklijnData(
             stooklijn=StooklijnResult(
                 balance_temp_optimal=balance_opt,
                 balance_temp_api_daily=balance_api_daily,
-                slope_api_daily=actual_slope,
-                intercept_api_daily=actual_intercept,
+                slope_api_daily=-310.0,
+                intercept_api_daily=4030.0,
             ),
             heat_loss_hp=HeatLossResult(
                 slope=slope, intercept=intercept,
@@ -109,44 +113,102 @@ class TestQuattAdviceSensorLogic:
             ),
         )
 
-    def test_count_changes_all_different(self):
-        """When stookgrens and vermogen both differ, expect 2 changes."""
-        data = self._make_data()
+    def test_quatt_cic_geen_van_naar_advies(self):
+        """De geëxtrapoleerde 13,0 mag nergens als huidige stookgrens opduiken."""
+        attrs = _calc_quatt_advice(self._make_data(), None, openquatt=False)
+        assert attrs["stookgrens_huidig"] is None
+        assert attrs["stookgrens_bron"] == ADVICE_SOURCE_UNKNOWN
+        assert attrs["stookgrens_optimaal"] == 16.1
+        assert "Verhoog" not in attrs["stookgrens_advies"]
+        assert "13" not in attrs["stookgrens_advies"]
+        assert "16.1" in attrs["stookgrens_advies"]
+        assert "Quatt-app" in attrs["stookgrens_advies"]
+        assert attrs["aantal_aanpassingen"] == 0
+
+    def test_quatt_cic_vermogen_alleen_aanbevolen(self):
+        attrs = _calc_quatt_advice(self._make_data(), None, openquatt=False)
+        assert attrs["nominaal_vermogen_huidig_w"] is None
+        # -209,2 * -10 + 3368 = 5460
+        assert attrs["nominaal_vermogen_optimaal_w"] == 5460
+        assert attrs["nominaal_vermogen_bron"] == ADVICE_SOURCE_UNKNOWN
+        assert "5460 W" in attrs["nominaal_vermogen_advies"]
+        assert "Verlaag" not in attrs["nominaal_vermogen_advies"]
+
+    def test_openquatt_stookgrens_goed(self):
+        attrs = _calc_quatt_advice(self._make_data(), 16.0, openquatt=True)
+        assert attrs["stookgrens_huidig"] == 16.0
+        assert attrs["stookgrens_bron"] == ADVICE_SOURCE_OPENQUATT
+        assert attrs["stookgrens_advies"] == "Stookgrens is goed ingesteld"
+        assert attrs["aantal_aanpassingen"] == 0
+
+    def test_openquatt_stookgrens_wijkt_af(self):
+        attrs = _calc_quatt_advice(
+            self._make_data(balance_opt=16.66), 13.0, openquatt=True
+        )
+        # Afgerond op de knopstap van 0,5, net als de Power House-kalibratie.
+        assert attrs["stookgrens_advies"] == "Verhoog stookgrens van 13.0 naar 16.5°C"
+        assert attrs["aantal_aanpassingen"] == 1
+
+    def test_openquatt_zelfde_regel_als_kalibratie(self):
+        """Onder één knopstap zwijgen beide, erboven adviseren beide."""
+        data = self._make_data(balance_opt=16.66)
+        for setting in (16.5, 16.0, 17.5):
+            attrs = _calc_quatt_advice(data, setting, openquatt=True)
+            cal = calc_power_house_calibration(
+                209.2, 16.66, knee_power=5000, controller_zero_power_temp=setting
+            )
+            assert (attrs["aantal_aanpassingen"] == 1) == cal.zero_power_temp_advised
+
+    def test_openquatt_vermogen_verwijst_naar_power_house(self):
+        attrs = _calc_quatt_advice(self._make_data(), 16.0, openquatt=True)
+        assert attrs["nominaal_vermogen_bron"] == ADVICE_SOURCE_OPENQUATT
+        assert "Power House" in attrs["nominaal_vermogen_advies"]
+        assert attrs["nominaal_vermogen_huidig_w"] is None
+
+    def test_zonder_balanspunt_geen_stookgrensadvies(self):
+        attrs = _calc_quatt_advice(
+            self._make_data(balance_opt=None), None, openquatt=False
+        )
+        assert attrs["stookgrens_advies"] is None
+        assert attrs["stookgrens_optimaal"] is None
+
+    def test_stooklijnpunten_blijven(self):
+        attrs = _calc_quatt_advice(self._make_data(), None, openquatt=False)
+        assert len(attrs["stooklijn_punten"]) == len(ADVICE_BREAKPOINT_TEMPS)
+        assert attrs["stooklijn_advies"].startswith("Stel stooklijn in op:")
+
+
+class TestQuattAdviceSensorState:
+    """De state moet zeggen of er iets geverifieerd is."""
+
+    def _sensor(self, data, openquatt, setting):
         sensor = QuattAdviceSensor.__new__(QuattAdviceSensor)
         sensor.coordinator = type("C", (), {"data": data})()
-        assert sensor._count_changes(data) == 2
+        sensor._openquatt_stookgrens = lambda: (openquatt, setting)
+        return sensor
 
-    def test_count_changes_optimal(self):
-        """When stookgrens matches and vermogen matches → 0 changes."""
-        data = self._make_data(
-            balance_opt=17.0,  # matches daily
-            balance_api_daily=17.0,
-            actual_slope=-200,
-            actual_intercept=4000,  # matches heat loss at -10°C
+    def _data(self, balance_opt=16.1):
+        return QuattStooklijnData(
+            stooklijn=StooklijnResult(balance_temp_optimal=balance_opt),
+            heat_loss_hp=HeatLossResult(slope=-209.2, intercept=3368.0),
         )
-        sensor = QuattAdviceSensor.__new__(QuattAdviceSensor)
-        # Stookgrens diff = 0, vermogen diff = 0, breakpoints niet meegeteld
-        assert sensor._count_changes(data) == 0
 
-    def test_vermogen_calculation(self):
-        """Check nominal power at -10°C using daily slope."""
-        data = self._make_data(actual_slope=-300, actual_intercept=6000)
-        sensor = QuattAdviceSensor.__new__(QuattAdviceSensor)
-        cur, opt = sensor._calc_vermogen(data)
-        # Current: slope_api_daily=-300 → -300*-10 + 6000 = 9000
-        assert cur == 9000
-        # Optimal: max(0, -200*-10 + 4000) = 6000
-        assert opt == 6000
+    def test_quatt_cic(self):
+        sensor = self._sensor(self._data(), False, None)
+        assert sensor.native_value == "Aanbevolen instellingen beschikbaar"
 
-    def test_vermogen_none_without_actual(self):
-        """Without actual stooklijn config, current vermogen is None."""
-        data = QuattStooklijnData(
-            heat_loss_hp=HeatLossResult(slope=-200, intercept=4000),
-        )
-        sensor = QuattAdviceSensor.__new__(QuattAdviceSensor)
-        cur, opt = sensor._calc_vermogen(data)
-        assert cur is None
-        assert opt == 6000
+    def test_openquatt_goed(self):
+        sensor = self._sensor(self._data(), True, 16.0)
+        assert sensor.native_value == "Geen afwijking gevonden"
+
+    def test_openquatt_afwijking(self):
+        sensor = self._sensor(self._data(balance_opt=16.66), True, 13.0)
+        assert sensor.native_value == "1 aanpassing aanbevolen"
+
+    def test_zonder_data(self):
+        sensor = self._sensor(None, False, None)
+        assert sensor.native_value is None
+        assert sensor.extra_state_attributes is None
 
 
 class TestOpenQuattBreakpointGrid:
