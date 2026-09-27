@@ -237,7 +237,8 @@ class TestZonderIngangen:
             asyncio.run(sensor._handle_preview())
         etmaal = sensor.extra_state_attributes["komend_etmaal"]
         assert len(etmaal["uren"]) == 24
-        assert {"prijs", "vlak_w", "verschoven_w"} <= set(etmaal["uren"][0])
+        assert {"tijd", "prijs", "vlak_w", "verschoven_w"} <= set(etmaal["uren"][0])
+        assert etmaal["uren"][1]["tijd"] > etmaal["uren"][0]["tijd"]
         # Een voorvertoning is geen meetdag.
         assert sensor._days == []
 

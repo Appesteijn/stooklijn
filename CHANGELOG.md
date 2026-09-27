@@ -9,6 +9,13 @@ commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
   analysedata binnenkomt. Na een herstart of herlaad rekende hij vóór de
   analyse klaar was, en bleef hij een uur "geen warmteverliescoëfficiënt"
   melden. De nachtelijke telling had er geen last van.
+- **Dashboard: kaart Prijsverschuiving op het MPC-tabblad**, onder de
+  Vooruitblik. Hij toont het totaal, de vergelijking met alleen
+  COP-verschuiving, de laatste stookdag, en een grafiek van het komende etmaal
+  met de warmtevraag zonder en met verschuiven naast de stroomprijs. Alleen
+  zichtbaar als er een tarief is ingesteld.
+- `komend_etmaal.uren` heeft per uur een tijdstempel, zodat het dashboard er
+  een tijdas van kan maken.
 
 ## v0.10.3 — 2026-09-27
 

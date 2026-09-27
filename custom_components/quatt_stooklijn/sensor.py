@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from time import monotonic
 import logging
 from typing import Any
@@ -3328,6 +3328,10 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
 
         self._reason = None
 
+        first_utc = start.astimezone(timezone.utc).replace(
+            minute=0, second=0, microsecond=0
+        )
+
         def _eur(r) -> float:
             return round((r.cost_flat_eur or 0.0) - (r.cost_shifted_eur or 0.0), 4)
 
@@ -3347,13 +3351,19 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             "gamma_alleen_cop": gamma_c,
             "besparing_alleen_cop_eur": _eur(r_c),
             # Per uur, alleen voor de voorvertoning; gaat niet de store in.
+            # Met tijdstempel, zodat het dashboard er een tijdas van kan maken.
+            # Doorgeteld in UTC, net als de prijsreeks: in een DST-nacht klopt
+            # uur-rekenwerk op lokale tijd niet.
             "_uren": [
                 {
+                    "tijd": (first_utc + timedelta(hours=i)).isoformat(),
                     "prijs": round(p, 4),
                     "vlak_w": round(f),
                     "verschoven_w": round(v),
                 }
-                for p, f, v in zip(prices, r_p.flat, r_p.shifted)
+                for i, (p, f, v) in enumerate(
+                    zip(prices, r_p.flat, r_p.shifted)
+                )
             ],
         }
 

@@ -1351,6 +1351,163 @@ views:
               columns: full
               rows: auto
 
+      # ── Prijsverschuiving (schaduwmeting) ──
+      #
+      # Alleen zichtbaar als er een tarief is ingesteld: zonder tarief maakt de
+      # integratie de sensor niet aan, en HA behandelt een niet-bestaande
+      # entity als 'unavailable' — dezelfde truc als in de Systeem-view.
+      - type: grid
+        column_span: 2
+        visibility:
+          - condition: state
+            entity: sensor.quatt_warmteanalyse_prijsverschuiving
+            state_not:
+              - unavailable
+              - unknown
+        cards:
+          - type: markdown
+            title: Prijsverschuiving (schaduwmeting)
+            content: >
+              {% set s = 'sensor.quatt_warmteanalyse_prijsverschuiving' %}
+
+              {% set totaal = states(s) | float(0) %}
+
+              {% set dagen = state_attr(s, 'gemeten_dagen') | int(0) %}
+
+              {% set cop = state_attr(s, 'besparing_alleen_cop_eur') | float(0) %}
+
+              {% set kosten = state_attr(s, 'kosten_vlak_eur') | float(0) %}
+
+              {% set pct = state_attr(s, 'besparing_pct') %}
+
+              {% set extra = state_attr(s, 'extra_stroom_kwh') | float(0) %}
+
+              {% set ld = state_attr(s, 'laatste_dag') %}
+
+              {% set ke = state_attr(s, 'komend_etmaal') %}
+
+              {% set reden = state_attr(s, 'reden_geen_uitkomst') %}
+
+              ### € {{ '%.2f' | format(totaal) }} over {{ dagen }} stookdag{{ '' if dagen == 1 else 'en' }}
+
+              Wat het had opgeleverd om de warmte van elke stookdag te
+              verschuiven naar de uren met de meeste warmte per euro. Er gaat
+              evenveel warmte in, alleen op andere momenten. **Er wordt niets
+              aangestuurd**: dit is een voorspelling van het model, geen
+              meting van je verbruik. Tarief: {{ state_attr(s, 'tariefbron') }}.
+
+              | | Bedrag |
+
+              |:--|--:|
+
+              | Verschuiven op prijs én COP | **€ {{ '%.2f' | format(totaal) }}** |
+
+              | Alleen naar de warme middag (COP) | € {{ '%.2f' | format(cop) }} |
+
+              | Wat de prijs toevoegt | € {{ '%.2f' | format(totaal - cop) }} |
+
+              | Stroomkosten zonder verschuiven | € {{ '%.2f' | format(kosten) }}{% if pct is not none %} ({{ pct }}% bespaard){% endif %} |
+
+              | Stroomverbruik door verschuiven | {{ '%+.1f' | format(extra) }} kWh |
+
+              {% if ld %}
+
+              **Laatste stookdag ({{ ld.datum }}):** γ {{ ld.gamma }}, €
+              {{ '%.2f' | format(ld.besparing_eur) }} bespaard (alleen COP €
+              {{ '%.2f' | format(ld.besparing_alleen_cop_eur) }}).
+              {% if ld.drift_k is not none %}Kamer maximaal {{ (ld.drift_k | abs) | round(2) }} K
+              kouder en {{ ld.overshoot_k | round(2) }} K warmer dan zonder
+              verschuiven{% if ld.verlies_eur %}; het extra warmteverlies kostte €
+              {{ '%.2f' | format(ld.verlies_eur) }}{% endif %}.{% endif %}
+
+              {% endif %}
+
+              {% if ke %}
+
+              **Komend etmaal:** γ {{ ke.gamma }}, verwacht €
+              {{ '%.2f' | format(ke.besparing_eur) }} (alleen COP €
+              {{ '%.2f' | format(ke.besparing_alleen_cop_eur) }}) over
+              {{ ke.venster_uren }} uur.
+
+              {% endif %}
+
+              {% if reden %}
+
+              > Nu geen uitkomst: {{ reden }}.
+
+              {% endif %}
+
+              {% if dagen == 0 %}
+
+              *De telling begint bij de eerste nachtmeting (00:05) op een dag met
+              warmtevraag. Zomerdagen tellen niet mee.*
+
+              {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
+          - type: custom:apexcharts-card
+            header:
+              title: Komend etmaal — warmtevraag zonder en met verschuiven
+              show: true
+            graph_span: 24h
+            span:
+              start: hour
+            now:
+              show: true
+            yaxis:
+              - id: w
+                min: 0
+                decimals: 0
+                apex_config:
+                  title:
+                    text: "W"
+              - id: eur
+                opposite: true
+                decimals: 2
+                apex_config:
+                  title:
+                    text: "€/kWh"
+            apex_config:
+              chart:
+                height: 280
+              legend:
+                show: true
+            series:
+              - entity: sensor.quatt_warmteanalyse_prijsverschuiving
+                name: Zonder verschuiven
+                yaxis_id: w
+                type: area
+                curve: stepline
+                color: "#9E9E9E"
+                opacity: 0.25
+                stroke_width: 1.5
+                data_generator: |
+                  const u = entity.attributes?.komend_etmaal?.uren || [];
+                  return u.map(h => [new Date(h.tijd).getTime(), h.vlak_w]);
+              - entity: sensor.quatt_warmteanalyse_prijsverschuiving
+                name: Verschoven
+                yaxis_id: w
+                type: line
+                curve: stepline
+                color: "#4CAF50"
+                stroke_width: 2.5
+                data_generator: |
+                  const u = entity.attributes?.komend_etmaal?.uren || [];
+                  return u.map(h => [new Date(h.tijd).getTime(), h.verschoven_w]);
+              - entity: sensor.quatt_warmteanalyse_prijsverschuiving
+                name: Stroomprijs
+                yaxis_id: eur
+                type: line
+                curve: stepline
+                color: "#FF9800"
+                stroke_width: 1.5
+                data_generator: |
+                  const u = entity.attributes?.komend_etmaal?.uren || [];
+                  return u.map(h => [new Date(h.tijd).getTime(), h.prijs]);
+            grid_options:
+              columns: full
+
       # ── Rendement: de enige gesloten lus rond een regelwijziging ──
       #
       # De norm is bevroren op de dagen vóór de grens en gebint per
