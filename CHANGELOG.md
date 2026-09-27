@@ -3,6 +3,22 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## Nog niet uitgebracht
+
+- **De prijsverschuiving rekent niet meer op een verzonnen dag.** Voor uren
+  zonder weersverwachting valt de vooruitblik terug op de huidige
+  buitentemperatuur. Direct na een herlaad gold dat voor alle 24 uur, en
+  rekende de sensor met een vlakke 359 W. Een herstart vlak voor de
+  nachtmeting had zo'n dag ook in het totaal laten tellen. Nu geldt: minder dan
+  driekwart van het venster met echte verwachting, dan geen uitkomst, met als
+  reden "weersverwachting nog niet geladen".
+- Mislukt de nachtmeting, bijvoorbeeld omdat analyse of verwachting na een
+  herstart nog ontbreken, dan probeert de sensor het tot vier keer opnieuw,
+  met een kwartier ertussen. Lukt het dan nog niet, dan valt de dag weg in
+  plaats van op verzonnen invoer te tellen.
+- De voorvertoning rekent opnieuw zodra de weersverwachting binnenkomt, in
+  plaats van tot het volgende uur te wachten.
+
 ## v0.10.4-beta.1 — 2026-09-27
 
 - De voorvertoning van `prijsverschuiving` ververst nu ook zodra er nieuwe

@@ -358,6 +358,19 @@ DEMAND_SHIFT_MAX_OVERSHOOT_K = 0.5
 PRICE_SHIFT_RUN_HOUR = 0
 PRICE_SHIFT_RUN_MINUTE = 5
 
+# Minimaal aandeel uren in het venster met een echte weersverwachting. Voor
+# ontbrekende uren valt de forecast terug op de huidige buitentemperatuur, en
+# een vlakke reeks is voor de herverdeling hetzelfde als geen reeks: dan meet
+# de sensor alleen het prijseffect op een verzonnen dag. Gezien op 27-09-2026:
+# direct na een herlaad rekende hij 24 uur lang met 359 W.
+PRICE_SHIFT_MIN_FORECAST_FRACTION = 0.75
+
+# Lukt de nachtmeting niet — net na een herstart ontbreken analyse of
+# weersverwachting nog — dan zoveel keer opnieuw, met deze tussenpoos. Daarna
+# valt de dag weg; liever een gat dan een dag op verzonnen invoer.
+PRICE_SHIFT_RETRIES = 4
+PRICE_SHIFT_RETRY_DELAY = timedelta(minutes=15)
+
 # Eigen store, los van de recorder: de vraag is wat het een heel stookseizoen
 # oplevert, en de recorder bewaart ruwe states maar tien dagen.
 PRICE_SHIFT_STORAGE_VERSION = 1

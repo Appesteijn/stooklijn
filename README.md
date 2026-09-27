@@ -343,7 +343,10 @@ heat stays exactly the same. γ is chosen per day by the same scan as before —
 that captures nearly all of the gain without exceeding the firmware ceiling. The room may drift at
 most 0.3 K below and 0.5 K above the flat path. The extra heat loss from preheating
 (`UA · drift` per warmer hour) is charged against the savings. A colder house does not count as a
-gain. The day's predicted savings go into the total. Days without heat demand are skipped.
+gain. The day's predicted savings go into the total. Days without heat demand are skipped. Without
+a weather forecast for at least three quarters of the window there is no result (the reason is
+shown), and the nightly run retries up to four times at 15-minute intervals before skipping the
+day.
 
 Alongside it, a pure COP shift (towards the warm afternoon) is priced at the same tariffs
 (`besparing_alleen_cop_eur`). The difference between the two is what the price adds. The

@@ -63,6 +63,9 @@ from .const import (
     PRICE_MODE_NORMAL_DAL,
     PRICE_MODE_OFF,
     PRICE_SHIFT_KEEP_DAYS,
+    PRICE_SHIFT_MIN_FORECAST_FRACTION,
+    PRICE_SHIFT_RETRIES,
+    PRICE_SHIFT_RETRY_DELAY,
     PRICE_SHIFT_RUN_HOUR,
     PRICE_SHIFT_RUN_MINUTE,
     PRICE_SHIFT_STORAGE_KEY,
@@ -3176,6 +3179,8 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
     # het verandert elk uur en hoort niet elke keer de recorder in.
     _unrecorded_attributes = frozenset({"komend_etmaal"})
 
+    _REASON_NO_FORECAST = "weersverwachting nog niet geladen"
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -3203,6 +3208,8 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
         # Waarom er geen uitkomst is, als die er niet is. Een meting die stil
         # wegvalt is niet te onderscheiden van een dag zonder winst.
         self._reason: str | None = None
+        # Hoeveelste poging van de nachtmeting; zie PRICE_SHIFT_RETRIES.
+        self._daily_attempt = 0
 
     # -- configuratie ------------------------------------------------------
 
@@ -3272,14 +3279,19 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             self._reason = "geen nulpunt of verse buitentemperatuur"
             return None
 
-        fc_temps, _solar, _meta = self._mpc.build_forecast_arrays(
+        fc_temps, _solar, fc_meta = self._mpc.build_forecast_arrays(
             t_outdoor, n_hours=DEMAND_SHIFT_HOURS
         )
+        # Uren zonder verwachting krijgen de huidige buitentemperatuur, en zijn
+        # te herkennen aan een ontbrekend tijdstip. Te veel daarvan en de dag is
+        # verzonnen: geen uitkomst, in plaats van stil op een vlakke reeks.
+        echt = sum(1 for m in fc_meta if m.get("datetime"))
+        if not fc_temps or echt < PRICE_SHIFT_MIN_FORECAST_FRACTION * len(fc_temps):
+            self._reason = self._REASON_NO_FORECAST
+            return None
         prices = self._prices(start, len(fc_temps))
-        if not fc_temps or not prices:
-            self._reason = (
-                "geen weersverwachting" if not fc_temps else "geen prijzen voor het venster"
-            )
+        if not prices:
+            self._reason = "geen prijzen voor het venster"
             return None
         # Een dynamische reeks kan korter zijn dan de weersverwachting (morgen
         # nog niet bekend). Dan het venster inkorten, niet de prijs verzinnen.
@@ -3392,7 +3404,21 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
                 self.hass, self._handle_preview, timedelta(hours=1)
             )
         )
+        # De MPC-sensor schrijft zijn state na elke keer dat hij de
+        # weersverwachting ophaalt. Wachtte de voorvertoning daarop, dan nu
+        # opnieuw rekenen in plaats van tot het volgende uur.
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self._mpc.entity_id], self._handle_mpc_update
+            )
+        )
         await self._handle_preview()
+
+    async def _handle_mpc_update(self, _event) -> None:
+        # Alleen als er op de verwachting gewacht werd: de MPC-sensor schrijft
+        # ook bij elke buitentemperatuur, en dan is er niets nieuws te rekenen.
+        if self._reason == self._REASON_NO_FORECAST:
+            await self._handle_preview()
 
     async def _handle_preview(self, _now=None) -> None:
         self._preview = self._evaluate(dt_util.now())
@@ -3412,11 +3438,30 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
 
     async def _handle_daily(self, _now=None) -> None:
         """Leg het komende etmaal vast en tel de voorspelde besparing op."""
+        self._daily_attempt = 0
+        await self._async_daily_attempt()
+
+    async def _handle_daily_retry(self, _now=None) -> None:
+        await self._async_daily_attempt()
+
+    async def _async_daily_attempt(self) -> None:
         if not self._loaded:
             return
         now = dt_util.now()
         record = self._evaluate(now)
         self._preview = record
+        if record is None and self._daily_attempt < PRICE_SHIFT_RETRIES:
+            # Net na een herstart ontbreken analyse of verwachting nog. Straks
+            # opnieuw; het venster schuift dan een kwartier op, maar valt nog in
+            # dezelfde dag.
+            self._daily_attempt += 1
+            self.async_on_remove(
+                async_call_later(
+                    self.hass,
+                    PRICE_SHIFT_RETRY_DELAY,
+                    self._handle_daily_retry,
+                )
+            )
         # Zonder warmtevraag valt er niets te verschuiven. Zo'n dag telt niet
         # mee: anders loopt het aantal meetdagen de hele zomer door op zonder
         # dat er iets gemeten is.

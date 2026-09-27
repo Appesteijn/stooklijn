@@ -50,7 +50,7 @@ class _State:
         self.last_updated = stamp
 
 
-def _sensor(*, options, temps, states=None, data=True):
+def _sensor(*, options, temps, states=None, data=True, forecast=True):
     from custom_components.quatt_stooklijn.sensor import QuattPriceShiftSensor
 
     class _Fake(QuattPriceShiftSensor):
@@ -76,9 +76,23 @@ def _sensor(*, options, temps, states=None, data=True):
     sensor.coordinator = type("C", (), {"data": payload})()
     sensor._entry = type("E", (), {"data": {}, "options": options})()
     sensor._mpc = MagicMock()
-    sensor._mpc.build_forecast_arrays = lambda t, n_hours: (
-        list(temps[:n_hours]), [0.0] * min(n_hours, len(temps)), []
-    )
+    def _fc(t, n_hours):
+        n = min(n_hours, len(temps))
+        # Zonder verwachting: wat build_forecast_arrays dan doet — elk uur de
+        # huidige buitentemperatuur, zonder tijdstip.
+        if not forecast:
+            return [t] * n, [0.0] * n, [
+                {"datetime": None, "condition": "current"} for _ in range(n)
+            ]
+        meta = [
+            {"datetime": (NU + timedelta(hours=i)).isoformat(), "condition": "cloudy"}
+            for i in range(n)
+        ]
+        return list(temps[:n]), [0.0] * n, meta
+
+    sensor._mpc.build_forecast_arrays = _fc
+    sensor._mpc.entity_id = "sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur"
+    sensor._daily_attempt = 0
     sensor._mpc.thermal_params = {"converged": True, "C_whk": 25583.0}
     sensor._openquatt_cache = None
     sensor._stale_logged = False
@@ -89,6 +103,7 @@ def _sensor(*, options, temps, states=None, data=True):
     sensor._preview = None
     sensor._reason = None
     sensor.async_write_ha_state = MagicMock()
+    sensor.async_on_remove = MagicMock()
     alle = {OUTDOOR: _State(str(temps[0]))}
     alle.update(states or {})
     sensor.hass = MagicMock()
@@ -258,3 +273,83 @@ class TestVersVanDeAnalyse:
             sensor._handle_coordinator_update()
         assert sensor._reason is None
         assert "komend_etmaal" in sensor.extra_state_attributes
+
+
+class TestZonderWeersverwachting:
+    """Geen verwachting = geen uitkomst, niet stil een vlakke dag."""
+
+    def test_geen_uitkomst_zonder_verwachting(self):
+        sensor = _sensor(options=NORMAAL_DAL, temps=STOOKDAG, forecast=False)
+        with patch(
+            "custom_components.quatt_stooklijn.sensor.async_call_later"
+        ) as later:
+            _run_daily(sensor)
+        assert sensor._days == []
+        assert sensor._reason == "weersverwachting nog niet geladen"
+        later.assert_called_once()
+
+    def test_herhaalpoging_legt_de_dag_alsnog_vast(self):
+        sensor = _sensor(options=NORMAAL_DAL, temps=STOOKDAG, forecast=False)
+        with patch("custom_components.quatt_stooklijn.sensor.async_call_later"):
+            _run_daily(sensor)
+        # De verwachting is binnen; de herhaalpoging rekent opnieuw.
+        sensor._mpc.build_forecast_arrays = _sensor(
+            options=NORMAAL_DAL, temps=STOOKDAG
+        )._mpc.build_forecast_arrays
+        with patch(
+            "custom_components.quatt_stooklijn.sensor.dt_util.now", return_value=NU
+        ):
+            asyncio.run(sensor._handle_daily_retry())
+        assert len(sensor._days) == 1
+
+    def test_herhalen_houdt_op(self):
+        from custom_components.quatt_stooklijn.const import PRICE_SHIFT_RETRIES
+
+        sensor = _sensor(options=NORMAAL_DAL, temps=STOOKDAG, forecast=False)
+        with patch(
+            "custom_components.quatt_stooklijn.sensor.async_call_later"
+        ) as later, patch(
+            "custom_components.quatt_stooklijn.sensor.dt_util.now", return_value=NU
+        ):
+            asyncio.run(sensor._handle_daily())
+            for _ in range(PRICE_SHIFT_RETRIES + 2):
+                asyncio.run(sensor._handle_daily_retry())
+        assert later.call_count == PRICE_SHIFT_RETRIES
+
+    def test_nieuwe_nacht_begint_de_telling_opnieuw(self):
+        sensor = _sensor(options=NORMAAL_DAL, temps=STOOKDAG, forecast=False)
+        sensor._daily_attempt = 4
+        with patch(
+            "custom_components.quatt_stooklijn.sensor.async_call_later"
+        ) as later:
+            _run_daily(sensor)
+        later.assert_called_once()
+
+    def test_een_zomerdag_is_geen_mislukte_meting(self):
+        """Wel een uitkomst, alleen zonder vraag: niet opnieuw proberen."""
+        sensor = _sensor(options=NORMAAL_DAL, temps=[20.0] * 24)
+        with patch(
+            "custom_components.quatt_stooklijn.sensor.async_call_later"
+        ) as later:
+            _run_daily(sensor)
+        later.assert_not_called()
+
+    def test_mpc_update_ververst_als_er_gewacht_werd(self):
+        sensor = _sensor(options=NORMAAL_DAL, temps=STOOKDAG, forecast=False)
+        with patch(
+            "custom_components.quatt_stooklijn.sensor.dt_util.now", return_value=NU
+        ):
+            asyncio.run(sensor._handle_preview())
+            assert sensor._reason == "weersverwachting nog niet geladen"
+            sensor._mpc.build_forecast_arrays = _sensor(
+                options=NORMAAL_DAL, temps=STOOKDAG
+            )._mpc.build_forecast_arrays
+            asyncio.run(sensor._handle_mpc_update(None))
+        assert sensor._reason is None
+        assert "komend_etmaal" in sensor.extra_state_attributes
+
+    def test_mpc_update_doet_niets_als_er_niet_gewacht_werd(self):
+        sensor = _sensor(options=NORMAAL_DAL, temps=STOOKDAG)
+        sensor._handle_preview = AsyncMock()
+        asyncio.run(sensor._handle_mpc_update(None))
+        sensor._handle_preview.assert_not_awaited()
