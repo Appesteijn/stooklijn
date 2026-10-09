@@ -612,7 +612,24 @@ class TestMinimumvermogen:
 
         p = np.array([0.0, 1100.0, 1100.0, 1100.0, 1100.0, 0.0])
         out, onder = _blocks(p, np.full(6, 2000.0), np.ones(6))
-        assert list(out) == [0.0, 0.0, 2200.0, 0.0, 2200.0, 0.0]
+        # Op het minimum, de rest schuift door; het restje van de reeks komt
+        # bij het laatste draaiende uur.
+        assert list(out) == [0.0, 0.0, 2000.0, 0.0, 2400.0, 0.0]
+        assert onder == 0
+
+    def test_draait_op_het_minimum_niet_op_het_dubbele(self):
+        """Vraag net onder het minimum: vaak aan op het minimum, af en toe uit.
+
+        Tot en met v0.10.4-beta.5 werd dat elk tweede uur ~4,5 kW.
+        """
+        from custom_components.quatt_stooklijn.analysis.demand_shift import _blocks
+
+        p = np.full(10, 2000.0)
+        out, onder = _blocks(p, np.full(10, 2300.0), np.ones(10))
+        aan = [v for v in out if v > 0]
+        assert len(aan) >= 8, "hoort vrijwel elk uur te draaien"
+        assert max(out) < 2 * 2300.0
+        assert sum(out) == pytest.approx(sum(p))
         assert onder == 0
 
     def test_lange_reeks_schuift_hooguit_een_blok_op(self):

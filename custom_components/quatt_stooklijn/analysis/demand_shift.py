@@ -561,8 +561,8 @@ def _blocks(
 
     Per aaneengesloten reeks uren met ``0 < P < minimum`` wordt in de tijd
     doorgelopen en de gevraagde warmte opgespaard. Zodra het opgespaarde het
-    minimum van dat uur haalt, draait dat uur en levert het alles; daarna begint
-    het sparen opnieuw. Wat aan het eind van de reeks overblijft, gaat naar het
+    minimum van dat uur haalt, draait dat uur op precies het minimum en schuift
+    de rest door naar het volgende uur. Wat aan het eind van de reeks overblijft, gaat naar het
     laatste draaiende uur van de reeks, of anders naar het goedkoopste
     aangrenzende uur dat al draait. Lukt ook dat niet — een losse reeks die
     samen minder vraagt dan één uur op het minimum — dan blijft het in het
@@ -575,6 +575,12 @@ def _blocks(
     één blok op (op het minimum ~0,1 K bij deze thermische massa) en blijft het
     echte verschuiven bij het buigen en de limiter. De som blijft per reeks
     gelijk, dus ook in totaal.
+
+    Op het minimum en niet alles wat opgespaard is: tot en met v0.10.4-beta.5
+    leverde een draaiend uur alles, en bij een vraag van ~2 kW tegen een
+    minimum van 2,3 kW werd dat elk tweede uur ~4,5 kW met een uur uit ertussen.
+    Zo draait de warmtepomp niet; hij loopt op zijn laagste stand en gaat af en
+    toe uit.
 
     Geeft de nieuwe reeks en het aantal uren dat onder het minimum blijft.
     """
@@ -597,8 +603,8 @@ def _blocks(
             gespaard += p[h]
             p[h] = 0.0
             if gespaard >= min_w[h]:
-                p[h] = gespaard
-                gespaard = 0.0
+                p[h] = min_w[h]
+                gespaard -= min_w[h]
                 laatst_aan = h
         if gespaard > 0:
             # De buren liggen per constructie buiten de reeks, dus draaien ze

@@ -3,6 +3,15 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.4-beta.6 — 2026-10-09
+
+- **Aan/uit-blokken draaien op het minimum, niet op het dubbele.** Een
+  draaiend uur in een reeks onder het minimum leverde alles wat er
+  opgespaard was. Bij een vraag van ~2 kW tegen een minimum van 2,3 kW werd
+  dat elk tweede uur ~4,5 kW, met een uur uit ertussen. Zo draait de
+  warmtepomp niet. Nu draait zo'n uur op precies het minimum en schuift de
+  rest door: vaak aan op de laagste stand, af en toe een uur uit.
+
 ## v0.10.4-beta.5 — 2026-10-09
 
 - **De prijsverschuiving buigt nu af van de reeks zonder verschuiven, in
