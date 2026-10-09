@@ -278,6 +278,8 @@ class TestVergelijking:
         _run_daily(sensor)
         dag = sensor._days[0]
         assert "besparing_alleen_cop_eur" in dag
+        # Gekozen op euro's, dus nooit een verlies (γ 0 levert nul op).
+        assert dag["besparing_alleen_cop_eur"] >= 0
         attrs = sensor.extra_state_attributes
         assert attrs["besparing_alleen_cop_eur"] == round(
             dag["besparing_alleen_cop_eur"], 2

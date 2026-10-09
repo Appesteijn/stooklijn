@@ -680,3 +680,41 @@ class TestMinimumvermogen:
             self.TEMPS, CURVE, UA, None, baseline=self.VRAAG, min_power_w=self.MIN
         )
         assert scan.punten
+
+
+class TestCopVergelijkingKiestOpKosten:
+    """De pure COP-verschuiving wordt in euro's gerapporteerd, dus ook zo gekozen.
+
+    Tot en met v0.10.4-beta.6 koos de scan γ op kWh zonder het warmteverlies van
+    voorverwarmen, en kwam die γ na het prijzen negatief uit.
+    """
+
+    PRIJS = [0.25] * 6 + [0.20] * 6
+
+    def _scan(self, **kw):
+        return scan_gamma(
+            DAG, CURVE, UA, T0, prices=self.PRIJS, weigh_prices=False,
+            thermal_mass_wh_k=C_WH_K, max_drift_k=0.3, max_overshoot_k=0.5,
+            begrenzing_toegestaan=True, **kw,
+        )
+
+    def test_opbrengst_is_in_euros(self):
+        scan = self._scan()
+        assert scan.advies is not None
+        r = calculate_demand_shift(
+            DAG, CURVE, UA, T0, scan.advies, prices=self.PRIJS, weigh_prices=False,
+            thermal_mass_wh_k=C_WH_K, max_drift_k=0.3, max_overshoot_k=0.5,
+        )
+        assert scan.advies_besparing == pytest.approx(r.expected_cost_saving)
+
+    def test_nooit_een_advies_dat_geld_kost(self):
+        scan = self._scan()
+        assert scan.advies_besparing is None or scan.advies_besparing > 0
+
+    def test_verdeling_negeert_de_prijs(self):
+        """Zelfde verdeling als zonder prijzen; alleen de maat verschilt."""
+        met = calculate_demand_shift(
+            DAG, CURVE, UA, T0, 2.0, prices=self.PRIJS, weigh_prices=False
+        )
+        zonder = calculate_demand_shift(DAG, CURVE, UA, T0, 2.0)
+        assert met.shifted == zonder.shifted

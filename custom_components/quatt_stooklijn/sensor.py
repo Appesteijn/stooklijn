@@ -3397,7 +3397,12 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
         r_p = calculate_demand_shift(*args, gamma_p, prices=prices, **common)
 
         # Dezelfde dag met alleen de COP-weging, geprijsd tegen dezelfde tarieven.
-        scan_c = scan_gamma(*args, begrenzing_toegestaan=True, **common)
+        # Ook gekozen op euro's, met het warmteverlies van voorverwarmen: anders
+        # wint een γ die kWh bespaart maar na het prijzen geld kost.
+        scan_c = scan_gamma(
+            *args, prices=prices, weigh_prices=False,
+            begrenzing_toegestaan=True, **common,
+        )
         gamma_c = scan_c.advies or 0.0
         r_c = calculate_demand_shift(
             *args, gamma_c, prices=prices, weigh_prices=False, **common

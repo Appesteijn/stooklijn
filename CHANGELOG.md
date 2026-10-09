@@ -3,6 +3,15 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.4-beta.7 — 2026-10-09
+
+- **"Alleen naar de uren met de beste COP" kon negatief uitkomen.** Die
+  vergelijking koos γ op bespaarde kWh, zonder het extra warmteverlies van
+  voorverwarmen. Pas daarna werd hij in euro's geprijsd, mét dat verlies, en
+  op 09-10-2026 stond er toen € −0,01. Nu kiest de scan ook voor deze regel
+  op euro's, inclusief het verlies. Levert geen enkele γ winst op, dan is de
+  uitkomst € 0.
+
 ## v0.10.4-beta.6 — 2026-10-09
 
 - **Aan/uit-blokken draaien op het minimum, niet op het dubbele.** Een

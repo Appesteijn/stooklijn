@@ -201,6 +201,7 @@ def scan_gamma(
     begrenzing_toegestaan: bool = False,
     baseline: list[float] | None = None,
     min_power_w: list[float] | None = None,
+    weigh_prices: bool = True,
 ) -> GammaScan:
     """Reken het hele bereik van gamma door en wijs de bruikbaarste aan.
 
@@ -219,6 +220,12 @@ def scan_gamma(
     juist goed: op een dag met een scherpe temperatuursprong grijpt de limiter
     al bij de kleinste gamma in, en zonder deze optie noteert de meting nul
     terwijl een begrensde verschuiving wel degelijk iets had opgeleverd.
+
+    ``weigh_prices=False`` verdeelt alleen op COP maar meet de opbrengst
+    tegen ``prices``, net als ``calculate_demand_shift``. Zo kiest de pure
+    COP-vergelijking γ op euro's mét het warmteverlies van voorverwarmen. Tot en
+    met v0.10.4-beta.6 koos hij op kWh zonder dat verlies, en kwam hij na het
+    prijzen negatief uit (€ −0,01 op 09-10-2026).
 
     Met ``prices`` is de opbrengst de kostenbesparing, zonder de stroom-
     besparing. Dat zijn verschillende dingen: naar een goedkoop maar koud uur
@@ -242,6 +249,7 @@ def scan_gamma(
             max_overshoot_k=max_overshoot_k,
             baseline=baseline,
             min_power_w=min_power_w,
+            weigh_prices=weigh_prices,
         )
         return GammaPunt(
             gamma=round(gamma, 2),
