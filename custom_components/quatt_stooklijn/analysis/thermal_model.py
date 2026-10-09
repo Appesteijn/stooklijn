@@ -689,6 +689,55 @@ def simulate_coast_time(
     }
 
 
+def simulate_recovery_on_min(
+    model: OnlineRCModel,
+    t_start: float,
+    t_target: float,
+    forecast_t_outdoor: list[float],
+    forecast_q_solar: list[float],
+    min_power_at,
+    start_minute: float = 0.0,
+    step_minutes: int = 15,
+    max_hours: int = 12,
+) -> int | None:
+    """Minuten om van ``t_start`` naar ``t_target`` te komen op het minimumvermogen.
+
+    Het vervolg op de uitloop: het huis is tot de comfortvloer gezakt, en de
+    warmtepomp gaat weer aan. Op zijn laagste stand is dat de zuinigste maar
+    ook de traagste weg terug. Ligt het minimum nauwelijks boven het
+    warmteverlies, dan duurt herstellen lang — zo lang dat de firmware in de
+    praktijk hoger gaat draaien. Dat is precies wat dit getal moet laten zien:
+    de uitloop is geleende warmte, en terugbetalen gaat niet vanzelf snel.
+
+    ``start_minute`` is waar de uitloop eindigde; vanaf daar loopt de forecast
+    verder. ``min_power_at`` geeft het minimum (W) bij een buitentemperatuur.
+
+    Geeft ``None`` als het doel binnen ``max_hours`` niet gehaald wordt, of als
+    het model of de forecast ontbreekt.
+    """
+    if model.raw_params is None or not forecast_t_outdoor:
+        return None
+    if t_start >= t_target:
+        return 0
+    dt_hours = step_minutes / 60.0
+    t_in = t_start
+    elapsed = 0.0
+    for _ in range(int(round(max_hours * 60 / step_minutes))):
+        hour_idx = int((start_minute + elapsed) // 60)
+        t_out = _forecast_at(forecast_t_outdoor, hour_idx)
+        q_solar = _forecast_at(forecast_q_solar, hour_idx) or 0.0
+        q_min = min_power_at(t_out)
+        if q_min is None:
+            return None
+        t_next = model.predict_t_indoor(t_in, t_out, q_min, q_solar, dt_hours)
+        if t_next >= t_target:
+            frac = (t_target - t_in) / (t_next - t_in) if t_next != t_in else 0.0
+            return int(round(elapsed + min(max(frac, 0.0), 1.0) * step_minutes))
+        t_in = t_next
+        elapsed += step_minutes
+    return None
+
+
 def _forecast_at(values: list[float], idx: int) -> float | None:
     """Return ``values[idx]``, falling back to the last entry (persistence)."""
     if not values:

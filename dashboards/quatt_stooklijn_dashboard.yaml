@@ -1308,6 +1308,20 @@ views:
 
               {% endif %}
 
+              {% set herstel = state_attr(s, 'recovery_on_min_minutes') %}
+
+              {% set doel = state_attr(s, 'recovery_target') %}
+
+              {% if reaches and doel is not none %}{% if herstel is not none %}🔁
+              Daarna terug naar **{{ doel }}°C** met de warmtepomp op zijn
+              minimum: **{{ (herstel / 60) | round(1) }} uur**.{% else %}🔁 Op
+              zijn minimum komt de warmtepomp daarna niet binnen 12 uur terug op
+              **{{ doel }}°C**: het minimum ligt nauwelijks boven het
+              warmteverlies, dus hij moet hoger draaien om de uitloop terug te
+              betalen.{% endif %}
+
+              {% endif %}
+
 
               Bruikbaar als comfort-grens voor sturing van buitenaf: knijp de
               warmtepomp alleen zolang deze tijd boven je eigen marge ligt, en geef
@@ -1346,9 +1360,20 @@ views:
 
               ### Komende {{ fc | length }} uur
 
-              {% set ns = namespace(tbl='| Uur | T buiten | T binnen | Buffer | HP | Vermogen | Aanvoer | Aanvoer (geen zon) |\n|:--|--:|--:|--:|:--:|--:|--:|--:|\n') %}{% for h in fc %}{% set t_in = h.get('t_indoor_predicted') %}{% set buf = h.get('stored_heat_kwh') %}{% set ns_val = h.get('supply_temp_no_solar') %}{% set ns.tbl = ns.tbl + '| **+' + h.hour|string + '** | ' + (h.temp_forecast|round(1))|string + '°C | ' + (t_in|string + '°C' if t_in is not none else '-') + ' | ' + (buf|string + ' kWh' if buf is not none else '-') + ' | ' + ('🔥' if h.get('hp_needed') else '⏸️') + ' | ' + (h.get('q_hp_needed_w')|string + ' W' if h.get('q_hp_needed_w') is not none else '-') + ' | ' + (h.supply_temp|string + '°C' if h.supply_temp is not none else '-') + ' | ' + (ns_val|string + '°C' if ns_val is not none else '-') + ' |\n' %}{% endfor %}
+              {% set ns = namespace(tbl='| Uur | T buiten | T binnen | Buffer | HP | Vermogen | Aan | Aanvoer | Aanvoer (geen zon) |\n|:--|--:|--:|--:|:--:|--:|--:|--:|--:|\n') %}{% for h in fc %}{% set t_in = h.get('t_indoor_predicted') %}{% set buf = h.get('stored_heat_kwh') %}{% set ns_val = h.get('supply_temp_no_solar') %}{% set ns.tbl = ns.tbl + '| **+' + h.hour|string + '** | ' + (h.temp_forecast|round(1))|string + '°C | ' + (t_in|string + '°C' if t_in is not none else '-') + ' | ' + (buf|string + ' kWh' if buf is not none else '-') + ' | ' + ('🔥' if h.get('hp_needed') else '⏸️') + ' | ' + (h.get('q_hp_needed_w')|string + ' W' if h.get('q_hp_needed_w') is not none else '-') + ' | ' + (h.get('aan_pct')|string + '%' if h.get('aan_pct') is not none and h.get('hp_needed') else '-') + ' | ' + (h.supply_temp|string + '°C' if h.supply_temp is not none else '-') + ' | ' + (ns_val|string + '°C' if ns_val is not none else '-') + ' |\n' %}{% endfor %}
 
               {{ ns.tbl }}
+
+              {% set mv = state_attr(mpc, 'minimumvermogen') %}
+
+              {% if mv %}{% set pb = mv.per_buitentemperatuur %}**Aan:** deel van
+              het uur dat de warmtepomp draait. Onder zijn minimum
+              ({{ pb.values() | min }}–{{ pb.values() | max }} W, geleerd uit
+              {{ mv.monsters }} metingen) levert hij in blokken: aan op het
+              minimum, daarna uit.{% else %}**Aan:** verschijnt zodra het
+              minimumvermogen van de warmtepomp uit genoeg stabiele runs geleerd
+              is.{% endif %}
+
 
               *Bron: {{ src | default('batch') }}*
 
@@ -1406,7 +1431,8 @@ views:
               warmte die het huismodel nodig heeft om het setpoint te houden,
               met zon en kamertemperatuur erin. **Er wordt niets
               aangestuurd**: dit is een voorspelling van het model, geen
-              meting van je verbruik. Tarief: {{ state_attr(s, 'tariefbron') }}.
+              meting van je verbruik. γ zegt hoe ver de verdeling afbuigt van
+              die zonder verschuiven; 0 is helemaal niet. Tarief: {{ state_attr(s, 'tariefbron') }}.
 
               | | Bedrag |
 
@@ -1414,7 +1440,7 @@ views:
 
               | Verschuiven op prijs én COP | **€ {{ '%.2f' | format(totaal) }}** |
 
-              | Alleen naar de warme middag (COP) | € {{ '%.2f' | format(cop) }} |
+              | Alleen naar de uren met de beste COP | € {{ '%.2f' | format(cop) }} |
 
               | Wat de prijs toevoegt | € {{ '%.2f' | format(totaal - cop) }} |
 
@@ -1444,6 +1470,10 @@ views:
               {% set pr = ke.uren | map(attribute='prijs') | list %}
               {% if pr %}Prijsverschil in dit venster:
               {{ '%.1f' | format((pr | max - pr | min) * 100) }} ct/kWh.{% endif %}
+              {% if ke.minimumvermogen %}Verschoven in aan/uit-blokken: elk
+              uur uit of op minstens het minimum van de warmtepomp{% if
+              ke.uren_onder_minimum %} ({{ ke.uren_onder_minimum }} uur bleef
+              eronder){% endif %}.{% endif %}
 
               {% endif %}
 
@@ -1524,6 +1554,22 @@ views:
                 data_generator: |
                   const u = entity.attributes?.komend_etmaal?.uren || [];
                   return u.map(h => [new Date(h.tijd).getTime(), h.verschoven_w]);
+              - entity: sensor.quatt_warmteanalyse_prijsverschuiving
+                name: Minimum WP
+                unit: W
+                float_precision: 0
+                show:
+                  legend_value: false
+                  in_chart: true
+                yaxis_id: w
+                type: line
+                curve: stepline
+                color: "#607D8B"
+                stroke_width: 1
+                data_generator: |
+                  const u = entity.attributes?.komend_etmaal?.uren || [];
+                  return u.filter(h => h.min_w != null)
+                          .map(h => [new Date(h.tijd).getTime(), h.min_w]);
               - entity: sensor.quatt_warmteanalyse_prijsverschuiving
                 name: Stroomprijs
                 unit: €/kWh

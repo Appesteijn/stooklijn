@@ -19,10 +19,30 @@ hem nergens. Daarom is dit additief in plaats van overlappend.
 De opbrengstschatting is het punt van deze module in de schaduwfase: zonder een
 voorspeld getal valt γ niet te kiezen.
 
-**Optioneel weegt de prijs mee.** Met een prijsreeks wordt het gewicht
-``(COP / prijs)^γ`` in plaats van ``COP^γ``: warmte per euro in plaats van
+**De vorm: buigen vanaf de vlakke reeks.** Per uur is ``rᵢ`` wat een kWh
+warmte daar kost (``1 / COP``, of ``prijs / COP``), gedeeld door het gemiddelde
+over de uren met vraag. De verschoven reeks is
+
+    P'ᵢ = Pᵢ + γ · P̄ · (1 − rᵢ)
+
+met ``P̄`` de gemiddelde vraag over die uren. Dat is de oplossing van "minimaliseer
+de stroomkosten plus een kwadratische straf op afwijken van de vlakke reeks",
+met γ als de verhouding tussen die twee. γ = 0 is exact de vlakke reeks en de
+afwijking groeit lineair met γ: bij γ = 1 krijgt een uur met 10% goedkopere
+warmte 10% van de gemiddelde vraag erbij. ``Σ (1 − rᵢ) = 0``, dus het totaal
+blijft gelijk zonder bijsturen. Alleen waar een uur onder nul zou komen, wordt
+op nul geklemd en het niveau zo verschoven dat de som weer klopt.
+
+Tot en met v0.10.4-beta.4 was het ``P'ᵢ ∝ (COP/prijs)ᵢ^γ``. Die vorm keek alleen
+naar het totaal, niet naar de vorm van de vlakke reeks: bij een kleine γ werd de
+vraag vrijwel gelijk over het venster uitgesmeerd, en γ = 0 kon alleen als
+uitzondering de vlakke reeks teruggeven. Tussen "uit" en "een beetje aan" zat zo
+een sprong, en een groot deel van de getoonde winst kwam van het afvlakken.
+
+**Optioneel weegt de prijs mee.** Met een prijsreeks is de kostprijs per uur
+``prijs / COP`` in plaats van ``1 / COP``: warmte per euro in plaats van
 warmte per kWh. Zonder prijzen, of met een vlakke prijs, is de uitkomst exact de
-COP-weging — de prijs is een extra noemer, geen ander model. Het huismodel zelf
+COP-weging — de prijs is een extra factor, geen ander model. Het huismodel zelf
 kent geen prijs; die hoort in wat er geoptimaliseerd wordt, niet in de fysica.
 
 **Aanroeper sinds v0.10.3: de prijsverschuivingssensor.** De eerdere
@@ -48,10 +68,14 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-# Bovengrens op de agressiviteit. Boven ~3 wordt de verdeling zo scheef dat
-# vrijwel alles in één uur belandt, en dan bepaalt de verzadigingsclamp van de
-# firmware het resultaat in plaats van dit model.
-GAMMA_MAX = 3.0
+# Bovengrens op de agressiviteit. De afwijking is lineair in γ én in de zwaai van
+# de kostprijs, dus hoe vlakker de dag, hoe hoger de γ waarbij een comfortgrens
+# ingrijpt. Op 09-10-2026 (COP ±10%, prijs bijna vlak) haalde het voorverwarmen
+# de 0,5 K pas rond γ 14,5; op een winterdag met −3/+4 °C ligt de driftgrens
+# rond γ 1. Met 10 als rand bleef de scan op zo'n zachte dag tegen de rand
+# hangen zonder knik te vinden. Daarboven bepalen de limiter en de klem op nul
+# het resultaat, niet γ.
+GAMMA_MAX = 20.0
 
 # Ondergrens op de prijs in de weging (€/kWh). Het gewicht deelt door de prijs,
 # en bij een negatieve of nul-prijs zou één uur alle warmte opeisen. Dat is ook
@@ -79,6 +103,12 @@ class DemandShiftResult:
     # Uren waarin de verschoven vraag boven het firmwareplafond zou uitkomen.
     # Daar kapt de firmware af en gaat de energie-neutraliteit alsnog verloren.
     hours_above_ceiling: int = 0
+    # Of er met een minimumvermogen is gerekend, en hoeveel uren er daarna nog
+    # tussen nul en dat minimum liggen. Dat gebeurt alleen als een losse reeks
+    # uren samen minder vraagt dan één uur op het minimum en er geen draaiend
+    # buuruur is om het bij te leggen.
+    min_power_applied: bool = False
+    hours_below_min: int = 0
     gamma: float = 0.0
     # Diepste voorspelde uitwijking van de kamertemperatuur (K, negatief = kouder).
     worst_drift_k: float | None = None
@@ -170,6 +200,7 @@ def scan_gamma(
     fijne_stap: float = 0.1,
     begrenzing_toegestaan: bool = False,
     baseline: list[float] | None = None,
+    min_power_w: list[float] | None = None,
 ) -> GammaScan:
     """Reken het hele bereik van gamma door en wijs de bruikbaarste aan.
 
@@ -210,6 +241,7 @@ def scan_gamma(
             prices=prices,
             max_overshoot_k=max_overshoot_k,
             baseline=baseline,
+            min_power_w=min_power_w,
         )
         return GammaPunt(
             gamma=round(gamma, 2),
@@ -311,6 +343,7 @@ def calculate_demand_shift(
     max_overshoot_k: float | None = None,
     weigh_prices: bool = True,
     baseline: list[float] | None = None,
+    min_power_w: list[float] | None = None,
 ) -> DemandShiftResult:
     """Herverdeel de warmtevraag over het venster naar COP, en optioneel prijs.
 
@@ -332,8 +365,10 @@ def calculate_demand_shift(
             alleen COP, precies het gedrag van vóór de prijsweging.
         max_overshoot_k: hoeveel de kamer maximaal boven de vlakke baan mag
             uitkomen (K, positief). Zelfde terugschaling als ``max_drift_k``.
-            Alleen zinvol met prijzen: de COP-weging trekt warmte naar de warme
-            middag en drijft vooral omlaag, de prijsweging kan juist voorverwarmen.
+            Ook zonder prijzen nodig: ligt het uur met de beste COP vóór de
+            koude piek, dan verwarmt ook de COP-weging voor. Op 09-10-2026 trok
+            hij de ochtendpiek naar de avond ervoor, omdat de gemeten curve bij
+            13 °C piekt en bij 15 °C weer zakt.
         weigh_prices: ``False`` = de prijzen alleen gebruiken om de kosten uit
             te rekenen, niet in de weging. Zo is een pure COP-verschuiving in
             euro's naast de prijsverschuiving te leggen.
@@ -341,6 +376,13 @@ def calculate_demand_shift(
             ``UA · (t_zero − T)``. Even lang als ``forecast_temps``; ``t_zero``
             is dan niet nodig. ``ua`` wel: die prijst het extra warmteverlies
             van voorverwarmen.
+        min_power_w: laagste continue warmte-afgifte per uur (W), zie
+            ``min_power``. Dan is elk uur van de verschoven reeks nul of
+            minstens dit minimum: binnen een reeks uren eronder draait pas het
+            uur waarin de opgespaarde vraag het minimum haalt. ``None`` = geen
+            minimum. γ = 0 blijft de
+            vlakke reeks: dat is wat de firmware nu doet, pendelen binnen het
+            uur inbegrepen.
     """
     result = DemandShiftResult(gamma=gamma)
     if not forecast_temps or ua is None or ua <= 0:
@@ -395,26 +437,15 @@ def calculate_demand_shift(
     # Zonder dit masker schuift er warmte naar uren waarin het huis niets nodig
     # heeft — boven het nulpunt is de vlakke vraag nul. Dan zou de firmware
     # gaan stoken boven haar eigen stookgrens, precies de fout waar
-    # ``heat_demand.py`` voor waarschuwt. Het valt op zodra alle COP's op de
-    # curverand klemmen: de gewichten worden gelijk en de vraag smeert uit over
-    # het hele venster.
-    active = np.array(flat, dtype=float) > 0
-    merit = np.array(cops, dtype=float)
-    if prices is not None and weigh_prices:
-        # Warmte per euro in plaats van per kWh. Genormaliseerd op het gemiddelde
-        # zodat de getallen bij hoge γ niet onder- of overlopen; de verhouding
-        # tussen de uren — het enige wat de verdeling bepaalt — verandert niet.
-        p = np.maximum(np.array(prices, dtype=float), PRICE_FLOOR)
-        merit = merit / (p / p.mean())
-    weights = np.where(active, merit ** gamma, 0.0)
-    if weights.sum() <= 0:
-        result.shifted = list(flat)
-        result.now_shifted = result.now_flat
-        result.expected_saving = 0.0
-        return result
-    shifted = total * weights / weights.sum()
-
+    # ``heat_demand.py`` voor waarschuwt. Het viel op bij een zomerforecast,
+    # toen de oude gewichtsvorm de vraag over het hele venster uitsmeerde.
     flat_arr = np.array(flat, dtype=float)
+    active = flat_arr > 0
+    # Kostprijs van een kWh warmte per uur: 1/COP, of prijs/COP.
+    cost = 1.0 / np.array(cops, dtype=float)
+    if prices is not None and weigh_prices:
+        cost = cost * np.maximum(np.array(prices, dtype=float), PRICE_FLOOR)
+    shifted = _bend(flat_arr, active, cost, gamma)
 
     # Kamerdrift: het cumulatieve warmtetekort gedeeld door de thermische massa.
     #
@@ -447,6 +478,19 @@ def calculate_demand_shift(
         result.worst_drift_k = round(worst, 3)
         result.peak_drift_k = round(peak, 3)
 
+    # Aan/uit per uur: na de limiter, zodat die de blokken niet weer uitsmeert.
+    # De drift wordt daarna opnieuw berekend; het verplaatsen blijft binnen een
+    # reeks uren onder het minimum en houdt die drift dus klein.
+    if min_power_w is not None and len(min_power_w) == len(flat):
+        shifted, result.hours_below_min = _blocks(
+            shifted, np.array(min_power_w, dtype=float), cost
+        )
+        result.min_power_applied = True
+        if drift is not None:
+            drift = np.cumsum(shifted - flat_arr) / thermal_mass_wh_k
+            result.worst_drift_k = round(float(drift.min()), 3)
+            result.peak_drift_k = round(float(drift.max()), 3)
+
     result.shifted = [float(p) for p in shifted]
     result.now_shifted = round(float(shifted[0]), 1)
 
@@ -466,6 +510,109 @@ def calculate_demand_shift(
 
     return result
 
+
+def _bend(
+    flat: np.ndarray, active: np.ndarray, cost: np.ndarray, gamma: float
+) -> np.ndarray:
+    """Buig de vlakke reeks naar de goedkope uren: ``P + γ · P̄ · (1 − r)``.
+
+    Zie de moduledocstring voor de afleiding. Uren zonder vraag doen niet mee en
+    blijven nul. Komt een uur onder nul, dan wordt het daar geklemd en schuift
+    het niveau ``λ`` omlaag tot de som weer klopt (waterfilling). De som is
+    monotoon in ``λ``, dus bisectie vindt hem altijd.
+    """
+    shifted = np.zeros_like(flat)
+    if not active.any():
+        return shifted
+    f = flat[active]
+    r = cost[active] / cost[active].mean()
+    step = gamma * f.mean()
+    total = float(f.sum())
+
+    def verdeel(lam: float) -> np.ndarray:
+        return np.maximum(0.0, f + step * (lam - r))
+
+    # Zonder klem is λ = 1 exact, want Σ (1 − r) = 0.
+    p = verdeel(1.0)
+    if (f + step * (1.0 - r)).min() < 0:
+        # Klemmen verhoogt de som, dus λ ligt onder 1. Bij de ondergrens is
+        # elk uur nul.
+        lo = float(np.min(r - f / step))
+        hi = 1.0
+        for _ in range(100):
+            mid = 0.5 * (lo + hi)
+            if verdeel(mid).sum() < total:
+                lo = mid
+            else:
+                hi = mid
+        p = verdeel(hi)
+        # Het restje van de bisectie over de niet-geklemde uren, zodat de
+        # energie-neutraliteit tot op afronding blijft gelden.
+        vrij = p > 0
+        p[vrij] += (total - p.sum()) / vrij.sum()
+    shifted[active] = p
+    return shifted
+
+
+def _blocks(
+    shifted: np.ndarray, min_w: np.ndarray, cost: np.ndarray
+) -> tuple[np.ndarray, int]:
+    """Maak van elke reeks uren onder het minimum aan/uit-blokken.
+
+    Per aaneengesloten reeks uren met ``0 < P < minimum`` wordt in de tijd
+    doorgelopen en de gevraagde warmte opgespaard. Zodra het opgespaarde het
+    minimum van dat uur haalt, draait dat uur en levert het alles; daarna begint
+    het sparen opnieuw. Wat aan het eind van de reeks overblijft, gaat naar het
+    laatste draaiende uur van de reeks, of anders naar het goedkoopste
+    aangrenzende uur dat al draait. Lukt ook dat niet — een losse reeks die
+    samen minder vraagt dan één uur op het minimum — dan blijft het in het
+    laatste uur staan en telt dat uur als "onder het minimum".
+
+    Bewust geen blok op de goedkoopste plek van de reeks. Na het buigen kan een
+    reeks een half etmaal lang zijn, en één blok aan het eind liet het huis op
+    09-10-2026 van 03:00 tot 10:00 zonder warmte: dat is een verschuiving buiten
+    de driftlimiter om, geen aan/uit-blok. Zo schuift warmte hooguit ongeveer
+    één blok op (op het minimum ~0,1 K bij deze thermische massa) en blijft het
+    echte verschuiven bij het buigen en de limiter. De som blijft per reeks
+    gelijk, dus ook in totaal.
+
+    Geeft de nieuwe reeks en het aantal uren dat onder het minimum blijft.
+    """
+    p = shifted.astype(float).copy()
+    n = len(p)
+    onder = (p > 0) & (p < min_w)
+    blijft_onder = 0
+    i = 0
+    while i < n:
+        if not onder[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and onder[j]:
+            j += 1
+        # Reeks [i, j).
+        gespaard = 0.0
+        laatst_aan = None
+        for h in range(i, j):
+            gespaard += p[h]
+            p[h] = 0.0
+            if gespaard >= min_w[h]:
+                p[h] = gespaard
+                gespaard = 0.0
+                laatst_aan = h
+        if gespaard > 0:
+            # De buren liggen per constructie buiten de reeks, dus draaien ze
+            # óf op minstens het minimum óf helemaal niet.
+            buren = [b for b in (i - 1, j) if 0 <= b < n and p[b] > 0]
+            if laatst_aan is not None:
+                p[laatst_aan] += gespaard
+            elif buren:
+                p[min(buren, key=lambda b: cost[b])] += gespaard
+            else:
+                p[j - 1] = gespaard
+                blijft_onder += 1
+        i = j
+    return p, blijft_onder
 
 def _fill_costs(
     result: DemandShiftResult,

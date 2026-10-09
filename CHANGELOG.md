@@ -3,6 +3,54 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.4-beta.5 — 2026-10-09
+
+- **De prijsverschuiving buigt nu af van de reeks zonder verschuiven, in
+  plaats van hem te vervangen.** De verschoven reeks was `∝ (COP/prijs)^γ` en
+  keek alleen naar het totaal, niet naar de vorm. Bij een kleine γ werd de
+  warmte daardoor vrijwel gelijk over het etmaal uitgesmeerd. Op het dashboard
+  stond "Verschoven" als een vlakke lijn naast een golvende "Zonder
+  verschuiven", alsof de twee omgedraaid waren. Alleen γ = 0 gaf als
+  uitzondering de vlakke reeks terug, dus tussen "uit" en "een beetje aan" zat
+  een sprong, en een groot deel van de getoonde winst kwam van dat afvlakken.
+  Nu is het `P + γ · P̄ · (1 − r)`, met `r` de kostprijs van een kWh warmte per
+  uur ten opzichte van het gemiddelde. γ = 0 is exact de reeks zonder
+  verschuiven, en de afwijking groeit lineair met γ. Een uur dat onder nul zou
+  komen, wordt op nul geklemd terwijl het totaal gelijk blijft.
+- De scan loopt nu tot γ 20 (was 3). Op een zachte dag met weinig
+  COP-verschil grijpt een comfortgrens pas bij een hoge γ in. Met de oude rand
+  vond de scan daar geen knik.
+- **Het totaal begint opnieuw te tellen.** Opgeslagen dagen krijgen een veld
+  `methode`. Dagen van de oude rekenwijze vallen bij het laden weg, want ze
+  zijn niet opnieuw te berekenen (de weersverwachting van die nacht is niet
+  bewaard) en een totaal over twee formules zegt niets.
+- **Minimumvermogen van de warmtepomp.** Een warmtepomp moduleert niet tot
+  nul. Onder zijn laagste stand levert hij in blokken: op 09-10-2026 draaide
+  HP2 35–43 minuten op ~2,2 kW en stond hij daarna ~30 minuten uit. Het
+  minimum wordt per buitentemperatuur geleerd uit het eigen meetlogboek. Alleen
+  monsters midden in een run tellen, en per bin van 2 K telt het 10e
+  percentiel. Naar de kou toe mag het minimum niet stijgen, zodat een koude
+  week op vollast het niet opblaast. Zolang er te weinig runs zijn, gebruikt
+  niets het. Het minimum telt op drie plekken:
+  - **Prijsverschuiving:** elk uur van het plan is uit of draait op minstens
+    het minimum. Binnen een reeks uren eronder draait pas het uur waarin de
+    opgespaarde vraag het minimum haalt. Zo schuift warmte hooguit één blok op.
+    Een eerdere opzet met één blok op de goedkoopste plek liet het huis op een
+    testdag van 03:00 tot 10:00 zonder warmte. Nieuwe attributen:
+    `minimumvermogen`, `uren_onder_minimum`, en `min_w` per uur. De grafiek
+    toont het minimum als lijn.
+  - **Vooruitblik:** een kolom "Aan" met het deel van het uur dat de
+    warmtepomp draait (vraag ÷ minimum), plus het attribuut `aan_pct` per uur.
+    De MPC-sensor toont de geleerde curve als `minimumvermogen`.
+  - **Uitlooptijd:** het attribuut `recovery_on_min_minutes` geeft hoe lang
+    het duurt om van de comfortvloer terug te komen op het setpoint met de
+    warmtepomp op zijn minimum. Ligt het minimum nauwelijks boven het
+    warmteverlies, dan lukt dat niet binnen 12 uur, en dat zegt het dashboard
+    dan ook.
+- Dashboard: "Alleen naar de warme middag (COP)" heet nu "Alleen naar de uren
+  met de beste COP". Afhankelijk van de COP-curve kan dat ook de avond vóór de
+  koude piek zijn. Onder de tabel staat nu wat γ betekent.
+
 ## v0.10.4-beta.4 — 2026-09-27
 
 - **De prijsverschuiving telde warmte die nooit geleverd wordt.** De reeks

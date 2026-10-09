@@ -217,6 +217,10 @@ DEFAULT_COMFORT_FLOOR_TEMP = 19.0  # °C
 COAST_MAX_HOURS = 12
 COAST_STEP_MINUTES = 15
 
+# Hoe vaak het minimumvermogen opnieuw uit het meetlogboek geleerd wordt.
+# Het verandert alleen met nieuwe runs; zie analysis/min_power.py.
+MIN_POWER_RELEARN = timedelta(hours=1)
+
 # Optioneel: entity die aangeeft dat een externe regelaar de warmtepomp knijpt —
 # een tariefsturing, een dynamisch contract, een eigen script. Leeg = uit (geen
 # filtering). Bij een waarde < FREE wordt de WP geknepen; die minuten worden
@@ -376,3 +380,11 @@ PRICE_SHIFT_RETRY_DELAY = timedelta(minutes=15)
 PRICE_SHIFT_STORAGE_VERSION = 1
 PRICE_SHIFT_STORAGE_KEY = f"{DOMAIN}.price_shift"
 PRICE_SHIFT_KEEP_DAYS = 400
+
+# Rekenwijze van de herverdeling, opgeslagen bij elke dag. Bij het laden vallen
+# dagen met een andere rekenwijze weg: een totaal dat twee formules optelt, zegt
+# niets, en de oude dagen kunnen niet opnieuw berekend worden omdat de
+# weersverwachting van die nacht niet bewaard is.
+# 1 = gewichten (COP/prijs)^γ, t/m v0.10.4-beta.4 (dagen zonder veld).
+# 2 = buigen vanaf de vlakke reeks, P + γ·P̄·(1 − r).
+PRICE_SHIFT_METHOD = 2

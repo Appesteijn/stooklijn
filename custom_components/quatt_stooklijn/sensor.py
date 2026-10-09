@@ -34,10 +34,12 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .analysis.model_benchmark import Comparison, compare
+from .analysis.min_power import MinPowerCurve, learn_min_power
 from .analysis.thermal_model import (
     OnlineRCModel,
     simulate_coast_time,
     simulate_forward,
+    simulate_recovery_on_min,
     stored_heat_kwh,
 )
 from homeassistant.helpers.storage import Store
@@ -63,6 +65,7 @@ from .const import (
     PRICE_MODE_NORMAL_DAL,
     PRICE_MODE_OFF,
     PRICE_SHIFT_KEEP_DAYS,
+    PRICE_SHIFT_METHOD,
     PRICE_SHIFT_MIN_FORECAST_FRACTION,
     PRICE_SHIFT_RETRIES,
     PRICE_SHIFT_RETRY_DELAY,
@@ -88,6 +91,7 @@ from .const import (
     CONF_TEMP_ENTITIES,
     CONF_WEATHER_ENTITY,
     COAST_MAX_HOURS,
+    MIN_POWER_RELEARN,
     COAST_STEP_MINUTES,
     COMPRESSOR_REFRESH_INTERVAL,
     COMPRESSOR_STORAGE_KEY,
@@ -866,6 +870,9 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         self._thermal_store = ThermalModelStore(coordinator.hass)
         self._highres_store = HighResLogStore(coordinator.hass)
         self._highres_loaded = False
+        # Geleerd minimumvermogen, met het moment van leren; zie min_power_curve.
+        self._min_power: MinPowerCurve = MinPowerCurve()
+        self._min_power_at: datetime | None = None
         self._thermal_loaded = False
 
     # ------------------------------------------------------------------ helpers
@@ -1013,6 +1020,25 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         te trainen — beide gebruiken hetzelfde online-geleerde model.
         """
         return self._thermal_store.model if self._thermal_loaded else None
+
+    @property
+    def min_power_curve(self) -> MinPowerCurve:
+        """Het laagste continue warmtevermogen per buitentemperatuur.
+
+        Geleerd uit het meetlogboek en een uur bewaard: het minimum verandert
+        alleen met nieuwe runs, en het logboek doorlopen kost bij een vol
+        seizoen een paar milliseconden die niet bij elke state-write horen.
+        Leeg tot er genoeg stabiele runs zijn; zie ``analysis.min_power``.
+        Gedeeld met de uitlooptijd- en de prijsverschuivingssensor.
+        """
+        now = dt_util.utcnow()
+        if (
+            self._min_power_at is None
+            or now - self._min_power_at >= MIN_POWER_RELEARN
+        ):
+            self._min_power = learn_min_power(self.highres_samples)
+            self._min_power_at = now
+        return self._min_power
 
     @property
     def highres_samples(self) -> list[list[float]]:
@@ -1561,6 +1587,20 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 effective_flow, t_return, fc_temps, fc_solar_gain_batch_w, fc_meta,
             )
 
+        # Onder het minimum levert de warmtepomp in blokken: aan op het minimum,
+        # dan uit. Het aandeel aan per uur is vraag / minimum.
+        min_curve = self.min_power_curve
+        for entry in forecast_out:
+            t_fc = entry.get("temp_forecast")
+            q_need = entry.get("q_hp_needed_w")
+            p_min = min_curve.at(t_fc) if t_fc is not None else None
+            entry["min_power_w"] = round(p_min) if p_min is not None else None
+            entry["aan_pct"] = (
+                round(min(100.0, 100.0 * max(0.0, q_need) / p_min))
+                if p_min and q_need is not None
+                else None
+            )
+
         # Current demand (from whichever model is active)
         raw_demand = None
         net_demand = None
@@ -1618,6 +1658,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             # opnieuw op de sleutelnaam hoeft te vertrouwen als hij weer wijzigt.
             "forecast": forecast_out,
             "forecast_uren": len(forecast_out),
+            "minimumvermogen": min_curve.as_attribute() if min_curve.bins else None,
         }
 
     def _build_batch_forecast(
@@ -1752,7 +1793,7 @@ class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorE
             fc_temps = [t_outdoor]
             fc_solar_wm2 = [0.0]
 
-        return simulate_coast_time(
+        result = simulate_coast_time(
             model,
             t_indoor_now=t_indoor,
             comfort_floor=self._comfort_floor,
@@ -1761,6 +1802,28 @@ class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorE
             step_minutes=COAST_STEP_MINUTES,
             max_hours=COAST_MAX_HOURS,
         )
+
+        # Het vervolg: vanaf de vloer terug naar het setpoint met de warmtepomp
+        # op zijn minimum. Alleen als de vloer gehaald wordt en het minimum
+        # geleerd is; anders valt er niets terug te betalen of niets te rekenen.
+        result["recovery_on_min_minutes"] = None
+        result["recovery_target"] = None
+        curve = self._mpc.min_power_curve
+        if result["reaches_floor"] and curve.bins:
+            target, _ = self._mpc._resolve_room_setpoint()
+            result["recovery_target"] = target
+            result["recovery_on_min_minutes"] = simulate_recovery_on_min(
+                model,
+                t_start=self._comfort_floor,
+                t_target=target,
+                forecast_t_outdoor=fc_temps,
+                forecast_q_solar=fc_solar_wm2,
+                min_power_at=curve.at,
+                start_minute=result["coast_minutes"] or 0,
+                step_minutes=COAST_STEP_MINUTES,
+                max_hours=COAST_MAX_HOURS,
+            )
+        return result
 
     @property
     def native_value(self) -> int | None:
@@ -1781,6 +1844,10 @@ class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorE
             "reaches_floor": result["reaches_floor"],
             "model_source": "online",
             "trajectory": result["trajectory"],
+            # None = niet binnen het venster op het minimum, of geen minimum
+            # geleerd; recovery_target zegt welke van de twee (None = geen).
+            "recovery_on_min_minutes": result["recovery_on_min_minutes"],
+            "recovery_target": result["recovery_target"],
         }
 
     async def async_added_to_hass(self) -> None:
@@ -3307,12 +3374,16 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             self.hass, openquatt.get(ROLE_PH_RATED_POWER) or ""
         ) if openquatt else None
 
+        # Aan/uit per uur zodra het minimumvermogen geleerd is; daarvoor None
+        # en rekent de verschuiving zonder, zoals voorheen.
+        min_power = self._mpc.min_power_curve.for_temps(fc_temps)
         common = {
             "ceiling_w": ceiling,
             "thermal_mass_wh_k": c_whk,
             "max_drift_k": DEMAND_SHIFT_MAX_DRIFT_K,
             "max_overshoot_k": DEMAND_SHIFT_MAX_OVERSHOOT_K,
             "baseline": baseline,
+            "min_power_w": min_power,
         }
         # Nulpunt ``None``: met een basisreeks rekent demand_shift er niet mee.
         args = (fc_temps, curve, float(hlc), None)
@@ -3347,6 +3418,7 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
 
         return {
             "datum": start.date().isoformat(),
+            "methode": PRICE_SHIFT_METHOD,
             "tariefbron": self._mode,
             "venster_uren": len(prices),
             "gamma": gamma_p,
@@ -3358,6 +3430,8 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             "drift_k": r_p.worst_drift_k,
             "overshoot_k": r_p.peak_drift_k,
             "uren_boven_plafond": r_p.hours_above_ceiling,
+            "minimumvermogen": r_p.min_power_applied,
+            "uren_onder_minimum": r_p.hours_below_min,
             "gamma_alleen_cop": gamma_c,
             "besparing_alleen_cop_eur": _eur(r_c),
             # Per uur, alleen voor de voorvertoning; gaat niet de store in.
@@ -3370,9 +3444,10 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
                     "prijs": round(p, 4),
                     "vlak_w": round(f),
                     "verschoven_w": round(v),
+                    "min_w": round(m) if m is not None else None,
                 }
-                for i, (p, f, v) in enumerate(
-                    zip(prices, r_p.flat, r_p.shifted)
+                for i, (p, f, v, m) in enumerate(
+                    zip(prices, r_p.flat, r_p.shifted, min_power or [None] * len(prices))
                 )
             ],
         }
@@ -3385,7 +3460,13 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
         await super(QuattHeatDemandSensor, self).async_added_to_hass()
 
         stored = await self._store.async_load() or {}
-        self._days = list(stored.get("dagen", []))
+        # Dagen van een eerdere rekenwijze tellen niet mee; zie PRICE_SHIFT_METHOD.
+        # Ze verdwijnen bij de eerstvolgende opslag ook uit de store.
+        self._days = [
+            d
+            for d in stored.get("dagen", [])
+            if d.get("methode", 1) == PRICE_SHIFT_METHOD
+        ]
         self._loaded = True
 
         self.async_on_remove(

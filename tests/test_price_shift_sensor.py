@@ -57,7 +57,8 @@ def _formule(temps):
 
 
 def _sensor(
-    *, options, temps, states=None, data=True, forecast=True, heat_need=_formule
+    *, options, temps, states=None, data=True, forecast=True, heat_need=_formule,
+    min_power=None,
 ):
     from custom_components.quatt_stooklijn.sensor import QuattPriceShiftSensor
 
@@ -68,6 +69,12 @@ def _sensor(
             return {}
 
     sensor = _Fake.__new__(_Fake)
+    if min_power is None:
+        from custom_components.quatt_stooklijn.analysis.min_power import (
+            MinPowerCurve,
+        )
+
+        min_power = MinPowerCurve()
     payload = None
     if data:
         payload = QuattStooklijnData(
@@ -110,6 +117,8 @@ def _sensor(
     sensor._mpc.entity_id = "sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur"
     sensor._daily_attempt = 0
     sensor._mpc.thermal_params = {"converged": True, "C_whk": 25583.0}
+    # Geen geleerd minimum: zo rekent de sensor tot er genoeg runs zijn.
+    sensor._mpc.min_power_curve = min_power
     sensor._openquatt_cache = None
     sensor._stale_logged = False
     sensor._store = MagicMock()
@@ -183,6 +192,84 @@ class TestDagmeting:
         sensor._days = [{"datum": "2024-01-01", "besparing_eur": 1.0}]
         _run_daily(sensor)
         assert [d["datum"] for d in sensor._days] == ["2026-10-07"]
+
+
+class TestRekenwijze:
+    """Dagen van de oude gewichtsvorm tellen niet op bij de nieuwe."""
+
+    def test_dag_draagt_de_rekenwijze(self):
+        from custom_components.quatt_stooklijn.const import PRICE_SHIFT_METHOD
+
+        sensor = _sensor(options=NORMAAL_DAL, temps=STOOKDAG)
+        _run_daily(sensor)
+        assert sensor._days[0]["methode"] == PRICE_SHIFT_METHOD
+
+    def test_laden_laat_dagen_van_een_oude_rekenwijze_vallen(self):
+        from custom_components.quatt_stooklijn import sensor as mod
+        from custom_components.quatt_stooklijn.const import PRICE_SHIFT_METHOD
+
+        sensor = _sensor(options=NORMAAL_DAL, temps=STOOKDAG)
+        sensor._store.async_load = AsyncMock(
+            return_value={
+                "dagen": [
+                    # Opgeslagen vóór het veld bestond: rekenwijze 1.
+                    {"datum": "2026-10-05", "besparing_eur": 0.03},
+                    {"datum": "2026-10-06", "methode": PRICE_SHIFT_METHOD,
+                     "besparing_eur": 0.01},
+                ]
+            }
+        )
+        sensor._handle_preview = AsyncMock()
+        ouder = mod.QuattHeatDemandSensor.__mro__[1]
+        with patch.object(ouder, "async_added_to_hass", AsyncMock()), patch.object(
+            mod, "async_track_time_change"
+        ), patch.object(mod, "async_track_time_interval"), patch.object(
+            mod, "async_track_state_change_event"
+        ):
+            asyncio.run(sensor.async_added_to_hass())
+        assert [d["datum"] for d in sensor._days] == ["2026-10-06"]
+
+
+class TestMinimumvermogen:
+    """Het geleerde minimum van de MPC-sensor gaat mee in de verschuiving."""
+
+    @staticmethod
+    def _curve(watt):
+        from custom_components.quatt_stooklijn.analysis.min_power import (
+            MinPowerCurve,
+        )
+
+        return MinPowerCurve(bins={0.0: watt}, samples=50)
+
+    def test_zonder_geleerd_minimum_niet_toegepast(self):
+        sensor = _sensor(options=NORMAAL_DAL, temps=STOOKDAG)
+        _run_daily(sensor)
+        assert sensor._days[0]["minimumvermogen"] is False
+        assert sensor._days[0]["uren_onder_minimum"] == 0
+
+    def test_met_geleerd_minimum_toegepast_en_per_uur_zichtbaar(self):
+        # 4 kW: de uren op 4 °C vragen 3,56 kW en moeten dus in blokken.
+        sensor = _sensor(
+            options=NORMAAL_DAL, temps=STOOKDAG, min_power=self._curve(4000.0)
+        )
+        with patch(
+            "custom_components.quatt_stooklijn.sensor.dt_util.now", return_value=NU
+        ):
+            asyncio.run(sensor._handle_preview())
+        etmaal = sensor.extra_state_attributes["komend_etmaal"]
+        assert etmaal["minimumvermogen"] is True
+        uren = etmaal["uren"]
+        assert all(u["min_w"] == 4000 for u in uren)
+        assert etmaal["gamma"] > 0, "testopzet: bij γ 0 is er niets verschoven"
+        assert etmaal["uren_onder_minimum"] == 0
+        # Afgerond per uur, dus met een marge van een watt.
+        assert all(
+            u["verschoven_w"] == 0 or u["verschoven_w"] >= 4000 - 1 for u in uren
+        )
+        assert any(u["verschoven_w"] == 0 for u in uren), "er hoort een blok uit te zijn"
+        assert sum(u["verschoven_w"] for u in uren) == pytest.approx(
+            sum(u["vlak_w"] for u in uren), abs=24
+        )
 
 
 class TestVergelijking:

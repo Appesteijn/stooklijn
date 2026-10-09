@@ -35,7 +35,7 @@ def _shift(gamma, temps=DAG, curve=CURVE, **kw):
 class TestEnergieNeutraliteit:
     """De randvoorwaarde waar alles op rust."""
 
-    @pytest.mark.parametrize("gamma", [0.0, 0.5, 1.0, 2.0, 3.0])
+    @pytest.mark.parametrize("gamma", [0.0, 0.5, 1.0, 2.0, 3.0, GAMMA_MAX])
     def test_totaal_blijft_gelijk(self, gamma):
         r = _shift(gamma)
         assert sum(r.shifted) == pytest.approx(sum(r.flat), rel=1e-6)
@@ -44,8 +44,9 @@ class TestEnergieNeutraliteit:
         r = _shift(2.0, temps=[0.0] * 12)
         assert sum(r.shifted) == pytest.approx(sum(r.flat), rel=1e-6)
 
-    def test_niets_wordt_negatief(self):
-        assert all(p >= 0 for p in _shift(3.0).shifted)
+    @pytest.mark.parametrize("gamma", [3.0, GAMMA_MAX])
+    def test_niets_wordt_negatief(self, gamma):
+        assert all(p >= 0 for p in _shift(gamma).shifted)
 
 
 class TestUitStand:
@@ -62,6 +63,41 @@ class TestUitStand:
 
     def test_gamma_wordt_begrensd(self):
         assert _shift(99.0).gamma == GAMMA_MAX
+
+
+class TestBuigenVanafVlak:
+    """γ buigt de vlakke reeks; hij vervangt hem niet door een nieuwe vorm.
+
+    Tot en met v0.10.4-beta.4 smeerde een kleine γ de vraag vrijwel gelijk over
+    het venster uit, en gaf alleen γ = 0 als uitzondering de vlakke reeks terug.
+    Op het dashboard leek "Verschoven" daardoor een vlakke lijn naast een
+    golvende "Zonder verschuiven", alsof de twee omgedraaid waren.
+    """
+
+    def test_kleine_gamma_blijft_bij_de_vlakke_reeks(self):
+        r = _shift(0.01)
+        afwijking = max(abs(s - f) for s, f in zip(r.shifted, r.flat))
+        assert afwijking < 0.01 * np.mean(r.flat)
+
+    def test_kleine_gamma_houdt_de_vorm(self):
+        r = _shift(0.2)
+        assert int(np.argmax(r.shifted)) == int(np.argmax(r.flat))
+        assert int(np.argmin(r.shifted)) == int(np.argmin(r.flat))
+
+    def test_afwijking_is_lineair_in_gamma(self):
+        flat = np.array(_shift(1.0).flat)
+        een = np.array(_shift(1.0).shifted) - flat
+        twee = np.array(_shift(2.0).shifted) - flat
+        assert twee == pytest.approx(2 * een, rel=1e-9, abs=1e-6)
+
+    def test_klem_op_nul_houdt_de_som(self):
+        """Dure uren met weinig vraag lopen bij een hoge γ leeg, maar niet negatief."""
+        temps = [-3.0] * 6 + [13.0] * 6
+        vraag = [100.0] * 6 + [3000.0] * 6
+        r = calculate_demand_shift(temps, CURVE, UA, None, GAMMA_MAX, baseline=vraag)
+        assert min(r.shifted) == 0.0, "testopzet: hier hoort geklemd te worden"
+        assert all(p >= 0 for p in r.shifted)
+        assert sum(r.shifted) == pytest.approx(sum(vraag), rel=1e-9)
 
 
 class TestVerschuiving:
@@ -478,12 +514,15 @@ class TestScanMetPrijzen:
 class TestBegrenzingToegestaan:
     """Voor een dagmeting telt een teruggeschaald plan gewoon mee."""
 
-    # Scherpe sprong: 7 uur koud, dan zacht. De limiter grijpt overal in.
+    # Scherpe sprong: 7 uur koud, dan zacht. De drift groeit hier met ~0,27 K
+    # per γ, dus bij een grens van 0,1 K grijpt de limiter al vanaf het eerste
+    # scanpunt (γ 0,5) overal in. Tot v0.10.4-beta.4 gebeurde dat ook bij 0,3 K,
+    # maar dat kwam door de sprong van de oude gewichtsvorm bij kleine γ.
     SPRONG = [-2.0] * 7 + [4.0] * 10 + [0.0] * 7
 
     def test_standaard_geen_advies_als_de_limiter_overal_ingrijpt(self):
         scan = scan_gamma(
-            self.SPRONG, CURVE, UA, T0, thermal_mass_wh_k=C_WH_K, max_drift_k=0.3
+            self.SPRONG, CURVE, UA, T0, thermal_mass_wh_k=C_WH_K, max_drift_k=0.1
         )
         assert scan.advies is None
 
@@ -534,3 +573,93 @@ class TestBasisreeks:
     def test_zonder_basisreeks_en_nulpunt_geen_uitkomst(self):
         r = calculate_demand_shift(DAG, CURVE, UA, None, 2.0)
         assert r.flat == []
+
+
+class TestMinimumvermogen:
+    """Aan/uit per uur: elk uur nul of minstens het minimum van de warmtepomp."""
+
+    # Zacht etmaal zoals 09-10-2026: overdag en 's avonds onder het minimum.
+    VRAAG = [1500.0, 1200.0, 1150.0, 1150.0, 1200.0, 2400.0, 2800.0, 3200.0,
+             2600.0, 900.0, 300.0, 200.0]
+    TEMPS = [14.0, 13.0, 13.0, 12.0, 12.0, 9.0, 8.0, 7.0, 9.0, 13.0, 15.0, 15.0]
+    MIN = [2200.0] * 12
+
+    def _r(self, gamma, **kw):
+        kw.setdefault("min_power_w", self.MIN)
+        return calculate_demand_shift(
+            self.TEMPS, CURVE, UA, None, gamma, baseline=self.VRAAG, **kw
+        )
+
+    @pytest.mark.parametrize("gamma", [0.5, 2.0, GAMMA_MAX])
+    def test_elk_uur_nul_of_boven_het_minimum(self, gamma):
+        r = self._r(gamma)
+        assert r.min_power_applied
+        onder = [p for p, m in zip(r.shifted, self.MIN) if 0 < p < m - 1e-6]
+        assert len(onder) == r.hours_below_min
+
+    @pytest.mark.parametrize("gamma", [0.5, 2.0, GAMMA_MAX])
+    def test_som_blijft_gelijk(self, gamma):
+        assert sum(self._r(gamma).shifted) == pytest.approx(sum(self.VRAAG), rel=1e-9)
+
+    def test_gamma_nul_blijft_de_vlakke_reeks(self):
+        """Wat de firmware nu doet, pendelen binnen het uur inbegrepen."""
+        r = self._r(0.0)
+        assert r.shifted == r.flat
+        assert not r.min_power_applied
+
+    def test_warmte_komt_zodra_het_opgespaarde_het_minimum_haalt(self):
+        from custom_components.quatt_stooklijn.analysis.demand_shift import _blocks
+
+        p = np.array([0.0, 1100.0, 1100.0, 1100.0, 1100.0, 0.0])
+        out, onder = _blocks(p, np.full(6, 2000.0), np.ones(6))
+        assert list(out) == [0.0, 0.0, 2200.0, 0.0, 2200.0, 0.0]
+        assert onder == 0
+
+    def test_lange_reeks_schuift_hooguit_een_blok_op(self):
+        """Geen half etmaal zonder warmte omdat het eind van de reeks goedkoop is.
+
+        Op 09-10-2026 lag na het buigen 03:00–14:00 onder het minimum. Eén blok
+        op de goedkoopste plek liet het huis tot 10:00 zonder warmte.
+        """
+        from custom_components.quatt_stooklijn.analysis.demand_shift import _blocks
+
+        p = np.full(12, 900.0)
+        cost = np.linspace(1.2, 0.8, 12)  # het eind is het goedkoopst
+        out, _ = _blocks(p, np.full(12, 2000.0), cost)
+        achterstand = np.cumsum(p - out)
+        assert achterstand.max() < 2000.0, "nooit meer dan één blok achter"
+        assert sum(out) == pytest.approx(sum(p))
+
+    def test_te_kleine_reeks_gaat_naar_een_draaiend_buuruur(self):
+        from custom_components.quatt_stooklijn.analysis.demand_shift import _blocks
+
+        p = np.array([2500.0, 300.0, 200.0, 0.0])
+        out, onder = _blocks(p, np.full(4, 2000.0), np.ones(4))
+        assert list(out) == [3000.0, 0.0, 0.0, 0.0]
+        assert onder == 0
+
+    def test_zonder_buuruur_blijft_een_uur_onder_het_minimum(self):
+        from custom_components.quatt_stooklijn.analysis.demand_shift import _blocks
+
+        p = np.array([0.0, 300.0, 200.0, 0.0])
+        out, onder = _blocks(p, np.full(4, 2000.0), np.ones(4))
+        assert list(out) == [0.0, 0.0, 500.0, 0.0]
+        assert onder == 1
+
+    def test_zonder_minimum_verandert_er_niets(self):
+        met = self._r(2.0, min_power_w=None)
+        zonder = calculate_demand_shift(
+            self.TEMPS, CURVE, UA, None, 2.0, baseline=self.VRAAG
+        )
+        assert met.shifted == zonder.shifted
+        assert not met.min_power_applied
+
+    def test_minimum_van_de_verkeerde_lengte_wordt_genegeerd(self):
+        r = self._r(2.0, min_power_w=[2200.0] * 3)
+        assert not r.min_power_applied
+
+    def test_de_scan_rekent_met_het_minimum(self):
+        scan = scan_gamma(
+            self.TEMPS, CURVE, UA, None, baseline=self.VRAAG, min_power_w=self.MIN
+        )
+        assert scan.punten

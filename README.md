@@ -265,7 +265,7 @@ Each carries `source_entity`, `source_integration`, `candidates` and `switched_a
 | `mpc_aanbevolen_aanvoertemperatuur` | °C | MPC recommended supply temperature (weather + solar + RC model) |
 | `stooklijn_fout_aanvoertemperatuur` | °C | Error: stooklijn advice − actual supply |
 | `mpc_fout_aanvoertemperatuur` | °C | Error: MPC advice − actual supply |
-| `veilige_uitlooptijd` | min | How long the house can coast with the heat pump off before hitting the comfort floor |
+| `veilige_uitlooptijd` | min | How long the house can coast with the heat pump off before hitting the comfort floor; attribute `recovery_on_min_minutes` is how long getting back to the room setpoint takes with the heat pump at its minimum output |
 | `max_aanvoertemperatuur_instelling` | °C | Value last written to the heat pump's max supply temperature (only when supply-temperature control is enabled) |
 | `geluidsniveau` | — | Current compressor sound level (`uit` / `building87` / `silent` / `library` / `normal`) — only when sound level compensation is enabled |
 | `compressorstarts` | starts/uur | Compressor starts in the last hour — see [Short cycling](#short-cycling) |
@@ -338,8 +338,12 @@ attributes — Nord Pool, ENTSO-e, EnergyZero and similar; quarter-hour prices a
 hour). The `prijsverschuiving` sensor then appears.
 
 Every night at 00:05 it takes the coming 24 hours: the same heat that `warmtevraag` would publish,
-redistributed to the hours with the most heat per euro, weighted by `(COP / price)^γ`. The total
-heat stays exactly the same. γ is chosen per day by the same scan as before — the calmest value
+redistributed to the hours with the most heat per euro. The plan bends away from the flat path:
+`P + γ · P̄ · (1 − r)`, where `r` is the cost of a kWh of heat in that hour (price / COP) relative
+to the average. γ = 0 is the flat path itself and the deviation grows linearly with γ. The total
+heat stays exactly the same. Once the heat pump's minimum output has been learned (see below),
+every hour of the plan is either off or at least that minimum: below it the heat pump delivers in
+on/off blocks, and the plan does the same. γ is chosen per day by the same scan as before — the calmest value
 that captures nearly all of the gain without exceeding the firmware ceiling. The room may drift at
 most 0.3 K below and 0.5 K above the flat path. The extra heat loss from preheating
 (`UA · drift` per warmer hour) is charged against the savings. A colder house does not count as a
@@ -348,10 +352,16 @@ a weather forecast for at least three quarters of the window there is no result 
 shown), and the nightly run retries up to four times at 15-minute intervals before skipping the
 day.
 
-Alongside it, a pure COP shift (towards the warm afternoon) is priced at the same tariffs
+Alongside it, a pure COP shift (towards the hours with the best COP) is priced at the same tariffs
 (`besparing_alleen_cop_eur`). The difference between the two is what the price adds. The
 attribute `komend_etmaal` shows the plan for the next 24 hours hour by hour and refreshes every
 hour.
+
+**Minimum output.** A heat pump does not modulate down to zero. The integration learns its lowest
+continuous heat output per outdoor temperature from its own 5-minute log, using only samples in the
+middle of a run (attribute `minimumvermogen` on the MPC sensor). Until enough stable runs are
+logged nothing uses it. The forecast table shows per hour which share of the hour the heat pump
+runs (`aan_pct`), and the coast-time sensor shows the recovery time at minimum output.
 
 It is a model prediction, not a metered result, and **it controls nothing**. Solar gain and room
 temperature are not part of it, for the same reason as in [Driving Power House with the measured

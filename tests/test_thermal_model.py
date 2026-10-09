@@ -817,3 +817,46 @@ class TestUAnchor:
         self._summer(model, n_hours=100)
         assert model.params["u_anchored"] is True
         assert model.params["u_prior_wk"] == 285.0
+
+
+# --------------------------------------------------------------------------- #
+#  simulate_recovery_on_min tests                                             #
+# --------------------------------------------------------------------------- #
+
+
+class TestHerstelOpMinimum:
+    """Na de uitloop terug naar het setpoint, met de warmtepomp op zijn minimum."""
+
+    _model = staticmethod(TestSimulateCoastTime._exact_model)
+
+    def _herstel(self, p_min, **kw):
+        from custom_components.quatt_stooklijn.analysis.thermal_model import (
+            simulate_recovery_on_min,
+        )
+
+        return simulate_recovery_on_min(
+            self._model(),
+            t_start=kw.pop("t_start", 19.0),
+            t_target=20.0,
+            forecast_t_outdoor=[0.0] * 12,
+            forecast_q_solar=[0.0] * 12,
+            min_power_at=lambda t: p_min,
+            **kw,
+        )
+
+    def test_haalt_het_setpoint_boven_het_verlies(self):
+        """U=200 bij 0 °C buiten: ~3,9 kW verlies; 5 kW minimum herstelt."""
+        minuten = self._herstel(5000.0)
+        assert minuten is not None and 0 < minuten < 12 * 60
+
+    def test_hoger_minimum_herstelt_sneller(self):
+        assert self._herstel(6000.0) < self._herstel(5000.0)
+
+    def test_minimum_onder_het_verlies_haalt_het_niet(self):
+        assert self._herstel(3000.0) is None
+
+    def test_al_op_het_setpoint(self):
+        assert self._herstel(5000.0, t_start=20.5) == 0
+
+    def test_zonder_minimum_geen_uitkomst(self):
+        assert self._herstel(None) is None
