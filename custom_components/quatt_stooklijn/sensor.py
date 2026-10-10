@@ -1108,20 +1108,24 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
 
         Retourneert ``(fc_temps, fc_solar_wm2, fc_meta)``. De HA weather-entity
         kan een forecast leveren die pas over enkele uren begint; we indexeren op
-        uren-vanaf-nu en vallen voor gat-uren terug op de huidige buitentemp.
+        uren vanaf het lopende hele uur en vallen voor gat-uren terug op de huidige buitentemp.
         Gedeeld door de MPC-sensor en de coast-time sensor.
         """
-        now_utc = dt_util.utcnow()
+        # Index i is het uur dat om ``hour_start + i`` begint, voor temperatuur,
+        # zon én de afnemers (prijzen, tijdlabels). Vanaf het exacte tijdstip
+        # rekenen rondde na :30 het volgende uur af op index 0, terwijl zon en
+        # prijs op het lopende uur bleven: alles een uur uit de pas.
+        hour_start = dt_util.utcnow().replace(minute=0, second=0, microsecond=0)
         now_local = dt_util.now()
 
-        # Build time-indexed lookup: hours_from_now -> forecast point
+        # Build time-indexed lookup: hours_from_hour_start -> forecast point
         fc_lookup: dict[int, dict] = {}
         for point in self._forecast:
             dt_str = point.get("datetime")
             if dt_str:
                 try:
                     fc_dt = datetime.fromisoformat(dt_str)
-                    hours_ahead = round((fc_dt - now_utc).total_seconds() / 3600)
+                    hours_ahead = round((fc_dt - hour_start).total_seconds() / 3600)
                     if 0 <= hours_ahead < n_hours:
                         fc_lookup[hours_ahead] = point
                 except (ValueError, TypeError):

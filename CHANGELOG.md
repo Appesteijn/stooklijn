@@ -3,6 +3,17 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.4-beta.8 — 2026-10-10
+
+- **Temperatuur, zon en prijs per uur weer in de pas.** De weersverwachting
+  werd geïndexeerd vanaf het exacte tijdstip in plaats van vanaf het lopende
+  hele uur. Na :30 viel het volgende uur daardoor op plek 0, terwijl zon,
+  prijs en tijdlabel op het lopende uur bleven. Dan stond "Komend etmaal" een
+  uur te vroeg ten opzichte van de vooruitblik, en rekende de simulatie met de
+  temperatuur van 18:00 tegen de zon en prijs van 17:00. Nu begint elke reeks
+  bij het lopende hele uur, voor de MPC-vooruitblik, de uitlooptijd en de
+  prijsverschuiving.
+
 ## v0.10.4-beta.7 — 2026-10-09
 
 - **"Alleen naar de uren met de beste COP" kon negatief uitkomen.** Die
