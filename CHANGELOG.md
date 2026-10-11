@@ -3,6 +3,23 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.4 — 2026-10-11
+
+Stabiele afsluiting van v0.10.4-beta.1 t/m beta.8, zonder codewijzigingen
+ten opzichte van beta.8. Voor wie geen beta's volgt, de kern:
+
+- **Prijsverschuiving rekent met het huismodel** in plaats van met de Power
+  House-formule, buigt af van de reeks zonder verschuiven, draait aan/uit-
+  blokken op het minimumvermogen en kiest ook de COP-vergelijking op euro's
+  inclusief het warmteverlies van voorverwarmen. Geen uitkomst zonder
+  bruikbare weersverwachting of gekalibreerd huismodel.
+- **Temperatuur, zon en prijs per uur lopen weer in de pas**: alle reeksen
+  beginnen bij het lopende hele uur.
+- **Quatt-advies noemt geen geschatte "huidige" instelling meer** voor CiC;
+  met OpenQuatt wordt de echte stookgrens uitgelezen.
+- **Dashboard:** kaart Prijsverschuiving op het MPC-tabblad, en de
+  adviskaarten tonen "Ingesteld" alleen als die waarde echt bekend is.
+
 ## v0.10.4-beta.8 — 2026-10-10
 
 - **Temperatuur, zon en prijs per uur weer in de pas.** De weersverwachting
