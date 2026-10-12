@@ -99,6 +99,7 @@ from .discovery import (
     ROLE_ROOM_SETPOINT,
     ROLE_SUPPLY_TEMP,
     ROLE_TOTAL_POWER,
+    async_config_quatt_hubs,
     async_discover_quatt_entities,
 )
 from .sources import async_source_entity
@@ -370,8 +371,12 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             data = {**data, **user_input}
         # Auto-detectie levert de voorgestelde waarde als er nog niets is
-        # ingesteld — of als de ingestelde entity niet (meer) bestaat.
-        detected = async_discover_quatt_entities(self.hass)
+        # ingesteld — of als de ingestelde entity niet (meer) bestaat. Alleen
+        # van de CiC waar deze entry al naar wijst: met twee installaties in
+        # één HA stelt het formulier anders sensoren van het andere huis voor.
+        detected = async_discover_quatt_entities(
+            self.hass, async_config_quatt_hubs(self.hass, data)
+        )
 
         def _current(key: str, role: str | None = None, fallback=None):
             value = data.get(key)

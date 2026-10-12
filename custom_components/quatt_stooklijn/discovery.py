@@ -27,6 +27,14 @@ import logging
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 
+from .const import (
+    CONF_FLOW_ENTITY,
+    CONF_POWER_ENTITY,
+    CONF_POWER_INPUT_ENTITY,
+    CONF_RETURN_TEMP_ENTITY,
+    CONF_SUPPLY_TEMP_ENTITY,
+    CONF_TEMP_ENTITIES,
+)
 from .heat_demand import (
     PROXY_FALLBACK_ENTITY,
     PROXY_UNIQUE_ID,
@@ -249,12 +257,83 @@ OPENQUATT_NAMES: dict[str, tuple[str, ...]] = {
 
 
 @callback
-def async_discover_quatt_entities(hass: HomeAssistant) -> dict[str, str]:
+def async_quatt_hub(hass: HomeAssistant, entity_id: str | None) -> str | None:
+    """Geef de CiC (hub) waar een Quatt-entity bij hoort, of None.
+
+    De unique_id van een Quatt-entity begint met ``<hub_id>:``. Entiteiten van
+    andere platforms (OpenQuatt, templates, …) horen bij geen enkele hub.
+    """
+    if not entity_id:
+        return None
+    reg_entry = er.async_get(hass).async_get(entity_id)
+    if reg_entry is None or reg_entry.platform != QUATT_PLATFORM:
+        return None
+    hub, sep, _ = reg_entry.unique_id.partition(":")
+    return hub if sep else None
+
+
+# Instellingen die zeggen wélke installatie een entry analyseert, in volgorde
+# van zeggingskracht. Bewust alleen metingen die de gebruiker zelf kiest: een
+# instelknop als ``ch_max_water_entity`` of een rol als de compressor kan een
+# voorgevuld voorstel van een andere CiC bevatten, en mag dan niet meetellen.
+ANCHOR_CONF_KEYS: tuple[str, ...] = (
+    CONF_POWER_ENTITY,
+    CONF_FLOW_ENTITY,
+    CONF_SUPPLY_TEMP_ENTITY,
+    CONF_RETURN_TEMP_ENTITY,
+    CONF_POWER_INPUT_ENTITY,
+    CONF_TEMP_ENTITIES,
+)
+
+
+@callback
+def async_config_quatt_hubs(hass: HomeAssistant, config: dict | None) -> set[str]:
+    """Bij welke CiC hoort de installatie die deze config analyseert?
+
+    Met twee Quatt-installaties in één HA — bijvoorbeeld die van jezelf en die
+    van de buren, elk met een eigen entry van deze integratie — mag de detectie
+    niet vrij kiezen. ``async_discover_quatt_entities`` pakt anders per sleutel
+    de eerste hub die het register oplevert, en een analyse mengt stilletjes de
+    metingen van twee huizen.
+
+    De eerste instelling uit ``ANCHOR_CONF_KEYS`` die naar een Quatt-entity
+    wijst, verankert de entry aan diens hub. Leeg = geen anker (geen Quatt-
+    entity ingesteld, of alleen OpenQuatt), en dan verandert er niets.
+    """
+    for key in ANCHOR_CONF_KEYS:
+        value = (config or {}).get(key)
+        values = value if isinstance(value, (list, tuple)) else [value]
+        for item in values:
+            if isinstance(item, str):
+                hub = async_quatt_hub(hass, item.strip())
+                if hub:
+                    return {hub}
+    return set()
+
+
+@callback
+def _in_hubs(hass: HomeAssistant, entity_id: str, hubs: set[str]) -> bool:
+    """Mag deze entity meedoen gegeven de ankers ``hubs``?
+
+    Zonder ankers mag alles. Een entity die bij geen hub hoort (OpenQuatt,
+    template) ook; alleen een Quatt-entity van een vreemde CiC valt af.
+    """
+    if not hubs:
+        return True
+    hub = async_quatt_hub(hass, entity_id)
+    return hub is None or hub in hubs
+
+
+@callback
+def async_discover_quatt_entities(
+    hass: HomeAssistant, hubs: set[str] | None = None
+) -> dict[str, str]:
     """Zoek per rol de bijbehorende Quatt-entity op via het entity-register.
 
     Geeft een ``{rol: entity_id}``-mapping terug met alleen de rollen die
     daadwerkelijk gevonden zijn. Ontbreekt de Quatt-integratie, dan is het
-    resultaat leeg — dat is geen fout.
+    resultaat leeg — dat is geen fout. Met ``hubs`` tellen alleen entiteiten
+    van die CiC's mee (zie ``async_config_quatt_hubs``).
     """
     registry = er.async_get(hass)
 
@@ -262,6 +341,8 @@ def async_discover_quatt_entities(hass: HomeAssistant) -> dict[str, str]:
     by_key: dict[str, str] = {}
     for reg_entry in registry.entities.values():
         if reg_entry.platform != QUATT_PLATFORM or reg_entry.disabled:
+            continue
+        if hubs and reg_entry.unique_id.partition(":")[0] not in hubs:
             continue
         # unique_id = "<hub_id>:<device_id>:<sensor_key>"; de sensor-key bevat
         # zelf geen dubbele punt, dus de laatste ':' is de scheiding.
@@ -415,8 +496,15 @@ def async_resolve_entity(
     Stap 1 valt bewust door naar 2 als de ingestelde entity niet bestaat: dat
     repareert installaties die met verkeerde defaults zijn opgezet, zonder dat
     de gebruiker iets hoeft aan te passen.
+
+    Staan er Quatt-entiteiten in ``config``, dan tellen voor stap 2 t/m 4
+    alleen entiteiten van dezelfde CiC mee (zie ``async_config_quatt_hubs``).
     """
-    if discovered is None:
+    hubs = async_config_quatt_hubs(hass, config)
+    if hubs:
+        # Een meegegeven ``discovered`` is niet op hub gefilterd.
+        discovered = async_discover_quatt_entities(hass, hubs)
+    elif discovered is None:
         discovered = async_discover_quatt_entities(hass)
 
     configured = _first_configured(hass, config.get(conf_key) if conf_key else None)
@@ -440,10 +528,12 @@ def async_resolve_entity(
 
     fallbacks = FALLBACK_ENTITIES.get(role, ())
     for candidate in fallbacks:
-        if async_entity_exists(hass, candidate):
+        if async_entity_exists(hass, candidate) and _in_hubs(hass, candidate, hubs):
             return candidate
 
-    return configured or (fallbacks[0] if fallbacks else None)
+    return configured or next(
+        (f for f in fallbacks if _in_hubs(hass, f, hubs)), None
+    )
 
 
 @callback
@@ -534,6 +624,7 @@ def async_resolve_candidates(
     *,
     discovered: dict[str, str] | None = None,
     openquatt: dict[str, str] | None = None,
+    hubs: set[str] | None = None,
 ) -> list[str]:
     """Geef álle bruikbare entity-IDs voor een rol, in volgorde van voorkeur.
 
@@ -549,9 +640,15 @@ def async_resolve_candidates(
 
     De Quatt-detectie staat bewust vóór OpenQuatt: bestaande installaties
     houden zo exact dezelfde primaire bron als voorheen.
+
+    ``hubs`` — doorgaans ``async_config_quatt_hubs`` van de entry — houdt de
+    gatenvullers bij de CiC van die entry. Zonder dat vulde de analyse van het
+    ene huis haar gaten met metingen van het andere zodra een CiC even wegviel.
+    Zonder ``hubs`` verankert de eerste ingestelde Quatt-entity. Wat expliciet
+    is ingesteld telt altijd mee, ook van een andere CiC. Geef een
+    ``discovered`` mee die met dezelfde ``hubs`` is opgehaald: een Quatt-entity
+    van een andere CiC valt hier af, en wordt niet vervangen.
     """
-    if discovered is None:
-        discovered = async_discover_quatt_entities(hass)
     if openquatt is None:
         openquatt = async_discover_openquatt_entities(hass)
 
@@ -561,6 +658,17 @@ def async_resolve_candidates(
         configured_list = [configured]
     else:
         configured_list = list(configured)
+
+    if hubs is None:
+        hubs = set()
+        for entity_id in configured_list:
+            hub = async_quatt_hub(hass, (entity_id or "").strip())
+            if hub:
+                hubs = {hub}
+                break
+    if discovered is None:
+        discovered = async_discover_quatt_entities(hass, hubs)
+    explicit = {(e or "").strip() for e in configured_list}
 
     ordered = [
         *configured_list,
@@ -574,7 +682,9 @@ def async_resolve_candidates(
         entity_id = (entity_id or "").strip()
         if not entity_id or entity_id in candidates:
             continue
-        if async_entity_exists(hass, entity_id):
+        if not async_entity_exists(hass, entity_id):
+            continue
+        if entity_id in explicit or _in_hubs(hass, entity_id, hubs):
             candidates.append(entity_id)
     return candidates
 
