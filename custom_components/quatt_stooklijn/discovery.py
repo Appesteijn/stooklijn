@@ -299,16 +299,49 @@ def async_config_quatt_hubs(hass: HomeAssistant, config: dict | None) -> set[str
     De eerste instelling uit ``ANCHOR_CONF_KEYS`` die naar een Quatt-entity
     wijst, verankert de entry aan diens hub. Leeg = geen anker (geen Quatt-
     entity ingesteld, of alleen OpenQuatt), en dan verandert er niets.
+
+    Alleen een hub die zelf rollen uit ``QUATT_KEYS`` levert telt als anker.
+    De Quatt-integratie maakt ook aparte hubs voor de Home Battery (``BAT-…``)
+    en Quatt Energy (``ENG-…``). Wie daar bijvoorbeeld het opgenomen vermogen
+    van kiest, zou de entry anders aan een hub zonder CiC-metingen ankeren, en
+    dan valt alle detectie van de eigen CiC weg.
     """
+    entity_ids: list = []
     for key in ANCHOR_CONF_KEYS:
         value = (config or {}).get(key)
-        values = value if isinstance(value, (list, tuple)) else [value]
-        for item in values:
-            if isinstance(item, str):
-                hub = async_quatt_hub(hass, item.strip())
-                if hub:
-                    return {hub}
+        entity_ids.extend(value if isinstance(value, (list, tuple)) else [value])
+    return _async_anchor_hubs(hass, entity_ids)
+
+
+@callback
+def _async_anchor_hubs(hass: HomeAssistant, entity_ids) -> set[str]:
+    """De hub van de eerste entity die een CiC als anker oplevert, of leeg."""
+    role_hubs: set[str] | None = None
+    for item in entity_ids:
+        if not isinstance(item, str):
+            continue
+        hub = async_quatt_hub(hass, item.strip())
+        if not hub:
+            continue
+        if role_hubs is None:
+            role_hubs = _async_role_hubs(hass)
+        if hub in role_hubs:
+            return {hub}
     return set()
+
+
+@callback
+def _async_role_hubs(hass: HomeAssistant) -> set[str]:
+    """Quatt-hubs met minstens één entity voor een rol uit ``QUATT_KEYS``."""
+    keys = {key for role_keys in QUATT_KEYS.values() for key in role_keys}
+    hubs: set[str] = set()
+    for reg_entry in er.async_get(hass).entities.values():
+        if reg_entry.platform != QUATT_PLATFORM:
+            continue
+        hub, sep, _ = reg_entry.unique_id.partition(":")
+        if sep and reg_entry.unique_id.rpartition(":")[2] in keys:
+            hubs.add(hub)
+    return hubs
 
 
 @callback
@@ -660,12 +693,7 @@ def async_resolve_candidates(
         configured_list = list(configured)
 
     if hubs is None:
-        hubs = set()
-        for entity_id in configured_list:
-            hub = async_quatt_hub(hass, (entity_id or "").strip())
-            if hub:
-                hubs = {hub}
-                break
+        hubs = _async_anchor_hubs(hass, configured_list)
     if discovered is None:
         discovered = async_discover_quatt_entities(hass, hubs)
     explicit = {(e or "").strip() for e in configured_list}
