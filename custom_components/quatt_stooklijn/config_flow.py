@@ -268,7 +268,14 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="options",
-            data_schema=self._options_schema(async_discover_quatt_entities(self.hass)),
+            # De metingen uit de eerste stap verankeren de entry al aan haar
+            # CiC; zonder dat stelt de detectie hier sensoren van een andere
+            # installatie voor.
+            data_schema=self._options_schema(
+                async_discover_quatt_entities(
+                    self.hass, async_config_quatt_hubs(self.hass, self._data)
+                )
+            ),
         )
 
     @staticmethod

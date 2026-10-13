@@ -322,3 +322,41 @@ class TestOptiescherm:
     def test_ch_max_water_veld_filtert_op_number_domein(self):
         schema = _run(self._options().async_step_init())["data_schema"]
         assert schema[CONF_CH_MAX_WATER_ENTITY]["config"]["domain"] == "number"
+
+
+class TestSetupStapDrieTweeInstallaties:
+    """De voorstellen in stap drie horen bij de CiC die stap één al koos."""
+
+    def test_voorstel_komt_van_de_eigen_cic(self, monkeypatch):
+        import custom_components.quatt_stooklijn.config_flow as cf
+
+        def _van(hub, entity_id, device_id, sensor_key):
+            return er.RegistryEntry(
+                entity_id=entity_id,
+                unique_id=f"{hub}:{device_id}:{sensor_key}",
+                platform="quatt",
+            )
+
+        # De andere installatie staat eerst in het register: zonder anker
+        # kiest de detectie dus haar sensoren.
+        entries = [
+            _van("CIC-buren", "sensor.buren_flowrate", "flowmeter", "qc.flowRateFiltered"),
+            _van("CIC-buren", "sensor.buren_total_power", "cic", "computedPower"),
+            _van("CIC-eigen", "sensor.eigen_flowrate", "flowmeter", "qc.flowRateFiltered"),
+            _van("CIC-eigen", "sensor.eigen_total_power", "cic", "computedPower"),
+        ]
+        gezien: dict = {}
+        echte = cf._prefill
+
+        def _vastleggen(key, value):
+            gezien[key] = value
+            return echte(key, value)
+
+        monkeypatch.setattr(cf, "_prefill", _vastleggen)
+        flow = _flow(entries)
+        flow._data = {
+            CONF_QUATT_START_DATE: "2024-01-01",
+            CONF_POWER_ENTITY: "sensor.eigen_total_power",
+        }
+        _run(flow.async_step_options())
+        assert gezien[CONF_FLOW_ENTITY] == "sensor.eigen_flowrate"
