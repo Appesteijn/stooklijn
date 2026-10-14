@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from time import monotonic
 import logging
+import math
 from typing import Any
 from urllib.parse import quote
 
@@ -74,6 +75,7 @@ from .const import (
     PRICE_SHIFT_STORAGE_KEY,
     PRICE_SHIFT_STORAGE_VERSION,
     CONF_CH_MAX_WATER_ENABLED,
+    CONF_CH_MAX_WATER_ENTITY,
     CONF_COMFORT_FLOOR_TEMP,
     CONF_COMPRESSOR_2_ENTITY,
     CONF_COMPRESSOR_ENTITY,
@@ -2344,6 +2346,12 @@ class QuattCopPerformanceSensor(
 # Waar het advies zijn "huidige" waarde vandaan heeft. Alleen OpenQuatt laat zijn
 # stookgrens zien; de Quatt-integratie heeft geen entity voor stookgrens of
 # nominaal vermogen, dus daar is de huidige instelling onbekend.
+#
+# Ze staan ook niet in de Quatt-app: de cloud-API achter die app (dezelfde die
+# de Quatt-integratie gebruikt) kent als instellingen alleen de maximale
+# watertemperatuur, de geluidsniveaus, prijssturing, all-electric boost en het
+# zonnevermogen. Stookgrens en vermogen zet de installateur; een stooklijn met
+# punten heeft de CiC niet, die regelt op het warmteverliesmodel.
 ADVICE_SOURCE_OPENQUATT = "openquatt"
 ADVICE_SOURCE_UNKNOWN = "onbekend"
 
@@ -2352,6 +2360,8 @@ def _calc_quatt_advice(
     data: QuattStooklijnData,
     stookgrens_setting: float | None,
     openquatt: bool,
+    max_water_setting: float | None = None,
+    max_water_auto: bool = False,
 ) -> dict[str, Any]:
     """Advies-attributen voor stookgrens, nominaal vermogen en stooklijnpunten.
 
@@ -2372,7 +2382,14 @@ def _calc_quatt_advice(
 
     attrs: dict[str, Any] = {}
     changes = 0
-    where = "in OpenQuatt" if openquatt else "in de Quatt-app"
+    # Stookgrens en vermogen staan niet in de Quatt-app (zie hierboven); bij
+    # een CiC kan alleen de installateur of Quatt ze inzien en aanpassen.
+    ask = (
+        "in OpenQuatt"
+        if openquatt
+        else "Die staat niet in de Quatt-app; je installateur of Quatt-support "
+        "kan hem controleren en aanpassen."
+    )
 
     # --- Stookgrens ---
     opt = data.stooklijn.balance_temp_optimal
@@ -2399,7 +2416,8 @@ def _calc_quatt_advice(
     else:
         attrs["stookgrens_advies"] = (
             f"Aanbevolen stookgrens: {opt:.1f}°C (gemeten balanspunt van je "
-            f"huis). Controleer {where} wat er nu staat."
+            f"huis). "
+            + (f"Controleer {ask} wat er nu staat." if openquatt else ask)
         )
 
     # --- Nominaal vermogen bij -10°C ---
@@ -2422,24 +2440,76 @@ def _calc_quatt_advice(
         )
     elif vermogen_opt is not None:
         attrs["nominaal_vermogen_advies"] = (
-            f"Aanbevolen nominaal vermogen: {vermogen_opt} W bij -10°C. "
-            f"Controleer {where} wat er nu staat."
+            f"Aanbevolen nominaal vermogen: {vermogen_opt} W bij -10°C. {ask}"
         )
     else:
         attrs["nominaal_vermogen_advies"] = None
 
     # --- Stooklijn breakpoints ---
+    # Alleen OpenQuatt kan op een stooklijn draaien (Heating Curve-modus met
+    # zes ``Curve Tsupply``-knoppen); de CiC kent geen stooklijn. Voor OpenQuatt
+    # dus zijn eigen raster, anders landen de punten op de verkeerde knoppen.
+    # De punten zelf blijven altijd beschikbaar, ook voor het max-wateradvies.
     if hl.slope is not None and hl.intercept is not None:
         breakpoints = _calc_heating_curve_breakpoints(hl.slope, hl.intercept)
         attrs["stooklijn_punten"] = breakpoints
-        punten_str = ", ".join(
-            f"{bp['buiten_temp']}°C→{bp['aanvoer_temp']}°C"
-            for bp in breakpoints
-        )
-        attrs["stooklijn_advies"] = f"Stel stooklijn in op: {punten_str}"
+        if openquatt:
+            oq_points = _calc_heating_curve_breakpoints(
+                hl.slope, hl.intercept, outdoor_temps=OPENQUATT_BREAKPOINT_TEMPS
+            )
+            punten_str = ", ".join(
+                f"{bp['buiten_temp']}°C→{bp['aanvoer_temp']}°C"
+                for bp in oq_points
+            )
+            attrs["stooklijn_advies"] = (
+                "In Heating Curve-modus: zet de Curve Tsupply-punten op "
+                f"{punten_str}"
+            )
+        else:
+            attrs["stooklijn_advies"] = None
     else:
+        breakpoints = None
         attrs["stooklijn_punten"] = None
         attrs["stooklijn_advies"] = None
+
+    # --- Maximale watertemperatuur ---
+    # De enige van deze instellingen die een CiC-gebruiker zelf in de app kan
+    # zetten. Het advies is bewust een ondergrens: wat het huis bij -10°C
+    # volgens het model nodig heeft. Omlaag adviseren doen we niet — het model
+    # rekent met een nominale retour, en een te krap plafond kost comfort.
+    nodig = next(
+        (bp["aanvoer_temp"] for bp in breakpoints or () if bp["buiten_temp"] == -10),
+        None,
+    )
+    attrs["max_water_huidig"] = max_water_setting
+    attrs["max_water_nodig_bij_min10"] = nodig
+    attrs["max_water_automatisch"] = max_water_auto
+    plek = "in OpenQuatt" if openquatt else "in de Quatt-app"
+    if nodig is None:
+        attrs["max_water_advies"] = None
+    elif max_water_auto:
+        attrs["max_water_advies"] = (
+            "Wordt door deze integratie automatisch bijgestuurd"
+        )
+    elif max_water_setting is None:
+        attrs["max_water_advies"] = (
+            f"Je huis heeft bij -10°C ongeveer {nodig:.1f}°C aanvoer nodig. "
+            f"Zet de maximale watertemperatuur {plek} niet lager dan "
+            f"{math.ceil(nodig)}°C, of laat deze integratie hem bijsturen "
+            f"(opties)."
+        )
+    elif max_water_setting < nodig:
+        changes += 1
+        attrs["max_water_advies"] = (
+            f"Verhoog de maximale watertemperatuur {plek} van "
+            f"{max_water_setting:.0f} naar {math.ceil(nodig)}°C: bij -10°C "
+            f"heeft je huis ongeveer {nodig:.1f}°C aanvoer nodig"
+        )
+    else:
+        attrs["max_water_advies"] = (
+            f"Maximale watertemperatuur ({max_water_setting:.0f}°C) is hoog "
+            f"genoeg; bij -10°C is ongeveer {nodig:.1f}°C nodig"
+        )
 
     # Stooklijn breakpoints zijn informatief, niet meegeteld.
     attrs["aantal_aanpassingen"] = changes
@@ -2483,12 +2553,28 @@ class QuattAdviceSensor(
         setting = get_float_state(self.hass, entity_id) if entity_id else None
         return bool(found), setting
 
+    def _max_water(self) -> tuple[float | None, bool]:
+        """(ingestelde max. watertemperatuur, bijsturing door deze integratie aan)."""
+        from .discovery import ROLE_CH_MAX_WATER, async_resolve_setting_entity
+
+        cfg = {**self._entry.data, **self._entry.options}
+        entity_id = async_resolve_setting_entity(
+            self.hass, cfg, CONF_CH_MAX_WATER_ENTITY, ROLE_CH_MAX_WATER
+        )
+        setting = get_float_state(self.hass, entity_id) if entity_id else None
+        auto = (
+            self.hass.data.get(DOMAIN, {}).get(f"{self._entry.entry_id}_ch_max_water")
+            is not None
+        )
+        return setting, auto
+
     def _advice(self) -> dict[str, Any] | None:
         data = self.coordinator.data
         if data is None or data.heat_loss_hp.slope is None:
             return None
         openquatt, setting = self._openquatt_stookgrens()
-        return _calc_quatt_advice(data, setting, openquatt)
+        max_water, auto = self._max_water()
+        return _calc_quatt_advice(data, setting, openquatt, max_water, auto)
 
     @property
     def native_value(self) -> str | None:

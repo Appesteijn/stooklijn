@@ -160,27 +160,38 @@ views:
               state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
               'stookgrens_bron') %}
 
+              {% set mw =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'max_water_advies') %}
+
               {% if n > 0 %}
 
               ⚠️ **{{ advies }}**
 
 
-              • {{ sg }}
+              {% if sg %}• {{ sg }}{% endif %}
+
+              {% if vg %}• {{ vg }}{% endif %}
+
+              {% if mw %}• {{ mw }}{% endif %}
 
               {% elif bron == 'openquatt' %}
 
               ✅ **Stookgrens staat goed.** Tc en Pr: zie de Power
               House-kalibratie.
 
+              {% if mw %}• {{ mw }}{% endif %}
+
               {% else %}
 
-              ℹ️ **Aanbevolen Quatt-instellingen** — je huidige instellingen
-              zijn niet uit te lezen, vergelijk ze in de Quatt-app.
+              ℹ️ **Aanbevolen Quatt-instellingen**
 
 
               {% if sg %}• {{ sg }}{% endif %}
 
               {% if vg %}• {{ vg }}{% endif %}
+
+              {% if mw %}• {{ mw }}{% endif %}
 
               {% endif %}
 
@@ -683,6 +694,10 @@ views:
               state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
               'stookgrens_bron') %}
 
+              {% set mw =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'max_water_advies') %}
+
               {% if n > 0 %}
 
               Pas de volgende instelling aan:
@@ -693,8 +708,8 @@ views:
 
               {% else %}
 
-              Je huidige instellingen zijn niet uit te lezen. Vergelijk ze in
-              de Quatt-app met deze aanbevolen waarden:
+              Stookgrens en vermogen zet je installateur; de maximale
+              watertemperatuur zet je zelf in de Quatt-app. Aanbevolen waarden:
 
               {% endif %}
 
@@ -703,7 +718,9 @@ views:
 
               {% if vg %}2. **Vermogen:** {{ vg }}{% endif %}
 
-              {% if sl %}3. **Stooklijn:** {{ sl }}{% endif %}
+              {% if mw %}3. **Max. watertemperatuur:** {{ mw }}{% endif %}
+
+              {% if sl %}4. **Stooklijn:** {{ sl }}{% endif %}
 
               {% endif %}
             grid_options:
@@ -812,7 +829,10 @@ views:
               state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
               'stooklijn_advies') %}
 
-              Geef deze punten door aan Quatt:
+              {% if txt %}Voor OpenQuatt in Heating Curve-modus:{% else
+              %}Wat je huis per buitentemperatuur aan aanvoer nodig heeft. Ter
+              info: de Quatt CiC regelt niet op een stooklijn maar op stookgrens
+              en vermogen.{% endif %}
 
 
               Buitentemp | Aanvoertemp

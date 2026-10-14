@@ -3,6 +3,21 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## Unreleased
+
+- **Meerdere Quatt-installaties in één HA:** elke entry blijft bij haar eigen
+  CiC. Detectie, gatenvullers en terugvalnamen lenen geen metingen meer van de
+  andere installatie. Een Home Battery- of Quatt Energy-hub telt niet als CiC.
+  Bij één CiC verandert er niets (PR #2, met dank aan marnixt).
+- **Quatt-advies verwijst niet meer naar de Quatt-app voor stookgrens en
+  vermogen.** Die staan daar niet in; het advies noemt nu de installateur of
+  Quatt-support. Het stooklijnadvies verschijnt alleen nog bij OpenQuatt
+  (Heating Curve-modus), op het raster van zijn `Curve Tsupply`-knoppen: een
+  CiC regelt niet op een stooklijn.
+- **Nieuw advies voor de maximale watertemperatuur,** de instelling die wél in
+  de Quatt-app staat: wat het huis bij -10 °C aan aanvoer nodig heeft. Staat
+  hij lager, dan telt dat als aanpassing. Omlaag adviseren doet het niet.
+
 ## v0.10.4 — 2026-10-11
 
 Stabiele afsluiting van v0.10.4-beta.1 t/m beta.8, zonder codewijzigingen

@@ -122,7 +122,9 @@ class TestQuattAdviceLogic:
         assert "Verhoog" not in attrs["stookgrens_advies"]
         assert "13" not in attrs["stookgrens_advies"]
         assert "16.1" in attrs["stookgrens_advies"]
-        assert "Quatt-app" in attrs["stookgrens_advies"]
+        # Niet "controleer in de Quatt-app": daar staat de stookgrens niet.
+        assert "Controleer" not in attrs["stookgrens_advies"]
+        assert "installateur" in attrs["stookgrens_advies"]
         assert attrs["aantal_aanpassingen"] == 0
 
     def test_quatt_cic_vermogen_alleen_aanbevolen(self):
@@ -133,6 +135,7 @@ class TestQuattAdviceLogic:
         assert attrs["nominaal_vermogen_bron"] == ADVICE_SOURCE_UNKNOWN
         assert "5460 W" in attrs["nominaal_vermogen_advies"]
         assert "Verlaag" not in attrs["nominaal_vermogen_advies"]
+        assert "installateur" in attrs["nominaal_vermogen_advies"]
 
     def test_openquatt_stookgrens_goed(self):
         attrs = _calc_quatt_advice(self._make_data(), 16.0, openquatt=True)
@@ -175,7 +178,70 @@ class TestQuattAdviceLogic:
     def test_stooklijnpunten_blijven(self):
         attrs = _calc_quatt_advice(self._make_data(), None, openquatt=False)
         assert len(attrs["stooklijn_punten"]) == len(ADVICE_BREAKPOINT_TEMPS)
-        assert attrs["stooklijn_advies"].startswith("Stel stooklijn in op:")
+
+    def test_quatt_cic_geen_stooklijnadvies(self):
+        """Een CiC heeft geen stooklijn om in te stellen."""
+        attrs = _calc_quatt_advice(self._make_data(), None, openquatt=False)
+        assert attrs["stooklijn_advies"] is None
+
+    def test_openquatt_stooklijnadvies_op_firmware_raster(self):
+        """Het advies noemt de punten van de Curve Tsupply-knoppen (-20 … 15)."""
+        attrs = _calc_quatt_advice(self._make_data(), 16.0, openquatt=True)
+        assert "Curve Tsupply" in attrs["stooklijn_advies"]
+        assert "-20°C→" in attrs["stooklijn_advies"]
+        assert "-5°C→" not in attrs["stooklijn_advies"]
+
+
+class TestMaxWaterAdvice:
+    """De max. watertemperatuur: de ene instelling die wél in de app staat."""
+
+    def _data(self):
+        # -209,2 * -10 + 3368 = 5460 W → 28 + 5460 / (1,16 * 800) = 33,9 °C
+        return QuattStooklijnData(
+            stooklijn=StooklijnResult(balance_temp_optimal=16.1),
+            heat_loss_hp=HeatLossResult(slope=-209.2, intercept=3368.0),
+        )
+
+    def test_onbekend_geeft_ondergrens(self):
+        attrs = _calc_quatt_advice(self._data(), None, openquatt=False)
+        assert attrs["max_water_nodig_bij_min10"] == 33.9
+        assert attrs["max_water_huidig"] is None
+        assert "niet lager dan 34°C" in attrs["max_water_advies"]
+        assert "Quatt-app" in attrs["max_water_advies"]
+        assert attrs["aantal_aanpassingen"] == 0
+
+    def test_te_laag_telt_als_aanpassing(self):
+        attrs = _calc_quatt_advice(self._data(), None, False, max_water_setting=30.0)
+        assert attrs["max_water_advies"].startswith(
+            "Verhoog de maximale watertemperatuur in de Quatt-app van 30 naar 34°C"
+        )
+        assert attrs["aantal_aanpassingen"] == 1
+
+    def test_hoog_genoeg_nooit_omlaag(self):
+        """Omlaag adviseren doen we niet: het model rekent met een nominale retour."""
+        attrs = _calc_quatt_advice(self._data(), None, False, max_water_setting=55.0)
+        assert "hoog genoeg" in attrs["max_water_advies"]
+        assert "Verlaag" not in attrs["max_water_advies"]
+        assert attrs["aantal_aanpassingen"] == 0
+
+    def test_automatische_bijsturing(self):
+        attrs = _calc_quatt_advice(
+            self._data(), None, False, max_water_setting=30.0, max_water_auto=True
+        )
+        assert "automatisch" in attrs["max_water_advies"]
+        assert attrs["aantal_aanpassingen"] == 0
+
+    def test_openquatt_verwijst_naar_openquatt(self):
+        attrs = _calc_quatt_advice(self._data(), 16.0, True, max_water_setting=30.0)
+        assert "in OpenQuatt" in attrs["max_water_advies"]
+
+    def test_zonder_model_geen_advies(self):
+        data = QuattStooklijnData(
+            stooklijn=StooklijnResult(balance_temp_optimal=16.1),
+            heat_loss_hp=HeatLossResult(slope=None, intercept=None),
+        )
+        attrs = _calc_quatt_advice(data, None, False, max_water_setting=30.0)
+        assert attrs["max_water_advies"] is None
 
 
 class TestQuattAdviceSensorState:
@@ -185,6 +251,7 @@ class TestQuattAdviceSensorState:
         sensor = QuattAdviceSensor.__new__(QuattAdviceSensor)
         sensor.coordinator = type("C", (), {"data": data})()
         sensor._openquatt_stookgrens = lambda: (openquatt, setting)
+        sensor._max_water = lambda: (None, False)
         return sensor
 
     def _data(self, balance_opt=16.1):
