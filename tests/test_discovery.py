@@ -13,6 +13,7 @@ from homeassistant.helpers import entity_registry as er
 from custom_components.quatt_stooklijn.discovery import (
     ROLE_BOILER_HEAT,
     ROLE_CH_MAX_WATER,
+    ROLE_COMPRESSOR,
     ROLE_FLOW_RATE,
     ROLE_INDOOR_TEMP,
     ROLE_OUTDOOR_TEMP,
@@ -22,9 +23,11 @@ from custom_components.quatt_stooklijn.discovery import (
     ROLE_SOUND_NIGHT,
     ROLE_SUPPLY_TEMP,
     ROLE_TOTAL_POWER,
+    async_config_quatt_hubs,
     async_discover_openquatt_entities,
     async_discover_quatt_entities,
     async_entity_exists,
+    async_quatt_hub,
     async_resolve_candidates,
     async_resolve_entity,
     async_resolve_from_list,
@@ -269,6 +272,146 @@ class TestResolveCandidates:
     def test_lege_string_telt_niet_als_configuratie(self):
         got = async_resolve_candidates(_hass(MODERN), "  ", ROLE_SUPPLY_TEMP)
         assert got == ["sensor.flowmeter_temperature"]
+
+
+OWN_HUB = "CIC-eigen"
+NEIGHBOR_HUB = "CIC-buren"
+
+
+def _hub_entry(hub, entity_id, device_id, sensor_key):
+    return er.RegistryEntry(
+        entity_id=entity_id,
+        unique_id=f"{hub}:{device_id}:{sensor_key}",
+        platform="quatt",
+        disabled=False,
+    )
+
+
+# Twee Quatt-installaties in één HA, elk met een eigen entry van deze
+# integratie. De eigen CiC staat eerst in het register en heeft de
+# legacy-namen, dus die wint elke ongefilterde detectie én elke terugvalnaam.
+# De buren hebben geen cloud-koppeling en dus geen compressorfrequentie.
+TWO_HUBS = [
+    _hub_entry(OWN_HUB, "sensor.heatpump_total_power", "cic", "computedPower"),
+    _hub_entry(OWN_HUB, "sensor.heatpump_total_power_input", "cic", "computedPowerInput"),
+    _hub_entry(OWN_HUB, "sensor.heatpump_hp1_temperature_outside", "heatpump_1", "hp1.temperatureOutside"),
+    _hub_entry(OWN_HUB, "sensor.heatpump_1_compressor_frequency", "heatpump_1", "heatPumps.0.compressorFrequency"),
+    _hub_entry(NEIGHBOR_HUB, "sensor.cic_buren_total_power", "cic", "computedPower"),
+    _hub_entry(NEIGHBOR_HUB, "sensor.cic_buren_total_power_input", "cic", "computedPowerInput"),
+    _hub_entry(NEIGHBOR_HUB, "sensor.heatpump_1_buren_temperature_outside", "heatpump_1", "hp1.temperatureOutside"),
+]
+
+NEIGHBOR_CONFIG = {
+    "power_entity": "sensor.cic_buren_total_power",
+    "temp_entities": ["sensor.heatpump_1_buren_temperature_outside"],
+}
+
+
+class TestTweeInstallaties:
+    def test_hub_van_een_quatt_entity(self):
+        hass = _hass(TWO_HUBS)
+        assert async_quatt_hub(hass, "sensor.cic_buren_total_power") == NEIGHBOR_HUB
+        assert async_quatt_hub(hass, "sensor.bestaat_niet") is None
+        assert async_quatt_hub(hass, None) is None
+
+    def test_openquatt_hoort_bij_geen_hub(self):
+        hass = _hass([*TWO_HUBS, *OPENQUATT])
+        assert async_quatt_hub(hass, "sensor.openquatt_total_heat_power") is None
+
+    def test_config_levert_de_hub_van_de_ingestelde_entiteiten(self):
+        hass = _hass(TWO_HUBS)
+        assert async_config_quatt_hubs(hass, NEIGHBOR_CONFIG) == {NEIGHBOR_HUB}
+
+    def test_config_zonder_quatt_entiteiten_geeft_geen_anker(self):
+        hass = _hass(TWO_HUBS)
+        assert async_config_quatt_hubs(hass, {"weather_entity": "weather.x", "n": 3}) == set()
+
+    def test_voorgevulde_instelling_van_het_andere_huis_telt_niet_mee(self):
+        """Het optieformulier vulde de compressor met de eigen CiC voor.
+
+        Die waarde staat daarna als 'ingesteld' in de entry van de buren. Ze
+        mag het anker niet verbreden, anders filtert het niets meer.
+        """
+        hass = _hass(TWO_HUBS)
+        config = {
+            **NEIGHBOR_CONFIG,
+            "compressor_entity": "sensor.heatpump_1_compressor_frequency",
+        }
+        assert async_config_quatt_hubs(hass, config) == {NEIGHBOR_HUB}
+
+    def test_expliciete_entity_van_het_andere_huis_blijft_staan(self):
+        """Wat de gebruiker instelt wint, maar trekt geen gatenvullers mee."""
+        hass = _hass(TWO_HUBS)
+        got = async_resolve_candidates(
+            hass,
+            "sensor.heatpump_1_compressor_frequency",
+            ROLE_COMPRESSOR,
+            hubs={NEIGHBOR_HUB},
+        )
+        assert got == ["sensor.heatpump_1_compressor_frequency"]
+
+    def test_detectie_zonder_anker_ongewijzigd(self):
+        """Zonder hubs blijft de eerste hub in het register winnen, als voorheen."""
+        found = async_discover_quatt_entities(_hass(TWO_HUBS))
+        assert found[ROLE_TOTAL_POWER] == "sensor.heatpump_total_power"
+
+    def test_detectie_beperkt_tot_de_hub(self):
+        found = async_discover_quatt_entities(_hass(TWO_HUBS), {NEIGHBOR_HUB})
+        assert found[ROLE_TOTAL_POWER] == "sensor.cic_buren_total_power"
+        assert found[ROLE_POWER_INPUT] == "sensor.cic_buren_total_power_input"
+        assert ROLE_COMPRESSOR not in found
+
+    def test_gaten_niet_vullen_met_het_andere_huis(self):
+        """De oorzaak van de sprong in de samengevoegde reeks.
+
+        Zonder anker kwamen de detectie én de terugvalnaam
+        ``sensor.heatpump_total_power`` — beide van de eigen CiC — achter de
+        ingestelde sensor van de buren te staan.
+        """
+        hass = _hass(TWO_HUBS)
+        got = async_resolve_candidates(
+            hass, "sensor.cic_buren_total_power", ROLE_TOTAL_POWER
+        )
+        assert got == ["sensor.cic_buren_total_power"]
+
+    def test_niet_ingestelde_rol_volgt_het_anker_van_de_entry(self):
+        hass = _hass(TWO_HUBS)
+        hubs = async_config_quatt_hubs(hass, NEIGHBOR_CONFIG)
+        got = async_resolve_candidates(hass, None, ROLE_POWER_INPUT, hubs=hubs)
+        assert got == ["sensor.cic_buren_total_power_input"]
+
+    def test_ontbrekende_rol_leent_niet_van_het_andere_huis(self):
+        hass = _hass(TWO_HUBS)
+        hubs = async_config_quatt_hubs(hass, NEIGHBOR_CONFIG)
+        assert async_resolve_candidates(hass, None, ROLE_COMPRESSOR, hubs=hubs) == []
+
+    def test_openquatt_blijft_gatenvuller(self):
+        """OpenQuatt hoort bij geen CiC en valt dus niet af."""
+        hass = _hass([*TWO_HUBS, *OPENQUATT])
+        got = async_resolve_candidates(
+            hass, "sensor.cic_buren_total_power", ROLE_TOTAL_POWER
+        )
+        assert got == ["sensor.cic_buren_total_power", "sensor.openquatt_total_heat_power"]
+
+    def test_resolve_entity_volgt_de_config(self):
+        hass = _hass(TWO_HUBS)
+        assert async_resolve_entity(hass, NEIGHBOR_CONFIG, None, ROLE_POWER_INPUT) == (
+            "sensor.cic_buren_total_power_input"
+        )
+
+    def test_resolve_entity_negeert_ongefilterde_detectie(self):
+        """Een meegegeven ``discovered`` zonder hubfilter wordt overschreven."""
+        hass = _hass(TWO_HUBS)
+        unscoped = async_discover_quatt_entities(hass)
+        got = async_resolve_entity(
+            hass, NEIGHBOR_CONFIG, None, ROLE_POWER_INPUT, discovered=unscoped
+        )
+        assert got == "sensor.cic_buren_total_power_input"
+
+    def test_resolve_entity_geeft_geen_terugvalnaam_van_het_andere_huis(self):
+        hass = _hass(TWO_HUBS)
+        got = async_resolve_entity(hass, NEIGHBOR_CONFIG, None, ROLE_COMPRESSOR)
+        assert got != "sensor.heatpump_1_compressor_frequency"
 
 
 class TestResolve:

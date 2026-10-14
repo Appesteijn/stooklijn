@@ -54,6 +54,7 @@ from .discovery import (
     ROLE_OUTDOOR_TEMP,
     ROLE_TOTAL_POWER,
     async_discover_openquatt_entities,
+    async_config_quatt_hubs,
     async_discover_quatt_entities,
     async_resolve_candidates,
 )
@@ -158,7 +159,8 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
         # reeks op. De eerste kandidaat blijft leidend; de rest vult alleen de
         # gaten (zie analysis.stooklijn.coalesce_series).
         _LOGGER.info("Fetching live history for stooklijn analysis...")
-        discovered = async_discover_quatt_entities(self.hass)
+        hubs = async_config_quatt_hubs(self.hass, config)
+        discovered = async_discover_quatt_entities(self.hass, hubs)
         openquatt = async_discover_openquatt_entities(self.hass)
         temp_candidates = async_resolve_candidates(
             self.hass,
@@ -166,6 +168,7 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             ROLE_OUTDOOR_TEMP,
             discovered=discovered,
             openquatt=openquatt,
+            hubs=hubs,
         )
         power_candidates = async_resolve_candidates(
             self.hass,
@@ -173,6 +176,7 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             ROLE_TOTAL_POWER,
             discovered=discovered,
             openquatt=openquatt,
+            hubs=hubs,
         )
         df_ha_merged = await async_fetch_live_history(
             self.hass,

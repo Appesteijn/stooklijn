@@ -69,6 +69,7 @@ from .discovery import (
     ROLE_SUPPLY_TEMP,
     ROLE_TOTAL_POWER,
     async_discover_openquatt_entities,
+    async_config_quatt_hubs,
     async_discover_quatt_entities,
     async_openquatt_node_entities,
     async_resolve_candidates,
@@ -353,7 +354,8 @@ class SourceRegistry:
         opstarten van deze integratie geladen worden, en dan moet een nieuw
         beschikbare bron alsnog meedoen.
         """
-        discovered = async_discover_quatt_entities(self._hass)
+        hubs = async_config_quatt_hubs(self._hass, self._config)
+        discovered = async_discover_quatt_entities(self._hass, hubs)
         openquatt = async_discover_openquatt_entities(self._hass)
         openquatt_entities = async_openquatt_node_entities(self._hass)
         changed: list[str] = []
@@ -365,6 +367,7 @@ class SourceRegistry:
                 role,
                 discovered=discovered,
                 openquatt=openquatt,
+                hubs=hubs,
             )
 
             best = next(

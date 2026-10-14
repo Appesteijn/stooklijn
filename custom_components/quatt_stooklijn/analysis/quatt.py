@@ -20,7 +20,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from ..cache import QuattInsightsCache
-from ..const import API_FETCH_DAYS
+from ..const import (
+    API_FETCH_DAYS,
+    CONF_BOILER_HEAT_ENTITY,
+    CONF_POWER_ENTITY,
+    CONF_POWER_INPUT_ENTITY,
+    CONF_TEMP_ENTITIES,
+)
 from ..discovery import (
     ROLE_BOILER_HEAT,
     ROLE_OUTDOOR_TEMP,
@@ -66,10 +72,12 @@ async def _async_fetch_recorder_daily(
     )
 
     # Entity-IDs verschillen per installatie (zie discovery.py); niet hardcoden.
+    # De al bekende entiteiten verankeren de detectie aan hun eigen CiC.
+    anchor = {CONF_POWER_ENTITY: power_entity, CONF_TEMP_ENTITIES: [temp_entity]}
     if power_input_entity is None:
-        power_input_entity = async_resolve_entity(hass, {}, None, ROLE_POWER_INPUT)
+        power_input_entity = async_resolve_entity(hass, anchor, None, ROLE_POWER_INPUT)
     if boiler_heat_entity is None:
-        boiler_heat_entity = async_resolve_entity(hass, {}, None, ROLE_BOILER_HEAT)
+        boiler_heat_entity = async_resolve_entity(hass, anchor, None, ROLE_BOILER_HEAT)
 
     statistic_ids = {
         sid
@@ -309,12 +317,20 @@ async def async_fetch_quatt_insights(
     # === Step 1: Recorder statistics for full history ===
     _LOGGER.info("Fetching recorder statistics for %s to %s...", start_date, end_date)
     # Entity-IDs verschillen per installatie (zie discovery.py); niet hardcoden.
+    # Wat de entry al heeft ingesteld verankert de detectie aan haar eigen CiC;
+    # met twee Quatt-installaties in één HA kiest die anders vrij een hub.
+    anchor = {
+        CONF_POWER_ENTITY: power_entity,
+        CONF_TEMP_ENTITIES: [temp_entity],
+        CONF_POWER_INPUT_ENTITY: power_input_entity,
+        CONF_BOILER_HEAT_ENTITY: boiler_heat_entity,
+    }
     discovered = async_discover_quatt_entities(hass)
     power_entity = power_entity or async_resolve_entity(
-        hass, {}, None, ROLE_TOTAL_POWER, discovered=discovered
+        hass, anchor, None, ROLE_TOTAL_POWER, discovered=discovered
     )
     temp_entity = temp_entity or async_resolve_entity(
-        hass, {}, None, ROLE_OUTDOOR_TEMP, discovered=discovered
+        hass, anchor, None, ROLE_OUTDOOR_TEMP, discovered=discovered
     )
 
     df_daily_recorder = await _async_fetch_recorder_daily(
@@ -327,9 +343,9 @@ async def async_fetch_quatt_insights(
         # Zonder deze voorrang leest de analyse alsnog de Quatt-sensor terwijl
         # de gebruiker de rol op een andere bron heeft gezet.
         power_input_entity
-        or async_resolve_entity(hass, {}, None, ROLE_POWER_INPUT, discovered=discovered),
+        or async_resolve_entity(hass, anchor, None, ROLE_POWER_INPUT, discovered=discovered),
         boiler_heat_entity
-        or async_resolve_entity(hass, {}, None, ROLE_BOILER_HEAT, discovered=discovered),
+        or async_resolve_entity(hass, anchor, None, ROLE_BOILER_HEAT, discovered=discovered),
     )
 
     # === Step 2: Cached hourly data for historical period (before API window) ===
