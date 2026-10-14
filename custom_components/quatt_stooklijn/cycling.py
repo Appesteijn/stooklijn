@@ -158,6 +158,21 @@ class CycleTracker:
     def starts_in_last(self, hours: float, now: datetime) -> int:
         return self.starts_since(now - timedelta(hours=hours))
 
+    def runtime_hours_in_last(self, hours: float, now: datetime) -> float:
+        """Draaiuren binnen het venster; een lopende beurt telt mee tot nu.
+
+        Een beurt die vóór het venster begon telt alleen met het deel erbinnen,
+        anders schuift één lange nachtbeurt in zijn geheel het venster in.
+        """
+        grens = now - timedelta(hours=hours)
+        totaal = 0.0
+        for r in self.runs:
+            begin = max(r.start, grens)
+            eind = r.stop or now
+            if eind > begin:
+                totaal += (eind - begin).total_seconds()
+        return round(totaal / 3600.0, 1)
+
     def average_runtime_minutes(self, hours: float, now: datetime) -> float | None:
         """Gemiddelde looptijd van de afgeronde beurten in het venster.
 

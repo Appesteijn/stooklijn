@@ -2166,9 +2166,14 @@ views:
 
               {% if pu.get('hp2', {}).get('bron') %}
 
-              Verdeling over het etmaal: **hp1 {{ pu.hp1.starts_laatste_etmaal }}**,
-              **hp2 {{ pu.hp2.starts_laatste_etmaal }}**. De units wisselen om en om af, dus
-              beide tellen mee; een scheve verdeling betekent dat er één het meeste werk doet.
+              Starts per unit, laatste etmaal: **hp1 {{ pu.hp1.starts_laatste_etmaal }}**,
+              **hp2 {{ pu.hp2.starts_laatste_etmaal }}**. Het duo wisselt niet per start maar
+              in blokken: de ene unit draait een periode alle beurten, daarna neemt de andere
+              het over. Een etmaal met alles op één unit is dus normaal.
+              {% if pu.hp1.draaiuren_7d is defined %}Over 7 dagen: hp1 {{ pu.hp1.draaiuren_7d }} u
+              ({{ pu.hp1.starts_7d }} starts), hp2 {{ pu.hp2.draaiuren_7d }} u ({{ pu.hp2.starts_7d }}
+              starts). Pas als die draaiuren ver uit elkaar liggen, doet één unit structureel
+              het werk.{% endif %}
 
               {% endif %}
 

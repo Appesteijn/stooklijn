@@ -476,8 +476,8 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_COP_ENTITY, _current(CONF_COP_ENTITY, ROLE_COP)
                     ): _entity("sensor"),
                     # Compressorfrequentie: hieruit worden de starts geteld.
-                    # Twee velden, want een duo wisselt de units om en om af en
-                    # start dus onafhankelijk — zie ROLE_COMPRESSOR. Op een solo
+                    # Twee velden, want een duo verdeelt het werk over beide units
+                    # en die starten onafhankelijk — zie ROLE_COMPRESSOR. Op een solo
                     # blijft het tweede veld leeg.
                     _prefill(
                         CONF_COMPRESSOR_ENTITY,

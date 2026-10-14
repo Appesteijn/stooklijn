@@ -3,7 +3,7 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
-## Unreleased
+## v0.10.5-beta.1 — 2026-10-14
 
 - **Meerdere Quatt-installaties in één HA:** elke entry blijft bij haar eigen
   CiC. Detectie, gatenvullers en terugvalnamen lenen geen metingen meer van de
@@ -17,6 +17,10 @@ commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 - **Nieuw advies voor de maximale watertemperatuur,** de instelling die wél in
   de Quatt-app staat: wat het huis bij -10 °C aan aanvoer nodig heeft. Staat
   hij lager, dan telt dat als aanpassing. Omlaag adviseren doet het niet.
+- **Compressorstarts per unit:** naast de starts van het laatste etmaal nu
+  ook starts en draaiuren over 7 dagen per unit. Een duo wisselt niet per
+  start maar in blokken af, dus een etmaal met alles op één unit is normaal;
+  pas de draaiuren over een week zeggen iets over de verdeling.
 
 ## v0.10.4 — 2026-10-11
 

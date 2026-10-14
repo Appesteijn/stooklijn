@@ -3799,10 +3799,9 @@ class QuattCompressorStartsSensor(SensorEntity):
     de nacht — lage vraag, hoge aanvoertemperatuur — de periode is waarin het
     kortcyclen begint.
 
-    Beide units tellen apart mee. Een duo wisselt ze slim om en om af, dus ze
-    starten en stoppen onafhankelijk; wie alleen hp1 volgt telt ruwweg de helft
-    en ziet een installatie die om beurten kortcyclet aan voor een rustig
-    draaiende. Op een solo blijft de tweede tracker leeg.
+    Beide units tellen apart mee. Een duo verdeelt het werk over beide units,
+    dus ze starten en stoppen onafhankelijk; wie alleen hp1 volgt mist de
+    starts van hp2. Op een solo blijft de tweede tracker leeg.
 
     Als grafiek naast de buitentemperatuur beantwoordt deze sensor de vraag
     waarvoor hij bestaat: veel starts terwijl het buiten niet warm is, betekent
@@ -4014,20 +4013,24 @@ class QuattCompressorStartsSensor(SensorEntity):
             "draait_nu": any(t.running for t in alle),
             "laatste_start": max(starts).isoformat() if starts else None,
             "beurten_bewaard": self._sum(lambda t: len(t.runs)),
-            # Per unit, zodat zichtbaar is of er één de dienst uitmaakt of dat
-            # ze netjes afwisselen.
+            # Per unit, zodat zichtbaar is of er één de dienst uitmaakt. Het
+            # duo neemt het werk in blokken van elkaar over, niet per start:
+            # een etmaal met alles op één unit is normaal. Pas de draaiuren
+            # over een week zeggen iets over de verdeling.
             "per_unit": {
-                "hp1": {
-                    "starts_laatste_etmaal": self._trackers[
-                        ROLE_COMPRESSOR
-                    ].starts_in_last(24, now),
-                    "bron": self._source_for(ROLE_COMPRESSOR),
-                },
-                "hp2": {
-                    "starts_laatste_etmaal": self._trackers[
-                        ROLE_COMPRESSOR_2
-                    ].starts_in_last(24, now),
-                    "bron": self._source_for(ROLE_COMPRESSOR_2),
-                },
+                unit: {
+                    "starts_laatste_etmaal": self._trackers[role].starts_in_last(
+                        24, now
+                    ),
+                    "starts_7d": self._trackers[role].starts_in_last(24 * 7, now),
+                    "draaiuren_7d": self._trackers[role].runtime_hours_in_last(
+                        24 * 7, now
+                    ),
+                    "bron": self._source_for(role),
+                }
+                for unit, role in (
+                    ("hp1", ROLE_COMPRESSOR),
+                    ("hp2", ROLE_COMPRESSOR_2),
+                )
             },
         }

@@ -459,7 +459,7 @@ class TestOnbekendeMeting:
 
 
 class TestTweeUnits:
-    """Een duo wisselt de warmtepompen slim om en om af.
+    """Een duo verdeelt het werk over twee warmtepompen.
 
     Dit is de correctie op de eerste opzet, die hp1 als leidende unit volgde met
     hp2 als terugval. Dat is verkeerd: ze starten en stoppen onafhankelijk, dus
@@ -503,6 +503,30 @@ class TestTweeUnits:
         hp2.update(30.0, _op(30))
         nu = _op(60)
         assert hp1.starts_in_last(24, nu) + hp2.starts_in_last(24, nu) == 2
+
+    def test_blokwisseling_scheef_per_etmaal_gelijk_per_week(self):
+        """Het duo wisselt in blokken: een etmaal kan 0/8 zijn terwijl de
+        draaiuren over de week gelijk opgaan."""
+        hp1, hp2 = CycleTracker(), CycleTracker()
+        hp1.update(30.0, T0)
+        hp1.update(0.0, _op(600))  # één lange beurt van 10 uur
+        for i in range(8):  # daarna 8 beurten van 75 min op hp2
+            hp2.update(30.0, _op(1500 + i * 120))
+            hp2.update(0.0, _op(1500 + i * 120 + 75))
+        nu = _op(1500 + 8 * 120)
+        assert hp1.starts_in_last(24, nu) == 0
+        assert hp2.starts_in_last(24, nu) == 8
+        assert hp1.runtime_hours_in_last(24 * 7, nu) == 10.0
+        assert hp2.runtime_hours_in_last(24 * 7, nu) == 10.0
+
+    def test_draaiuren_knippen_af_op_venster_en_tellen_lopend_mee(self):
+        t = CycleTracker()
+        t.update(30.0, T0)
+        t.update(0.0, _op(120))
+        t.update(30.0, _op(180))  # loopt nog
+        nu = _op(240)
+        assert t.runtime_hours_in_last(2, nu) == 1.0  # alleen de lopende beurt
+        assert t.runtime_hours_in_last(24, nu) == 3.0
 
     def test_solo_installatie_telt_gewoon_door(self):
         """De tweede tracker blijft leeg en mag niets bederven."""
