@@ -211,15 +211,22 @@ def track_hidden_state(
     tijdconstante, vandaar de inlooptijd bij fitten en evalueren.
     """
     Ad, Bd = discretize(p, dt_hours)
+    # De invoer die niet van de toestand afhangt in één keer vectorieel; alleen
+    # de terugkoppeling op tm zelf moet stap voor stap. Op vijfminutendata
+    # loopt deze lus duizenden keren per kostenevaluatie, en Python-floats zijn
+    # daar een factor tien sneller dan numpy-scalars.
+    drive = (Ad[1, 0] * np.asarray(t_indoor, dtype=float)
+             + Bd[1, 0] * np.asarray(t_outdoor, dtype=float)
+             + Bd[1, 1] * np.asarray(q_solar, dtype=float)
+             + Bd[1, 2] * np.asarray(q_hp, dtype=float)
+             + Bd[1, 3]).tolist()
+    a = float(Ad[1, 1])
     n = len(t_indoor)
-    tm = np.empty(n)
-    tm[0] = t_indoor[0]
+    tm = [0.0] * n
+    tm[0] = float(t_indoor[0])
     for k in range(n - 1):
-        u = (t_outdoor[k], q_solar[k], q_hp[k], 1.0)
-        tm[k + 1] = Ad[1, 0] * t_indoor[k] + Ad[1, 1] * tm[k] + (
-            Bd[1, 0] * u[0] + Bd[1, 1] * u[1] + Bd[1, 2] * u[2] + Bd[1, 3] * u[3]
-        )
-    return tm
+        tm[k + 1] = drive[k] + a * tm[k]
+    return np.array(tm)
 
 
 def simulate(
@@ -266,6 +273,36 @@ _LM_TOL = 1e-10
 
 #: Uren voordat de aanname T_massa(0) = T_binnen(0) is uitgestorven.
 BURN_IN_HOURS = 24.0
+
+#: Hoe ver vooruit de fit zijn voorspelfout meet, ongeacht de stapgrootte.
+#:
+#: Een eenstapsfit werkt niet op vijfminutendata. De kamertemperatuur komt in
+#: 0,01 K binnen maar flakkert binnen minuten ±0,015 K, terwijl hij tijdens
+#: stoken zo'n 0,02 K per vijf minuten stijgt (gemeten oktober 2026): ruis en
+#: signaal zijn per stap even groot. De eenstapsfit neemt die ruisende meting
+#: bovendien als begintoestand van elke voorspelling, en het resultaat is een
+#: snelle knoop die veel te snel lijkt.
+#:
+#: Gemeten op een synthetisch huis met τ_snel = 3,6 u, verwarmd in blokken
+#: zoals de echte warmtepomp (een nachtblok, af en toe een korte run), met
+#: 0,015 K witte meetruis:
+#:
+#:     fithorizon   τ_snel   Ci (echt 8000)   alpha (echt 0,90)
+#:       5 min      1,1 u        3664              0,53
+#:       1 u        3,0 u        7003              0,82
+#:       6 u        3,5 u        7784              0,89
+#:
+#: Over een langere horizon middelt de ruis uit, terwijl de vijfminuteninvoer
+#: erin blijft: wanneer binnen het uur de pomp liep, telt nog steeds mee. Zes
+#: uur ligt boven de snelle tijdconstante van een gewoon huis en onder de
+#: twaalf uur waarop getoetst wordt.
+FIT_HORIZON_HOURS = 6.0
+
+#: Om de hoeveel tijd een voorspelling in de fit begint. Startpunten vijf
+#: minuten uit elkaar delen over een horizon van zes uur vrijwel alles; om het
+#: kwartier geeft dezelfde fit met een derde van het geheugen. Bij een vol
+#: logboek scheelt dat zo'n 30 MB aan Jacobiaan op een Raspberry Pi.
+FIT_START_EVERY_HOURS = 0.25
 
 Segment = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
 
@@ -318,17 +355,40 @@ def one_step_residuals(
     ``burn_in`` is een aantal stappen; laat hem weg voor de inlooptijd van
     ``BURN_IN_HOURS``, omgerekend naar de gebruikte stapgrootte.
     """
+    return multi_step_residuals(p, segments, 1, burn_in, dt_hours)
+
+
+def multi_step_residuals(
+    p: TwoStateParams,
+    segments: list[Segment],
+    steps: int,
+    burn_in: int | None = None,
+    dt_hours: float = 1.0,
+    start_every: int = 1,
+) -> np.ndarray:
+    """Fout in de voorspelling van de binnentemperatuur, 1 t/m ``steps`` stappen
+    vooruit, vanaf elk ``start_every``-de tijdstip na de inlooptijd.
+
+    Elke voorspelling begint bij de gemeten binnentemperatuur en de
+    gereconstrueerde massatemperatuur, en rekent daarna vrij door op de echte
+    invoer. Alle startpunten lopen tegelijk, als één matrix: de lus gaat over
+    de horizon, niet over de tijdreeks.
+    """
     if burn_in is None:
         burn_in = steps_in(BURN_IN_HOURS, dt_hours)
     Ad, Bd = discretize(p, dt_hours)
     parts = []
     for ti, to, sol, q in segments:
-        if len(ti) <= burn_in + 1:
+        n = len(ti)
+        if n <= burn_in + steps:
             continue
         tm = track_hidden_state(p, ti, to, sol, q, dt_hours)
-        u = np.column_stack([to, sol, q, np.ones(len(ti))])
-        pred = Ad[0, 0] * ti[:-1] + Ad[0, 1] * tm[:-1] + u[:-1] @ Bd[0]
-        parts.append(pred[burn_in:] - ti[1:][burn_in:])
+        u = np.column_stack([to, sol, q, np.ones(n)])
+        starts = np.arange(burn_in, n - steps, start_every)
+        x = np.column_stack([ti[starts], tm[starts]])
+        for j in range(steps):
+            x = x @ Ad.T + u[starts + j] @ Bd.T
+            parts.append(x[:, 0] - ti[starts + j + 1])
     if not parts:
         return np.zeros(0)
     return np.concatenate(parts)
@@ -340,8 +400,13 @@ def fit(
     burn_in: int | None = None,
     max_iter: int = _LM_MAX_ITER,
     dt_hours: float = 1.0,
+    horizon_steps: int = 1,
+    start_every: int = 1,
 ) -> tuple[TwoStateParams, dict]:
-    """Fit de zeven parameters op eenstaps-voorspelfout.
+    """Fit de zeven parameters op voorspelfout over ``horizon_steps`` stappen.
+
+    Standaard één stap, vanaf elk tijdstip. Op vijfminutendata hoort hier
+    ``steps_in(FIT_HORIZON_HOURS, dt_hours)`` te staan; zie die constante.
 
     Geeft de parameters plus een verslag: aantal iteraties, RMS, en of de fit
     daadwerkelijk convergeerde. Dat verslag hoort meegewogen te worden — een
@@ -353,8 +418,9 @@ def fit(
     x = _to_free(np.array([start[k] for k in ORDER], dtype=float))
 
     def cost_at(free: np.ndarray) -> tuple[np.ndarray, float]:
-        r = one_step_residuals(TwoStateParams.from_array(_to_bounded(free)),
-                               segments, burn_in, dt_hours)
+        r = multi_step_residuals(TwoStateParams.from_array(_to_bounded(free)),
+                                 segments, horizon_steps, burn_in, dt_hours,
+                                 start_every)
         return r, float(r @ r)
 
     r, cost = cost_at(x)
@@ -415,6 +481,8 @@ def fit(
         "stop_reason": stop_reason,
         "rms_k": float(np.sqrt(cost / max(r.size, 1))),
         "n_residuals": int(r.size),
+        "dt_hours": dt_hours,
+        "horizon_steps": horizon_steps,
     }
     return params, report
 
@@ -589,27 +657,68 @@ def fit_and_validate(
         burn_in = steps_in(BURN_IN_HOURS, dt_hours)
     if min_train_steps is None:
         min_train_steps = steps_in(MIN_TRAIN_HOURS, dt_hours)
+    train, test = split_alternating(segments, dt_hours=dt_hours)
+    return fit_and_score(
+        train, test, horizon, reference_rmse=reference_rmse, margin=margin,
+        fit_dt_hours=dt_hours, test_dt_hours=dt_hours, max_iter=max_iter,
+        min_train_hours=min_train_steps * dt_hours,
+        fit_burn_in=burn_in, test_burn_in=burn_in,
+    )
+
+
+def fit_and_score(
+    train: list[Segment],
+    test: list[Segment],
+    horizon: int,
+    reference_rmse: float | None = None,
+    margin: float = DEFAULT_MARGIN,
+    fit_dt_hours: float = 1.0,
+    test_dt_hours: float = 1.0,
+    max_iter: int = _LM_MAX_ITER,
+    min_train_hours: float = MIN_TRAIN_HOURS,
+    fit_burn_in: int | None = None,
+    test_burn_in: int | None = None,
+) -> Validation:
+    """Fit op ``train`` en toets op ``test``, elk op een eigen stapgrootte.
+
+    Het model mag fijner leren dan het getoetst wordt. Dat is de bedoeling:
+    leren op vijf minuten, zodat de timing van het vermogen binnen het uur
+    meetelt, en toetsen per uur, zoals de MPC het model gebruikt en zoals het
+    huidige model gescoord wordt. Omdat de discretisatie exact is, betekenen de
+    parameters op elke stap hetzelfde.
+
+    ``horizon`` telt stappen van ``test_dt_hours``.
+    """
+    if fit_burn_in is None:
+        fit_burn_in = steps_in(BURN_IN_HOURS, fit_dt_hours)
+    if test_burn_in is None:
+        test_burn_in = steps_in(BURN_IN_HOURS, test_dt_hours)
+
     def _no(reason: str, **kw) -> Validation:
         return Validation(params=None, report=kw.pop("report", {}), rmse=None,
                           reference_rmse=reference_rmse, persistence_rmse=None,
                           accepted=False, reason=reason)
 
-    train, test = split_alternating(segments, dt_hours=dt_hours)
-    if sum(len(s[0]) for s in train) < min_train_steps:
+    # Kleine marge tegen afronding: 336 uur aan vijfminutenstappen is
+    # 4032 stappen, en 4032 * (1/12) is in floats niet precies 336.
+    if sum(len(s[0]) for s in train) * fit_dt_hours < min_train_hours - 1e-6:
         return _no("te weinig trainingsdata")
     if not test:
         return _no("te weinig testdata")
 
     try:
-        params, report = fit(train, burn_in=burn_in, dt_hours=dt_hours,
-                             max_iter=max_iter)
+        params, report = fit(
+            train, burn_in=fit_burn_in, dt_hours=fit_dt_hours, max_iter=max_iter,
+            horizon_steps=steps_in(FIT_HORIZON_HOURS, fit_dt_hours),
+            start_every=steps_in(FIT_START_EVERY_HOURS, fit_dt_hours),
+        )
     except (ValueError, np.linalg.LinAlgError) as err:
         return _no(f"fit mislukt: {err}")
     if not report.get("converged"):
         return _no("fit convergeerde niet", report=report)
 
-    rmse = rmse_at_horizon(params, test, horizon, burn_in, dt_hours)
-    persist = persistence_rmse(test, horizon, burn_in, dt_hours)
+    rmse = rmse_at_horizon(params, test, horizon, test_burn_in, test_dt_hours)
+    persist = persistence_rmse(test, horizon, test_burn_in, test_dt_hours)
     if rmse is None:
         return _no("geen bruikbare testvensters", report=report)
 

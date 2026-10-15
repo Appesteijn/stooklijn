@@ -3,6 +3,36 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.5-beta.2 — 2026-10-15
+
+Betaversie. De modelvergelijking (2R2C tegen het huidige model) leert nu op
+de vijfminutenmetingen in plaats van op uurgemiddelden.
+
+- **Het tweetoestandsmodel leert op vijf minuten, getoetst wordt nog per uur.**
+  Een uurgemiddelde van het vermogen bewaart de energie maar niet wanneer die
+  binnenkwam: dertig minuten op 5 kW en een uur op 2,5 kW geven hetzelfde
+  getal. Voor de trage bouwmassa maakt dat niets uit, voor de snelle reactie
+  van de binnenlucht wel, en die moet dit model juist leren. Dit was al
+  vastgesteld voor de knikdetectie; v0.10.3 rekende hier ten onrechte op
+  uurgemiddelden. De toetsing blijft per uur, omdat de MPC per uur plant.
+- **De fit kijkt zes uur vooruit in plaats van één stap.** De kamersensor
+  flakkert ongeveer evenveel als de kamer per vijf minuten opwarmt. Een
+  eenstapsfit leest die ruis als snelle dynamiek: op een testhuis kwam de
+  snelle tijdconstante op 1,1 uur uit in plaats van 3,6. Over zes uur
+  vooruit: 3,5 uur.
+- **Train- en testweken liggen vast op de kalender.** Leren en toetsen krijgen
+  zo gegarandeerd dezelfde weken, en een week verschuift niet meer naar de
+  andere helft als het logboek groeit.
+- **Korte gaten in het logboek (tot een half uur) worden overbrugd.** Op vijf
+  minuten breekt anders elke herstart van Home Assistant de reeks, en dan
+  haalt geen enkel stuk de minimumlengte van drie dagen.
+- **De sensor toont de echte trainingsuren** (`train_uren`, `test_uren`,
+  `leerstap_minuten`). `benodigde_train_uren` is nu de eis aan die
+  trainingsuren (336), niet meer twee keer dat aan logboekuren: gaten en te
+  korte stukken tellen niet mee, dus het logboektotaal zei weinig.
+- **Dashboard:** de kaart Modelvergelijking zet de trainingsuren tegen de eis,
+  en zegt niet langer dat het logboek alleen bij warmtevraag vult.
+
 ## v0.10.5-beta.1 — 2026-10-14
 
 - **Meerdere Quatt-installaties in één HA:** elke entry blijft bij haar eigen

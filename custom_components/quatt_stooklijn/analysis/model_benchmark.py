@@ -14,18 +14,26 @@ Die derde hoort erbij. Op korte horizon is hij verrassend sterk, en een model
 dat er niet overheen komt voegt niets toe hoe fraai de andere twee getallen
 ook staan.
 
-Waarom op uurbasis en niet op vijf minuten
-------------------------------------------
-Het meetlogboek bemonstert op vijf minuten, en dat is precies wat je nodig
-hebt om ooit een derde toestand te identificeren. Voor deze vergelijking is
-het de verkeerde stap. Het huidige model leert op uurbasis en is daar het
-sterkst; op vijfminutenstappen zou de referentie iets meten wat ze in
-productie nooit doet, en dan vergelijk je twee modellen op een baan waar er
-maar één van is. Bovendien kost de vrijloop-evaluatie twaalf keer zoveel werk
-voor een antwoord op dezelfde vraag.
+Leren op vijf minuten, toetsen per uur
+--------------------------------------
+Het 2R2C leert op de vijfminutenmonsters, niet op uurgemiddelden. Een
+uurgemiddelde van het vermogen gooit precies weg wat de snelle knoop moet
+leren: een uur met dertig minuten op 5 kW en een uur met zestig minuten op
+2,5 kW hebben hetzelfde gemiddelde, maar niet dezelfde luchttemperatuur aan
+het eind van dat uur. Voor de trage bouwmassa telt alleen de energie; voor
+Ci, Hm en alpha telt wanneer die energie binnenkwam. Dit was eerder al
+vastgesteld voor de knikdetectie (defrost-verdunning, zie
+KNEE_DETECTION_IMPROVEMENTS.md) en staat als regel in CLAUDE.md.
 
-De monsters worden dus tot uurgemiddelden samengevat. Wat er aan snelle
-dynamiek in zit gaat daarmee verloren — dat is bekend en bedoeld.
+Getoetst wordt wél per uur, op dezelfde uren voor alle drie de modellen. Het
+1R1C rekent in uurstappen en de MPC plant per uur; het 2R2C fijner toetsen
+zou het belonen voor informatie die het in gebruik niet krijgt. Dat kan
+zonder kunstgrepen omdat de discretisatie exact is: parameters die op vijf
+minuten geleerd zijn, betekenen op een uurstap hetzelfde.
+
+Train- en testweken worden op kalendertijd gekozen, niet per reeks. Dan
+krijgen beide stapgroottes gegarandeerd dezelfde weken, en blijft een week
+in dezelfde helft als het logboek groeit.
 """
 
 from __future__ import annotations
@@ -38,10 +46,12 @@ import numpy as np
 from .thermal_model import OnlineRCModel
 from .thermal_model_2r2c import (
     BURN_IN_HOURS,
+    MIN_BLOCK_HOURS,
     MIN_TRAIN_HOURS,
+    SPLIT_BLOCK_HOURS,
     Segment,
-    fit_and_validate,
-    split_alternating,
+    Validation,
+    fit_and_score,
     steps_in,
 )
 
@@ -52,8 +62,20 @@ _LOGGER = logging.getLogger(__name__)
 #: nauwelijks van niets doen; pas over een halve dag scheiden ze.
 DEFAULT_HORIZON_HOURS = 12.0
 
-#: Stapgrootte van de vergelijking. Zie de kop van dit bestand.
+#: Stapgrootte waarop getoetst wordt. Zie de kop van dit bestand.
 DEFAULT_DT_HOURS = 1.0
+
+#: Stapgrootte waarop het 2R2C leert: die van het meetlogboek.
+FIT_DT_HOURS = 5.0 / 60.0
+
+#: Langste gat dat bij het leren overbrugd wordt, door lineair te
+#: interpoleren. Op vijf minuten breekt anders elk ontbrekend monster de
+#: reeks, en een herstart van HA kost er al een of twee. Stukken korter dan
+#: MIN_BLOCK_HOURS tellen niet mee, dus zonder overbrugging zou een logboek
+#: met een dagelijkse herstart nooit één bruikbaar trainingsblok opleveren.
+#: Een half uur is ruim onder de snelle tijdconstante van een huis; wat er in
+#: zo'n gat gebeurde valt uit de omliggende metingen goed genoeg te raden.
+MAX_GAP_FILL_HOURS = 0.5
 
 #: Hoeveel van een uur gemeten moet zijn voordat het als uur meetelt. Een uur
 #: met twee monsters is geen uurgemiddelde maar een momentopname met een
@@ -82,13 +104,18 @@ def resample(
     rows: list[list[float]],
     dt_hours: float = DEFAULT_DT_HOURS,
     min_coverage: float = MIN_BUCKET_COVERAGE,
+    max_fill_hours: float = 0.0,
 ) -> list[Segment]:
     """Vat de logboekmonsters samen tot aaneengesloten reeksen.
 
     Elke bak van ``dt_hours`` wordt het gemiddelde van de monsters erin. Bakken
-    met te weinig monsters vervallen, en op elk gat breekt de reeks: een
+    met te weinig monsters vervallen, en op een gat breekt de reeks: een
     segment is per definitie aaneengesloten, want de vrijloop rekent stap voor
     stap door en kan niet over een ontbrekend uur heen.
+
+    Gaten tot en met ``max_fill_hours`` worden lineair overbrugd in plaats van
+    de reeks te breken. Standaard gebeurt dat niet; zie ``MAX_GAP_FILL_HOURS``
+    voor waarom het bij het leren op vijf minuten wel moet.
 
     De monsters worden eerst op tijd gesorteerd. Het logboek staat daar niet
     altijd op: na een teruglopende klok — een NTP-correctie bij een herstart
@@ -97,7 +124,7 @@ def resample(
     if len(rows) < 2:
         return []
     data = np.asarray(rows, dtype=float)
-    data = data[np.argsort(data[:, _TS])]
+    data = data[np.argsort(data[:, _TS], kind="stable")]
 
     sample_s = _median_step_seconds(data[:, _TS])
     if sample_s is None:
@@ -107,31 +134,63 @@ def resample(
     expected = max(1.0, bucket_s / sample_s)
     min_samples = max(1, int(np.ceil(min_coverage * expected)))
 
+    # Gesorteerd, dus elke bak is één aaneengesloten blok rijen en kan in één
+    # keer opgeteld worden. Per bak filteren kost op een vol logboek met
+    # vijfminutenbakken honderden miljoenen vergelijkingen.
     index = np.floor(data[:, _TS] / bucket_s).astype(np.int64)
+    buckets, first, counts = np.unique(index, return_index=True, return_counts=True)
+    cols = data[:, [_T_IN, _T_OUT, _Q_SOLAR, _Q_HP]]
+    means = np.add.reduceat(cols, first, axis=0) / counts[:, None]
+
+    # Te dunne bakken vervallen; daarmee ontstaat op die plek een gat.
+    keep = counts >= min_samples
+    buckets, means = buckets[keep], means[keep]
+    if len(buckets) < 2:
+        return []
+
+    max_missing = int(round(max_fill_hours / dt_hours))
+    breaks = np.flatnonzero(np.diff(buckets) - 1 > max_missing) + 1
     segments: list[Segment] = []
-    cols: list[list[float]] = [[], [], [], []]
-    prev_bucket: int | None = None
-
-    def _flush() -> None:
-        if len(cols[0]) >= 2:
-            segments.append(tuple(np.array(c) for c in cols))  # type: ignore[arg-type]
-        for c in cols:
-            c.clear()
-
-    for bucket in np.unique(index):
-        chunk = data[index == bucket]
-        if len(chunk) < min_samples:
-            # Te dun: de bak vervalt, en daarmee breekt de reeks hier.
-            _flush()
-            prev_bucket = None
+    for idx, vals in zip(np.split(buckets, breaks), np.split(means, breaks)):
+        if len(idx) < 2:
             continue
-        if prev_bucket is not None and bucket != prev_bucket + 1:
-            _flush()
-        for i, col in enumerate((_T_IN, _T_OUT, _Q_SOLAR, _Q_HP)):
-            cols[i].append(float(chunk[:, col].mean()))
-        prev_bucket = int(bucket)
-    _flush()
+        full = np.arange(idx[0], idx[-1] + 1)
+        if len(full) != len(idx):
+            vals = np.column_stack(
+                [np.interp(full, idx, vals[:, i]) for i in range(vals.shape[1])]
+            )
+        segments.append(tuple(vals[:, i].copy() for i in range(4)))  # type: ignore[arg-type]
     return segments
+
+
+def split_by_week(rows: list[list[float]]) -> tuple[np.ndarray, np.ndarray]:
+    """Verdeel logboekrijen om-en-om per kalenderweek over train en test.
+
+    Op tijd en niet per reeks, om twee redenen. Het leren en het toetsen
+    gebeuren op een andere stapgrootte, en alleen een splitsing op de klok
+    geeft beide gegarandeerd dezelfde weken. En een week blijft zo in
+    dezelfde helft als het logboek groeit of vooraan afvalt; met een teller
+    over de reeksen schuift bij elk nieuw gat de hele verdeling op.
+
+    De weken tellen vanaf de Unix-epoch, dus van donderdag tot donderdag UTC.
+    Welke dag maakt niet uit, zolang het elke keer dezelfde is.
+    """
+    if len(rows) == 0:
+        return np.zeros((0, 5)), np.zeros((0, 5))
+    data = np.asarray(rows, dtype=float)
+    week = np.floor(data[:, _TS] / (SPLIT_BLOCK_HOURS * 3600.0)).astype(np.int64)
+    even = week % 2 == 0
+    return data[even], data[~even]
+
+
+def _long_enough(segments: list[Segment], dt_hours: float) -> list[Segment]:
+    """Alleen stukken waar een inlooptijd plus een horizon in past."""
+    min_len = steps_in(MIN_BLOCK_HOURS, dt_hours)
+    return [s for s in segments if len(s[0]) >= min_len]
+
+
+def _hours(segments: list[Segment], dt_hours: float) -> float:
+    return sum(len(s[0]) for s in segments) * dt_hours
 
 
 def reference_rmse(
@@ -198,10 +257,18 @@ class Comparison:
     dt_hours: float
     #: Hoeveel uur bruikbare meetdata er in de vergelijking zat.
     data_hours: float
-    #: Hoeveel uur er minimaal nodig is voordat er überhaupt gefit wordt.
+    #: Hoeveel uur trainingsdata er minimaal nodig is voordat er gefit wordt.
     required_train_hours: float
     params: dict | None
     fit_report: dict
+    #: Stapgrootte waarop het 2R2C geleerd heeft.
+    fit_dt_hours: float = FIT_DT_HOURS
+    #: Bruikbare trainingsuren na het splitsen en weggooien van te korte
+    #: stukken. Dít getal moet ``required_train_hours`` halen; het totaal aan
+    #: logboekuren zegt daar weinig over, want gaten en korte stukken tellen
+    #: niet mee.
+    train_hours: float = 0.0
+    test_hours: float = 0.0
 
     @property
     def verbetering_pct(self) -> float | None:
@@ -226,7 +293,10 @@ class Comparison:
             "reason": self.reason,
             "horizon_uren": self.horizon_hours,
             "stap_uren": self.dt_hours,
+            "leerstap_minuten": round(self.fit_dt_hours * 60.0, 1),
             "data_uren": round(self.data_hours, 1),
+            "train_uren": round(self.train_hours, 1),
+            "test_uren": round(self.test_hours, 1),
             "benodigde_train_uren": self.required_train_hours,
             "params": self.params,
             "fit": self.fit_report,
@@ -240,60 +310,66 @@ def compare(
     dt_hours: float = DEFAULT_DT_HOURS,
     min_coverage: float = MIN_BUCKET_COVERAGE,
     max_iter: int | None = None,
+    fit_dt_hours: float = FIT_DT_HOURS,
 ) -> Comparison:
-    """Fit 2R2C op de helft van het logboek en scoor drie modellen op de rest.
+    """Fit 2R2C op de ene helft van het logboek en scoor drie modellen op de
+    andere.
+
+    Het 2R2C leert op ``fit_dt_hours``, alle drie worden getoetst op
+    ``dt_hours``. Zie de kop van dit bestand voor waarom die twee verschillen.
 
     Rekent zwaar genoeg om niet in de event loop thuis te horen: draai hem in
     een executor.
     """
     horizon = steps_in(horizon_hours, dt_hours)
-    segments = resample(rows, dt_hours, min_coverage)
-    data_hours = sum(len(s[0]) for s in segments) * dt_hours
+    data_hours = _hours(resample(rows, dt_hours, min_coverage), dt_hours)
 
-    def _leeg(reason: str) -> Comparison:
+    train_rows, test_rows = split_by_week(rows)
+    train = _long_enough(
+        resample(train_rows, fit_dt_hours, min_coverage, MAX_GAP_FILL_HOURS),
+        fit_dt_hours,
+    )
+    test = _long_enough(resample(test_rows, dt_hours, min_coverage), dt_hours)
+    train_hours = _hours(train, fit_dt_hours)
+    test_hours = _hours(test, dt_hours)
+
+    def _uitkomst(validation: Validation | None, ref: float | None,
+                  reason: str | None = None) -> Comparison:
+        def _r(v: float | None) -> float | None:
+            return round(v, 3) if v is not None else None
         return Comparison(
-            rmse_k=None, reference_rmse_k=None, persistence_rmse_k=None,
-            accepted=False, reason=reason, horizon_hours=horizon_hours,
-            dt_hours=dt_hours, data_hours=data_hours,
-            required_train_hours=MIN_TRAIN_HOURS * 2, params=None, fit_report={},
+            rmse_k=_r(validation.rmse) if validation else None,
+            reference_rmse_k=_r(ref),
+            persistence_rmse_k=_r(validation.persistence_rmse) if validation else None,
+            accepted=validation.accepted if validation else False,
+            reason=reason or validation.reason,
+            horizon_hours=horizon_hours,
+            dt_hours=dt_hours,
+            data_hours=data_hours,
+            required_train_hours=MIN_TRAIN_HOURS,
+            params=validation.params.to_dict() if validation and validation.params else None,
+            fit_report=validation.report if validation else {},
+            fit_dt_hours=fit_dt_hours,
+            train_hours=train_hours,
+            test_hours=test_hours,
         )
 
-    if not segments:
-        return _leeg("nog geen bruikbare meetdata")
+    if data_hours == 0.0:
+        return _uitkomst(None, None, "nog geen bruikbare meetdata")
 
-    # De referentie moet vóór de fit bekend zijn: fit_and_validate toetst het
+    # De referentie moet vóór de fit bekend zijn: de poort toetst het
     # kandidaat-model eraan af. Zonder referentie zou de poort alleen tegen
-    # "niets doen" toetsen en dus veel te makkelijk open gaan.
-    kwargs = {} if max_iter is None else {"max_iter": max_iter}
-    # Deze splitsing moet dezelfde zijn als die fit_and_validate straks zelf
-    # maakt, anders scoren de twee modellen op verschillende weken en meet het
-    # verschil deels het weer. Ze is deterministisch en krijgt hier dezelfde
-    # stapgrootte mee; test_zelfde_testset_als_de_poort pint dat vast.
-    _, test = split_alternating(segments, dt_hours=dt_hours)
+    # "niets doen" toetsen en dus veel te makkelijk open gaan. Hij scoort op
+    # precies de testreeksen die ook de poort krijgt — hetzelfde object, niet
+    # een tweede splitsing die uit de pas kan lopen.
     ref = (
         reference_rmse(model, test, horizon, dt_hours=dt_hours)
         if model is not None and test
         else None
     )
-
-    validation = fit_and_validate(
-        segments, horizon=horizon, reference_rmse=ref, dt_hours=dt_hours, **kwargs
+    kwargs = {} if max_iter is None else {"max_iter": max_iter}
+    validation = fit_and_score(
+        train, test, horizon, reference_rmse=ref,
+        fit_dt_hours=fit_dt_hours, test_dt_hours=dt_hours, **kwargs,
     )
-    return Comparison(
-        rmse_k=round(validation.rmse, 3) if validation.rmse is not None else None,
-        reference_rmse_k=round(ref, 3) if ref is not None else None,
-        persistence_rmse_k=(
-            round(validation.persistence_rmse, 3)
-            if validation.persistence_rmse is not None else None
-        ),
-        accepted=validation.accepted,
-        reason=validation.reason,
-        horizon_hours=horizon_hours,
-        dt_hours=dt_hours,
-        data_hours=data_hours,
-        # Trainen gebeurt op de helft van de data, dus er moet twee keer de
-        # trainingseis aan logboek liggen voordat de poort iets kan zeggen.
-        required_train_hours=MIN_TRAIN_HOURS * 2,
-        params=validation.params.to_dict() if validation.params else None,
-        fit_report=validation.report,
-    )
+    return _uitkomst(validation, ref)

@@ -1228,6 +1228,8 @@ views:
 
               {% set uren = state_attr(s, 'data_uren') | float(0) %}
 
+              {% set train = state_attr(s, 'train_uren') | float(0) %}
+
               {% set nodig = state_attr(s, 'benodigde_train_uren') | float(0) %}
 
               {% set horizon = state_attr(s, 'horizon_uren') | int(12) %}
@@ -1269,17 +1271,20 @@ views:
               ⏳ **{{ state_attr(s, 'reason') }}**
 
 
-              Het meetlogboek bevat **{{ uren | round(0) | int }} uur**; er is
-              ongeveer **{{ nodig | round(0) | int }} uur** nodig voordat er
-              gefit kan worden — de helft daarvan is trainingsdata, de andere
-              helft dient om op te toetsen.
+              Het meetlogboek bevat **{{ uren | round(0) | int }} uur**.
+              Daarvan telt **{{ train | round(0) | int }} uur** als
+              trainingsdata: de helft van de weken, in aaneengesloten stukken
+              van minstens drie dagen. Er is **{{ nodig | round(0) | int }}
+              uur** nodig voordat er gefit wordt; de andere weken dienen om op
+              te toetsen.
 
-              {% if uren > 0 %}
+              {% if nodig > 0 %}
 
-              {{ ((uren / nodig) * 100) | round(0) | int }}% van de benodigde
-              meetdata. Het logboek vult alleen bij warmtevraag én bekende
-              zonnestraling, dus buiten het stookseizoen groeit het wel maar
-              leert het niets over hoe het huis op verwarming reageert.
+              {{ ((train / nodig) * 100) | round(0) | int }}% van de benodigde
+              trainingsdata. Het model leert op de vijfminutenmetingen, zodat
+              meetelt wanneer binnen een uur de warmtepomp liep. Buiten het
+              stookseizoen groeit het logboek wel, maar leert het weinig over
+              hoe het huis op verwarming reageert.
 
               {% endif %}
 

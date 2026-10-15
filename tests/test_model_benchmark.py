@@ -17,8 +17,8 @@ import pytest
 
 from custom_components.quatt_stooklijn.analysis import model_benchmark as mb
 from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import (
+    MIN_TRAIN_HOURS,
     Validation,
-    split_alternating,
 )
 from custom_components.quatt_stooklijn.sensor import QuattModelBenchmarkSensor
 
@@ -44,14 +44,16 @@ def _rijen(n_uur: int, per_uur: int = 12, start: int = 0, **waarden):
     return rijen
 
 
-def _uit_segmenten(segs):
-    """Logboekrijen uit kant-en-klare segmenten, op vijf minuten."""
-    t_in, t_out, solar, q = segs[0]
-    rijen = []
-    for i in range(len(t_in)):
-        for j in range(12):
-            rijen.append([T0 + i * 3600 + j * 300, t_in[i], t_out[i], q[i], solar[i]])
-    return rijen
+def _fijne_rijen(n_uur: int, seed: int = 1):
+    """Logboekrijen uit een synthetisch tweetoestandshuis op vijf minuten.
+
+    Echt vijfminutenwerk, niet een uurreeks die twaalf keer herhaald is: het
+    2R2C leert op deze stap, en een trap per uur is geen huis.
+    """
+    t_in, t_out, solar, q = _genereer(WAAR, n=n_uur * 12, ruis=0.003, seed=seed,
+                                      dt_hours=1.0 / 12.0, pendelen=True)[0]
+    return [[T0 + i * 300, t_in[i], t_out[i], q[i], solar[i]]
+            for i in range(len(t_in))]
 
 
 class TestResample:
@@ -94,6 +96,57 @@ class TestResample:
         rijen = _rijen(3, t_in=21.0, t_out=6.0, q_hp=1500.0, q_solar=250.0)
         t_in, t_out, solar, q = mb.resample(rijen)[0]
         assert (t_in[0], t_out[0], solar[0], q[0]) == (21.0, 6.0, 250.0, 1500.0)
+
+    def test_kort_gat_wordt_overbrugd(self):
+        """Een herstart kost een paar monsters; op vijf minuten mag dat de
+        reeks niet breken, anders haalt geen enkel blok de minimumlengte."""
+        rijen = [[T0 + i * 300, 20.0 + 0.01 * i, 5.0, 1000.0, 100.0]
+                 for i in range(48) if i not in (20, 21, 22)]
+        (t_in, *_), = mb.resample(rijen, 5.0 / 60.0, max_fill_hours=0.5)
+        assert len(t_in) == 48
+        # Lineair ingevuld: het gat ligt op de lijn van de omliggende metingen.
+        assert t_in[21] == pytest.approx(20.21)
+
+    def test_lang_gat_breekt_alsnog(self):
+        rijen = [[T0 + i * 300, 20.0, 5.0, 1000.0, 100.0]
+                 for i in range(48) if not 10 <= i < 20]
+        segmenten = mb.resample(rijen, 5.0 / 60.0, max_fill_hours=0.5)
+        assert [len(s[0]) for s in segmenten] == [10, 28]
+
+    def test_zonder_overbrugging_breekt_elk_gat(self):
+        """Het standaardgedrag blijft wat het was."""
+        rijen = [[T0 + i * 300, 20.0, 5.0, 1000.0, 100.0]
+                 for i in range(48) if i != 20]
+        assert [len(s[0]) for s in mb.resample(rijen, 5.0 / 60.0)] == [20, 27]
+
+
+class TestSplitsingOpWeek:
+    """Train en test op de klok, zodat beide stapgroottes dezelfde weken zien."""
+
+    def test_om_en_om(self):
+        week = 7 * 24 * 3600
+        begin = (T0 // week + 1) * week  # begin van een even of oneven week
+        rijen = [[begin + i * 3600, 20.0, 5.0, 0.0, 0.0] for i in range(4 * 168)]
+        train, test = mb.split_by_week(rijen)
+        assert len(train) == len(test) == 2 * 168
+        weken_train = {int(r[0] // week) % 2 for r in train}
+        weken_test = {int(r[0] // week) % 2 for r in test}
+        assert len(weken_train) == len(weken_test) == 1
+        assert weken_train != weken_test
+
+    def test_week_blijft_in_dezelfde_helft_als_het_logboek_groeit(self):
+        """Met een teller over de reeksen schoof de hele verdeling op zodra er
+        vooraan iets afviel. Op de klok kan dat niet."""
+        rijen = [[T0 + i * 3600, 20.0, 5.0, 0.0, 0.0] for i in range(1000)]
+        train_a, _ = mb.split_by_week(rijen)
+        train_b, _ = mb.split_by_week(rijen[300:] + [[T0 + 1000 * 3600, 20.0, 5.0, 0.0, 0.0]])
+        a = {r[0] for r in train_a if r[0] >= T0 + 300 * 3600}
+        b = {r[0] for r in train_b if r[0] < T0 + 1000 * 3600}
+        assert a == b
+
+    def test_leeg(self):
+        train, test = mb.split_by_week([])
+        assert len(train) == 0 and len(test) == 0
 
 
 class TestReferentie:
@@ -138,33 +191,34 @@ class TestVergelijking:
     """De orkestratie: fit, scoor, oordeel."""
 
     def test_zelfde_testset_als_de_poort(self, monkeypatch):
-        """De referentie moet op precies de helft scoren die de poort toetst.
+        """De referentie moet op precies de reeksen scoren die de poort toetst.
 
-        Twee keer splitsen is twee kansen om uit elkaar te lopen. Deze test
-        pint vast dat de splitsing die ``compare`` zelf maakt dezelfde is als
-        die ``fit_and_validate`` even later intern maakt.
+        Niet een tweede splitsing die toevallig hetzelfde uitkomt, maar
+        letterlijk dezelfde lijst. Twee keer splitsen is twee kansen om uit
+        elkaar te lopen.
         """
         gezien = {}
 
         def _nep_referentie(model, segments, horizon, burn_in=None, dt_hours=1.0):
-            gezien["test"] = segments
+            gezien["referentie"] = segments
             return 0.5
 
-        def _nep_poort(segments, **kwargs):
-            gezien["alles"] = segments
-            gezien["dt"] = kwargs["dt_hours"]
+        def _nep_poort(train, test, horizon, **kwargs):
+            gezien["poort"] = test
+            gezien["kwargs"] = kwargs
             return Validation(params=None, report={}, rmse=None,
                               reference_rmse=None, persistence_rmse=None,
                               accepted=False, reason="gestopt voor de test")
 
         monkeypatch.setattr(mb, "reference_rmse", _nep_referentie)
-        monkeypatch.setattr(mb, "fit_and_validate", _nep_poort)
-        mb.compare(_uit_segmenten(_genereer(WAAR, n=900)), MagicMock())
+        monkeypatch.setattr(mb, "fit_and_score", _nep_poort)
+        mb.compare(_fijne_rijen(900), MagicMock())
 
-        _, verwacht = split_alternating(gezien["alles"], dt_hours=gezien["dt"])
-        assert len(verwacht) == len(gezien["test"])
-        for a, b in zip(verwacht, gezien["test"]):
-            assert np.array_equal(a[0], b[0])
+        assert gezien["poort"] is gezien["referentie"]
+        assert gezien["poort"]
+        # Leren op vijf minuten, toetsen per uur.
+        assert gezien["kwargs"]["fit_dt_hours"] == pytest.approx(5.0 / 60.0)
+        assert gezien["kwargs"]["test_dt_hours"] == pytest.approx(1.0)
 
     def test_te_weinig_data(self):
         """Met een paar dagen logboek hoort er geen oordeel te komen."""
@@ -174,7 +228,19 @@ class TestVergelijking:
         assert uitkomst.rmse_k is None
         # Het dashboard moet kunnen zeggen hoe ver we nog af zijn.
         assert uitkomst.data_hours == pytest.approx(48.0)
-        assert uitkomst.required_train_hours > 600
+        assert uitkomst.required_train_hours == MIN_TRAIN_HOURS
+        assert uitkomst.train_hours < uitkomst.required_train_hours
+
+    def test_meldt_de_echte_trainingsuren(self):
+        """Het dashboard moet de trainingsuren tegen de eis kunnen zetten, niet
+        het logboektotaal: gaten en te korte stukken tellen niet mee."""
+        uitkomst = mb.compare(_fijne_rijen(900), MagicMock())
+        d = uitkomst.to_dict()
+        assert 0 < d["train_uren"] < d["data_uren"]
+        assert d["test_uren"] > 0
+        assert d["leerstap_minuten"] == pytest.approx(5.0)
+        assert d["stap_uren"] == pytest.approx(1.0)
+        assert d["benodigde_train_uren"] == MIN_TRAIN_HOURS
 
     def test_leeg_logboek(self):
         uitkomst = mb.compare([], MagicMock())
@@ -184,15 +250,15 @@ class TestVergelijking:
     def test_beter_model_wordt_aangenomen(self):
         """Op data die een tweetoestandshuis maakte hoort 2R2C te winnen."""
         model = TestOnlineRCModel._make_trained_model()
-        uitkomst = mb.compare(_uit_segmenten(_genereer(WAAR, n=1200)), model)
-        assert uitkomst.accepted is True
+        uitkomst = mb.compare(_fijne_rijen(1200), model)
+        assert uitkomst.accepted is True, uitkomst.reason
         assert uitkomst.rmse_k < uitkomst.reference_rmse_k
         assert uitkomst.verbetering_pct > 0
         assert uitkomst.params["tau_fast_h"] < uitkomst.params["tau_slow_h"]
 
     def test_zonder_draaiend_model_alleen_de_ondergrens(self):
         """Geen referentie betekent niet: poort open. Niets doen blijft staan."""
-        uitkomst = mb.compare(_uit_segmenten(_genereer(WAAR, n=1200)), None)
+        uitkomst = mb.compare(_fijne_rijen(1200), None)
         assert uitkomst.reference_rmse_k is None
         assert uitkomst.persistence_rmse_k is not None
 
@@ -280,7 +346,7 @@ class TestSensorBedrading:
         sensor.hass = self._hass()
         sensor.async_write_ha_state = MagicMock()
         sensor._mpc = MagicMock()
-        sensor._mpc.highres_samples = _uit_segmenten(_genereer(WAAR, n=1200))
+        sensor._mpc.highres_samples = _fijne_rijen(1200)
         sensor._mpc.thermal_model = TestOnlineRCModel._make_trained_model()
 
         await sensor._async_run()

@@ -10,6 +10,7 @@ import pytest
 from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import (
     BOUNDS,
     BURN_IN_HOURS,
+    FIT_HORIZON_HOURS,
     MIN_BLOCK_HOURS,
     MIN_TRAIN_HOURS,
     SPLIT_BLOCK_HOURS,
@@ -23,6 +24,7 @@ from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import (
     discretize,
     fit,
     fit_and_validate,
+    multi_step_residuals,
     one_step_residuals,
     steps_in,
     persistence_rmse,
@@ -166,7 +168,7 @@ class TestFit:
         assert rep["n_residuals"] > 0
         assert rep["rms_k"] < 0.05
         assert set(rep) == {"iterations", "converged", "stop_reason",
-                            "rms_k", "n_residuals"}
+                            "rms_k", "n_residuals", "dt_hours", "horizon_steps"}
         assert rep["stop_reason"] in {"tolerantie bereikt", "geen verbetering meer"}
 
     def test_iteratielimiet_telt_niet_als_convergentie(self):
@@ -269,6 +271,73 @@ class TestStapgrootte:
         waar_rms = np.sqrt((one_step_residuals(p, seg, 288, 1 / 12) ** 2).mean())
         fit_rms = np.sqrt((one_step_residuals(gevonden, seg, 288, 1 / 12) ** 2).mean())
         assert waar_rms <= fit_rms * 1.05
+
+
+def _blokhuis(meetruis: float, dagen: int = 42, seed: int = 1):
+    """Huis met de reactietijden van een echt huis, verwarmd zoals de echte
+    warmtepomp het doet: een nachtblok, soms een korte run 's avonds. Weinig
+    prikkel dus, in tegenstelling tot het uurpendelen van ``_genereer``.
+
+    De ruis is meetruis: hij zit op wat de sensor meldt, niet in het huis.
+    """
+    p = TwoStateParams(U=285, Ci=8000, Cm=25000, Hm=1500, g=5, P_int=300, alpha=0.9)
+    dt = 1.0 / 12.0
+    rng = np.random.default_rng(seed)
+    n = 288 * dagen
+    uur = np.arange(n) * dt
+    t_out = 9 + 4 * np.sin(2 * np.pi * (uur - 15) / 24) + np.cumsum(rng.normal(0, 0.02, n))
+    solar = np.maximum(0.0, 250 * np.sin(2 * np.pi * (uur - 8) / 24))
+    q = np.zeros(n)
+    for d in range(dagen):
+        s = d * 288 + rng.integers(0, 12)
+        e = d * 288 + 108 + rng.integers(0, 12)
+        q[s:e] = 2300 + rng.normal(0, 60, e - s)
+        if rng.random() < 0.5:
+            s3 = d * 288 + 228 + rng.integers(0, 12)
+            q[s3:s3 + rng.integers(12, 36)] = 2400
+    Ad, Bd = discretize(p, dt)
+    x = np.array([20.0, 20.0])
+    t_in = np.empty(n)
+    for i in range(n):
+        t_in[i] = x[0]
+        x = Ad @ x + Bd @ np.array([t_out[i], solar[i], q[i], 1.0])
+    t_in = t_in + np.random.default_rng(seed + 1).normal(0, meetruis, n)
+    return p, [(t_in, t_out, solar, q)]
+
+
+class TestFithorizon:
+    """Waarom de fit op vijfminutendata over uren vooruit kijkt en niet één stap.
+
+    De kamersensor flakkert ±0,015 K, ongeveer evenveel als de kamer per vijf
+    minuten opwarmt. Een eenstapsfit leest die ruis als snelle dynamiek.
+    """
+
+    def test_eenstapsfit_maakt_de_snelle_knoop_te_snel(self):
+        p, seg = _blokhuis(meetruis=0.015)
+        dt = 1.0 / 12.0
+        eenstaps, _ = fit(seg, burn_in=288, dt_hours=dt)
+        lang, rep = fit(seg, burn_in=288, dt_hours=dt,
+                        horizon_steps=steps_in(FIT_HORIZON_HOURS, dt), start_every=3)
+        echt = p.time_constants[0]
+        assert rep["converged"]
+        assert lang.time_constants[0] == pytest.approx(echt, rel=0.1)
+        assert eenstaps.time_constants[0] < 0.5 * echt
+
+    def test_zonder_ruis_maakt_het_niet_uit(self):
+        """Vangnet: het verschil komt van de ruis, niet van de horizon zelf."""
+        p, seg = _blokhuis(meetruis=0.0, dagen=21)
+        dt = 1.0 / 12.0
+        for h in (1, steps_in(FIT_HORIZON_HOURS, dt)):
+            gevonden, _ = fit(seg, burn_in=288, dt_hours=dt, horizon_steps=h)
+            assert gevonden.time_constants[0] == pytest.approx(
+                p.time_constants[0], rel=0.02)
+
+    def test_een_stap_is_de_eenstapsfout(self):
+        p, seg = _blokhuis(meetruis=0.01, dagen=7)
+        np.testing.assert_array_equal(
+            multi_step_residuals(p, seg, 1, 288, 1.0 / 12.0),
+            one_step_residuals(p, seg, 288, 1.0 / 12.0),
+        )
 
 
 class TestValidatie:
