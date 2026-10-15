@@ -48,6 +48,10 @@ MAX_SAMPLES = 25_920
 #: zou een herstart-storm of een handmatige aanroep het venster verkorten.
 MIN_SPACING = timedelta(minutes=4)
 
+#: Uiterlijk zo lang na het eerste nieuwe monster wordt er weggeschreven, ook
+#: als de uurlijkse opslag uitblijft. Bij het afsluiten van HA meteen.
+SAVE_DELAY = timedelta(hours=1)
+
 
 class HighResLog:
     """Ringbuffer met meetmonsters op vaste, fijne tijdstappen."""
@@ -155,8 +159,26 @@ class HighResLogStore:
 
     def record(self, *args, **kwargs) -> bool:
         recorded = self.log.record(*args, **kwargs)
+        if recorded and self._loaded and not self._dirty:
+            # Het eerste nieuwe monster na een opslag zet een uitgestelde
+            # opslag klaar. Die doet twee dingen: hij schrijft weg als de
+            # uurlijkse opslag uitblijft, en HA schrijft hem bij het afsluiten
+            # alsnog weg (final write). Zonder dat laatste kostte elke herstart
+            # alle monsters sinds de vorige opslag, tot een uur. Bij een
+            # herstart per dag lag het logboek daardoor in stukken van een dag,
+            # en geen enkel stuk haalde de drie dagen die de modelvergelijking
+            # eist (gemeten 15-10-2026: 166 bruikbare trainingsuren van 858).
+            #
+            # Alleen bij het eerste monster: elke volgende aanroep zou de
+            # timer opschuiven, en dan kwam hij nooit aan de beurt.
+            self._store.async_delay_save(self._snapshot, SAVE_DELAY.total_seconds())
         self._dirty = self._dirty or recorded
         return recorded
+
+    def _snapshot(self) -> dict:
+        """Wat de uitgestelde opslag wegschrijft, bepaald op het moment zelf."""
+        self._dirty = False
+        return self.log.to_dict()
 
     async def async_save(self) -> None:
         """Wegschrijven, maar alleen als er iets bij is gekomen.

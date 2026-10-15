@@ -171,3 +171,79 @@ class TestStore:
         asyncio.run(store.async_load())
         asyncio.run(store.async_save())
         inner.async_save.assert_not_awaited()
+
+    def test_eerste_nieuwe_monster_zet_een_uitgestelde_opslag_klaar(self):
+        """Die schrijft HA bij het afsluiten weg. Zonder kostte elke herstart
+        alle monsters sinds de vorige uurlijkse opslag."""
+        import asyncio
+        from custom_components.quatt_stooklijn.highres_log import SAVE_DELAY
+        store, inner = self._store(None)
+        asyncio.run(store.async_load())
+        store.record(T0, 20.0, 4.0, 0.0, 0.0)
+        inner.async_delay_save.assert_called_once()
+        func, delay = inner.async_delay_save.call_args.args
+        assert delay == SAVE_DELAY.total_seconds()
+        # Wat er weggeschreven wordt, wordt pas op het moment zelf bepaald.
+        store.record(T0 + SAMPLE_INTERVAL, 20.1, 4.0, 0.0, 0.0)
+        assert len(func()["samples"]) == 2
+
+    def test_volgende_monsters_schuiven_de_opslag_niet_op(self):
+        """Elke aanroep van async_delay_save zet de timer opnieuw; per monster
+        aanroepen betekent dat hij nooit afgaat."""
+        import asyncio
+        store, inner = self._store(None)
+        asyncio.run(store.async_load())
+        for i in range(5):
+            store.record(T0 + SAMPLE_INTERVAL * i, 20.0, 4.0, 0.0, 0.0)
+        inner.async_delay_save.assert_called_once()
+
+    def test_na_een_opslag_wordt_er_opnieuw_klaargezet(self):
+        import asyncio
+        store, inner = self._store(None)
+        asyncio.run(store.async_load())
+        store.record(T0, 20.0, 4.0, 0.0, 0.0)
+        func, _ = inner.async_delay_save.call_args.args
+        func()  # de uitgestelde opslag gaat af
+        store.record(T0 + SAMPLE_INTERVAL, 20.0, 4.0, 0.0, 0.0)
+        assert inner.async_delay_save.call_count == 2
+
+    def test_geen_uitgestelde_opslag_na_een_mislukte_lezing(self):
+        """Ook niet via deze route een leeg logboek over een vol bestand."""
+        import asyncio
+        store, inner = self._store(OSError("schijf weg"))
+        with pytest.raises(OSError):
+            asyncio.run(store.async_load())
+        store.record(T0, 20.0, 4.0, 0.0, 0.0)
+        inner.async_delay_save.assert_not_called()
+
+
+class TestOpslaanBijHerladen:
+    """Bij herladen stopt HA niet, dus de final write komt niet: de sensor
+    moet zelf wegschrijven voordat hij verdwijnt."""
+
+    def _sensor(self, loaded=True, fout=None):
+        from unittest.mock import AsyncMock
+        from custom_components.quatt_stooklijn.sensor import QuattMpcSensor
+        sensor = QuattMpcSensor.__new__(QuattMpcSensor)
+        sensor._highres_loaded = loaded
+        sensor._highres_store = AsyncMock()
+        if fout:
+            sensor._highres_store.async_save.side_effect = fout
+        return sensor
+
+    def test_schrijft_weg(self):
+        import asyncio
+        sensor = self._sensor()
+        asyncio.run(sensor.async_will_remove_from_hass())
+        sensor._highres_store.async_save.assert_awaited_once()
+
+    def test_niet_voordat_er_geladen_is(self):
+        import asyncio
+        sensor = self._sensor(loaded=False)
+        asyncio.run(sensor.async_will_remove_from_hass())
+        sensor._highres_store.async_save.assert_not_awaited()
+
+    def test_mislukte_opslag_blokkeert_het_verwijderen_niet(self):
+        import asyncio
+        sensor = self._sensor(fout=OSError("schijf vol"))
+        asyncio.run(sensor.async_will_remove_from_hass())

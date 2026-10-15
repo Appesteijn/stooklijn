@@ -1209,6 +1209,20 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         await self._async_refresh_forecast()
         await self._async_refresh_solar_radiation()
 
+    async def async_will_remove_from_hass(self) -> None:
+        """Meetlogboek wegschrijven als de integratie herladen of verwijderd wordt.
+
+        Bij het afsluiten van HA zorgt de uitgestelde opslag in
+        ``HighResLogStore`` daarvoor; bij herladen wordt de entiteit
+        verwijderd zonder dat HA stopt, en dan moet het hier.
+        """
+        await super().async_will_remove_from_hass()
+        if self._highres_loaded:
+            try:
+                await self._highres_store.async_save()
+            except Exception:
+                _LOGGER.warning("Meetlogboek opslaan mislukt", exc_info=True)
+
     async def _handle_state_change(self, event) -> None:
         self.async_write_ha_state()
 

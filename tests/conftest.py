@@ -147,12 +147,16 @@ def _stub_ha():
         ``async_added_to_hass`` kan draaien in een test — daar worden de
         listeners en timers geregistreerd die anders ongetest blijven."""
 
+    async def _will_remove_from_hass(self):
+        """No-op, net als in HA's ``Entity``."""
+
     coord_mod.CoordinatorEntity = type(
         "CoordinatorEntity",
         (),
         {
             "__class_getitem__": classmethod(lambda cls, item: cls),
             "async_added_to_hass": _added_to_hass,
+            "async_will_remove_from_hass": _will_remove_from_hass,
         },
     )
 
