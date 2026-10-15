@@ -3,6 +3,19 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.5-beta.3 — 2026-10-15
+
+Betaversie met één reparatie.
+
+- **Het meetlogboek verliest geen metingen meer bij een herstart.** Het werd
+  alleen elk uur weggeschreven, niet bij het afsluiten van Home Assistant.
+  Elke herstart kostte zo tot een uur aan metingen. Bij een herstart per dag
+  lag het logboek in stukken van een dag, en geen stuk haalde de drie dagen
+  die de modelvergelijking nodig heeft: op de ontwikkelinstallatie bleef van
+  858 uur logboek 166 uur bruikbare trainingsdata over. Het logboek wordt nu
+  ook bij afsluiten en bij herladen van de integratie weggeschreven. Wat al
+  verloren is, komt niet terug.
+
 ## v0.10.5-beta.2 — 2026-10-15
 
 Betaversie. De modelvergelijking (2R2C tegen het huidige model) leert nu op
