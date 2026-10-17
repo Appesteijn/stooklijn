@@ -3,6 +3,19 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.5-beta.4 — 2026-10-17
+
+Betaversie met één reparatie.
+
+- **Het dashboard wordt weer vanzelf aangemaakt.** Sinds Home Assistant 2025.2
+  kon de integratie het Quatt Warmteanalyse-dashboard niet meer zelf
+  aanmaken, en dat ging stil mis: geen dashboard en geen melding in het log.
+  Wie toch een dashboard had, had het zelf aangemaakt (of een leeg dashboard
+  op het juiste pad gezet); vullen en bijwerken werkte wel. Het aanmaken werkt
+  nu weer. Lukt het toch niet, dan verschijnt er een melding onder Reparaties
+  met de handmatige weg: een leeg dashboard met URL `quatt-warmteanalyse`,
+  dat de integratie daarna zelf vult.
+
 ## v0.10.5-beta.3 — 2026-10-15
 
 Betaversie met één reparatie.
