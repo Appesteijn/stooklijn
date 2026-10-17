@@ -346,3 +346,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_remove(DOMAIN, SERVICE_UPDATE_DASHBOARD)
 
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Ruim op bij het verwijderen van de laatste config entry.
+
+    Het dashboard wordt na verwijderen door de gebruiker niet opnieuw
+    aangemaakt; dat onthouden we via de vingerafdruk. Wie de hele integratie
+    verwijdert en opnieuw installeert, begint schoon en hoort het dashboard
+    dan wél terug te krijgen. Tijdens deze aanroep staat de entry zelf nog in
+    de lijst, vandaar het filter.
+    """
+    others = [
+        e for e in hass.config_entries.async_entries(DOMAIN)
+        if e.entry_id != entry.entry_id
+    ]
+    if not others:
+        await DashboardManager(hass).async_forget()

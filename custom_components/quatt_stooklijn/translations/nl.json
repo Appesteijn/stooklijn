@@ -118,7 +118,7 @@
     },
     "update_dashboard": {
       "name": "Dashboard terugzetten",
-      "description": "Overschrijft het Quatt Warmteanalyse-dashboard met de versie die met de integratie meekomt. Eigen aanpassingen aan dat dashboard gaan daarbij verloren."
+      "description": "Overschrijft het Quatt Warmteanalyse-dashboard met de versie die met de integratie meekomt. Eigen aanpassingen aan dat dashboard gaan daarbij verloren. Heb je het dashboard verwijderd, dan wordt het hiermee opnieuw aangemaakt."
     }
   },
   "entity": {

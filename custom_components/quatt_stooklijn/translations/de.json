@@ -118,7 +118,7 @@
     },
     "update_dashboard": {
       "name": "Dashboard zurücksetzen",
-      "description": "Überschreibt das Quatt-Warmteanalyse-Dashboard mit der mitgelieferten Version. Eigene Änderungen an diesem Dashboard gehen dabei verloren."
+      "description": "Überschreibt das Quatt-Warmteanalyse-Dashboard mit der mitgelieferten Version. Eigene Änderungen an diesem Dashboard gehen dabei verloren. Wurde das Dashboard gelöscht, wird es hiermit neu erstellt."
     }
   },
   "entity": {

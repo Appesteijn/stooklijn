@@ -53,6 +53,7 @@ CREATE = "create"          # dashboard bestaat nog niet
 UP_TO_DATE = "up_to_date"  # staat er al precies zo op
 UPDATE = "update"          # onaangeraakt sinds wij het schreven → bijwerken
 ASK = "ask"                # aangepast of herkomst onbekend → niet aanraken
+REMOVED = "removed"        # wij schreven het, de gebruiker verwijderde het → wegblijven
 
 
 def fingerprint(config: Any) -> str:
@@ -179,6 +180,17 @@ class DashboardManager:
         state["written_at"] = dt_util.utcnow().isoformat()
         state.pop("declined", None)
         await self._store.async_save(state)
+
+    async def async_forget(self) -> None:
+        """Vergeet alles wat we over het dashboard weten.
+
+        Voor als de integratie verwijderd wordt. Zonder dit overleeft de
+        vingerafdruk een herinstallatie, en dan geldt een dashboard dat de
+        gebruiker samen met de integratie weggooide als "bewust verwijderd":
+        de nieuwe installatie zou het nooit meer aanmaken. Het dashboard zelf
+        blijft staan; dat is van de gebruiker.
+        """
+        await self._store.async_remove()
 
     async def async_decline_update(self) -> None:
         """Onthoud dat de gebruiker deze versie niet wil.
@@ -314,6 +326,25 @@ class DashboardManager:
             live = await self._async_live_config()
             state = await self._async_state()
             last_written = state.get("fingerprint")
+
+            if (
+                live is None
+                and last_written
+                and self._hass.data.get("lovelace") is not None
+                and self._dashboard_obj() is None
+            ):
+                # We hebben het ooit weggeschreven en nu is de registratie
+                # weg: de gebruiker heeft het verwijderd. Dat is een keuze,
+                # geen storing, dus niet bij elke herstart terugzetten. Een
+                # lege registratie valt hier bewust buiten — die vullen we.
+                # Terug te halen met de service update_dashboard.
+                _LOGGER.debug(
+                    "Dashboard is verwijderd nadat wij het schreven; niet "
+                    "opnieuw aangemaakt"
+                )
+                self._async_clear_issue()
+                return REMOVED
+
             decision = decide(live, shipped, last_written)
 
             if decision == CREATE:

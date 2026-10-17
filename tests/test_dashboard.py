@@ -616,6 +616,100 @@ class TestNieuweGebruiker:
         assert "lovelace" in manifest.get("after_dependencies", [])
 
 
+class TestVerwijderdDashboard:
+    """Een dashboard dat de gebruiker verwijdert, blijft weg.
+
+    Op HA 2025.2+ kwam een verwijderd dashboard nooit terug, omdat het
+    aanmaken niet werkte. Nu dat weer werkt, zou het zonder deze regel bij
+    elke herstart terugkeren.
+    """
+
+    @pytest.mark.asyncio
+    async def test_door_ons_geschreven_en_verwijderd_blijft_weg(self, monkeypatch):
+        import custom_components.quatt_stooklijn.dashboard as mod
+
+        monkeypatch.setattr(mod, "_load_shipped", lambda: NIEUW)
+        mgr, dash, collection = _manager(None, fingerprint(OUD), bestaat=False)
+
+        assert await mgr.async_setup() == mod.REMOVED
+        collection.async_create_item.assert_not_called()
+        dash.async_save.assert_not_called()
+        mgr._async_raise_create_failed.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_lege_registratie_wordt_nog_steeds_gevuld(self, monkeypatch):
+        """Leeg is niet verwijderd: dat is precies de handmatige weg uit de
+        reparatiemelding, en die moet blijven werken."""
+        import custom_components.quatt_stooklijn.dashboard as mod
+        from homeassistant.components.lovelace.const import ConfigNotFound
+
+        monkeypatch.setattr(mod, "_load_shipped", lambda: NIEUW)
+        mgr, dash, _ = _manager(None, fingerprint(OUD))
+        dash.async_load = AsyncMock(side_effect=ConfigNotFound)
+
+        assert await mgr.async_setup() == CREATE
+        dash.async_save.assert_awaited_once_with(NIEUW)
+
+    @pytest.mark.asyncio
+    async def test_de_service_haalt_het_terug(self, monkeypatch):
+        import custom_components.quatt_stooklijn.dashboard as mod
+
+        monkeypatch.setattr(mod, "_load_shipped", lambda: NIEUW)
+        mgr, dash, collection = _manager(None, fingerprint(OUD), bestaat=False)
+        hass_data = mgr._hass.data["lovelace"]
+
+        async def _create(_payload):
+            hass_data["dashboards"]["quatt-warmteanalyse"] = dash
+
+        collection.async_create_item = AsyncMock(side_effect=_create)
+
+        assert await mgr.async_force_update() is True
+        collection.async_create_item.assert_awaited_once()
+        dash.async_save.assert_awaited_once_with(NIEUW)
+
+    @pytest.mark.asyncio
+    async def test_vergeten_wist_de_opslag(self):
+        mgr, _, _ = _manager(None, fingerprint(OUD))
+        mgr._store.async_remove = AsyncMock()
+
+        await mgr.async_forget()
+        mgr._store.async_remove.assert_awaited_once()
+
+
+class TestIntegratieVerwijderen:
+    """Wie de integratie verwijdert en opnieuw installeert, krijgt het
+    dashboard terug — de vingerafdruk mag een herinstallatie niet overleven."""
+
+    def _hass(self, entry_ids):
+        hass = MagicMock()
+        entries = [MagicMock(entry_id=i) for i in entry_ids]
+        hass.config_entries.async_entries = MagicMock(return_value=entries)
+        return hass, entries
+
+    @pytest.mark.asyncio
+    async def test_laatste_entry_wist_de_vingerafdruk(self, monkeypatch):
+        import custom_components.quatt_stooklijn as integ
+
+        forget = AsyncMock()
+        monkeypatch.setattr(integ.DashboardManager, "async_forget", forget)
+        # De entry die verwijderd wordt staat tijdens de aanroep nog in de lijst.
+        hass, entries = self._hass(["a"])
+
+        await integ.async_remove_entry(hass, entries[0])
+        forget.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_met_een_andere_entry_blijft_alles_staan(self, monkeypatch):
+        import custom_components.quatt_stooklijn as integ
+
+        forget = AsyncMock()
+        monkeypatch.setattr(integ.DashboardManager, "async_forget", forget)
+        hass, entries = self._hass(["a", "b"])
+
+        await integ.async_remove_entry(hass, entries[0])
+        forget.assert_not_called()
+
+
 class TestBeideKopieenGelijk:
     """Het dashboard staat twee keer in de repo en moet dat gelijk blijven.
 

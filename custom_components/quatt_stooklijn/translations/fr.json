@@ -118,7 +118,7 @@
     },
     "update_dashboard": {
       "name": "Restaurer le tableau de bord",
-      "description": "Remplace le tableau de bord Quatt Warmteanalyse par la version fournie avec l'intégration. Vos modifications sur ce tableau de bord seront perdues."
+      "description": "Remplace le tableau de bord Quatt Warmteanalyse par la version fournie avec l'intégration. Vos modifications sur ce tableau de bord seront perdues. Si vous avez supprimé le tableau de bord, il est recréé."
     }
   },
   "entity": {

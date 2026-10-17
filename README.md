@@ -187,6 +187,12 @@ If the dashboard does not appear, a repair notice tells you so. You can then cre
 filled and kept up to date like any other. Up to v0.10.5-beta.3 the integration could not create
 the dashboard on Home Assistant 2025.2 or later at all, and failed silently.
 
+If you delete the dashboard, it stays deleted: the integration remembers that it wrote it once
+and does not bring it back on the next restart. Removing the whole integration clears that
+memory, so a fresh installation creates the dashboard again. To get it back without
+reinstalling, call the `quatt_stooklijn.update_dashboard` service. That is also the way out if
+you removed and reinstalled the integration before v0.10.5-beta.5 and no dashboard appears.
+
 Later releases keep it up to date, but only when that is safe:
 
 - If the dashboard is still exactly as the integration last wrote it, a new version is applied

@@ -15,3 +15,4 @@ update_dashboard:
   description: >-
     Overwrites the Quatt Warmteanalyse dashboard with the version shipped by the
     integration. Any changes you made to that dashboard are lost.
+    If you deleted the dashboard, this creates it again.
