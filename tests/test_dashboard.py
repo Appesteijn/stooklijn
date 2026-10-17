@@ -119,6 +119,7 @@ def _manager(live, last_written, *, bestaat=True):
     mgr._store.async_save = AsyncMock()
     mgr._async_raise_issue = MagicMock()
     mgr._async_clear_issue = MagicMock()
+    mgr._async_raise_create_failed = MagicMock()
     return mgr, dashboard_obj, collection
 
 
@@ -510,6 +511,92 @@ class TestNieuweGebruiker:
         mgr._hass.data = {}
 
         assert await mgr.async_setup() == CREATE
+        dash.async_save.assert_not_called()
+        mgr._store.async_save.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_aanmaken_werkt_op_ha_2025_2_en_later(self, monkeypatch):
+        """Sinds HA 2025.2 is hass.data['lovelace'] een dataclass zonder
+        dashboards_collection. De collectie zit dan alleen nog achter de
+        websocket-handler, ingepakt door require_admin en async_response.
+
+        Tot v0.10.5 zocht de integratie alleen in hass.data['lovelace'] en
+        maakte daardoor op geen enkele actuele HA een dashboard aan — de oude
+        tests merkten dat niet, omdat hun nep-lovelace de dict-vorm van vóór
+        2025.2 had.
+        """
+        import functools
+
+        import custom_components.quatt_stooklijn.dashboard as mod
+
+        monkeypatch.setattr(mod, "_load_shipped", lambda: NIEUW)
+        mgr, dash, collection = _manager(None, None, bestaat=False)
+        dashboards: dict = {}
+
+        class LovelaceData:  # de velden van 2025.2+, en niet meer
+            mode = "storage"
+            resources = None
+            yaml_dashboards: dict = {}
+
+        LovelaceData.dashboards = dashboards
+
+        async def _create(_payload):
+            dashboards["quatt-warmteanalyse"] = dash
+
+        collection.async_create_item = AsyncMock(side_effect=_create)
+
+        class DashboardsCollectionWebSocket:
+            def __init__(self, storage_collection):
+                self.storage_collection = storage_collection
+
+            def ws_list_item(self, hass, connection, msg):
+                pass
+
+            async def ws_create_item(self, hass, connection, msg):
+                pass
+
+        ws = DashboardsCollectionWebSocket(collection)
+
+        def _inpakken(func):
+            @functools.wraps(func)
+            def wrapper(*a, **kw):
+                return func(*a, **kw)
+
+            return wrapper
+
+        mgr._hass.data = {
+            "lovelace": LovelaceData(),
+            "websocket_api": {
+                "lovelace/dashboards/create": (
+                    _inpakken(_inpakken(ws.ws_create_item)),
+                    None,
+                ),
+            },
+        }
+
+        assert await mgr.async_setup() == CREATE
+        collection.async_create_item.assert_awaited_once()
+        dash.async_save.assert_awaited_once_with(NIEUW)
+        mgr._async_raise_create_failed.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_onvindbare_collectie_geeft_een_melding(self, monkeypatch):
+        """Lukt het aanmaken niet, dan mag dat niet meer stil gebeuren: de
+        gebruiker krijgt te horen dat een leeg dashboard op ons pad volstaat.
+        En er wordt niets onthouden, zodat de volgende start het opnieuw
+        probeert."""
+        import custom_components.quatt_stooklijn.dashboard as mod
+
+        monkeypatch.setattr(mod, "_load_shipped", lambda: NIEUW)
+        mgr, dash, _ = _manager(None, None, bestaat=False)
+
+        class LovelaceData:
+            dashboards: dict = {}
+
+        mgr._hass.data = {"lovelace": LovelaceData(), "websocket_api": {}}
+
+        assert await mgr.async_setup() == CREATE
+        mgr._async_raise_create_failed.assert_called_once()
         dash.async_save.assert_not_called()
         mgr._store.async_save.assert_not_called()
 

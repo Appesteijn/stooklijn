@@ -288,6 +288,10 @@
           }
         }
       }
+    },
+    "dashboard_create_failed": {
+      "title": "Le tableau de bord Quatt Warmteanalyse n'a pas pu être créé",
+      "description": "L'intégration n'a pas pu créer son tableau de bord automatiquement sur cette version de Home Assistant.\n\nCréez-le vous-même : **Paramètres → Tableaux de bord → Ajouter un tableau de bord**, choisissez **Nouveau tableau de bord à partir de zéro** et définissez l'URL sur `{url_path}` (le titre est libre). Laissez-le vide. Au prochain redémarrage, ou en rechargeant l'intégration, il sera rempli puis tenu à jour automatiquement."
     }
   }
 }

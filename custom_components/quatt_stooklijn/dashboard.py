@@ -46,6 +46,7 @@ STORAGE_VERSION = 1
 STORAGE_KEY = f"{DOMAIN}.dashboard"
 
 ISSUE_ID = "dashboard_update_available"
+CREATE_FAILED_ISSUE_ID = "dashboard_create_failed"
 
 # Uitkomsten van decide().
 CREATE = "create"          # dashboard bestaat nog niet
@@ -109,6 +110,43 @@ def _lovelace_part(lovelace: Any, name: str) -> Any:
     if part is None and isinstance(lovelace, dict):
         part = lovelace.get(name)
     return part
+
+
+def _find_dashboards_collection(hass: HomeAssistant, lovelace: Any) -> Any:
+    """Zoek de collectie waarmee HA opslag-dashboards aanmaakt.
+
+    Tot en met HA 2025.1 stond die gewoon in hass.data['lovelace']. Sinds
+    2025.2 is dat een dataclass zonder dat veld: de collectie is alleen nog een
+    lokale variabele in de setup van lovelace. Hij leeft wel voort in de
+    websocket-commando's die HA ermee registreert — de handler daarvan is een
+    gebonden methode van een websocket-object met ``storage_collection``. Dat
+    is interne API, maar dezelfde weg die de frontend neemt; zonder deze
+    zoektocht maakte de integratie op geen enkele actuele HA een dashboard aan.
+    """
+    collection = _lovelace_part(lovelace, "dashboards_collection")
+    if collection is not None:
+        return collection
+
+    handlers = hass.data.get("websocket_api")
+    if not isinstance(handlers, dict):
+        return None
+    for command in ("lovelace/dashboards/list", "lovelace/dashboards/create"):
+        entry = handlers.get(command)
+        if not entry:
+            continue
+        func = entry[0] if isinstance(entry, tuple) else entry
+        # require_admin en async_response pakken de methode in met
+        # functools.wraps; pel die lagen af tot de gebonden methode.
+        for _ in range(10):
+            inner = getattr(func, "__wrapped__", None)
+            if inner is None:
+                break
+            func = inner
+        owner = getattr(func, "__self__", None)
+        collection = getattr(owner, "storage_collection", None)
+        if collection is not None and hasattr(collection, "async_create_item"):
+            return collection
+    return None
 
 
 class DashboardManager:
@@ -205,10 +243,22 @@ class DashboardManager:
             return await self._async_write(config)
 
         lovelace = self._hass.data.get("lovelace")
-        collection = _lovelace_part(lovelace, "dashboards_collection")
-        if collection is None:
+        if lovelace is None:
             # Lovelace is er (nog) niet. Niets onthouden, dan wordt het bij de
             # volgende start gewoon opnieuw geprobeerd.
+            return False
+        collection = _find_dashboards_collection(self._hass, lovelace)
+        if collection is None:
+            # Lovelace is er wel, maar we kunnen er niet bij. Dat mag nooit
+            # meer stil gebeuren: zeg wat de gebruiker zelf kan doen. Maakt
+            # die een leeg dashboard op ons pad, dan vullen wij het.
+            _LOGGER.warning(
+                "Kon het Quatt Warmteanalyse dashboard niet automatisch "
+                "aanmaken. Maak zelf een leeg dashboard aan met URL "
+                "/%s; de integratie vult het bij de volgende start",
+                DASHBOARD_URL,
+            )
+            self._async_raise_create_failed()
             return False
         await collection.async_create_item(
             {
@@ -240,6 +290,20 @@ class DashboardManager:
         from homeassistant.helpers import issue_registry as ir
 
         ir.async_delete_issue(self._hass, DOMAIN, ISSUE_ID)
+        ir.async_delete_issue(self._hass, DOMAIN, CREATE_FAILED_ISSUE_ID)
+
+    def _async_raise_create_failed(self) -> None:
+        from homeassistant.helpers import issue_registry as ir
+
+        ir.async_create_issue(
+            self._hass,
+            DOMAIN,
+            CREATE_FAILED_ISSUE_ID,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=CREATE_FAILED_ISSUE_ID,
+            translation_placeholders={"url_path": DASHBOARD_URL},
+        )
 
     # -- het eigenlijke werk -----------------------------------------------
 
@@ -253,9 +317,11 @@ class DashboardManager:
             decision = decide(live, shipped, last_written)
 
             if decision == CREATE:
+                # Alleen bij succes de meldingen wissen: mislukt het aanmaken,
+                # dan heeft _async_create er net zelf een gezet.
                 if await self._async_create(shipped):
                     _LOGGER.info("Quatt Warmteanalyse dashboard aangemaakt")
-                self._async_clear_issue()
+                    self._async_clear_issue()
 
             elif decision == UPDATE:
                 if await self._async_write(shipped):

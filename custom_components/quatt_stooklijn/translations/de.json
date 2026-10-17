@@ -288,6 +288,10 @@
           }
         }
       }
+    },
+    "dashboard_create_failed": {
+      "title": "Quatt-Warmteanalyse-Dashboard konnte nicht erstellt werden",
+      "description": "Die Integration konnte ihr Dashboard in dieser Home-Assistant-Version nicht automatisch erstellen.\n\nErstelle es selbst: **Einstellungen → Dashboards → Dashboard hinzufügen**, wähle **Neues Dashboard von Grund auf** und setze die URL auf `{url_path}` (der Titel ist frei wählbar). Lass es leer. Beim nächsten Neustart oder beim Neuladen der Integration wird das Dashboard gefüllt und danach aktuell gehalten."
     }
   }
 }

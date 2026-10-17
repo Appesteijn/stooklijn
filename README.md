@@ -181,6 +181,12 @@ The integration creates the **Quatt Warmteanalyse** dashboard itself on first se
 not have to import anything. A copy also lives in `dashboards/quatt_stooklijn_dashboard.yaml`
 if you would rather build your own from it.
 
+If the dashboard does not appear, a repair notice tells you so. You can then create it yourself:
+**Settings → Dashboards → Add dashboard → New dashboard from scratch**, with URL
+`quatt-warmteanalyse`. Leave it empty; on the next restart (or a reload of the integration) it is
+filled and kept up to date like any other. Up to v0.10.5-beta.3 the integration could not create
+the dashboard on Home Assistant 2025.2 or later at all, and failed silently.
+
 Later releases keep it up to date, but only when that is safe:
 
 - If the dashboard is still exactly as the integration last wrote it, a new version is applied

@@ -296,6 +296,10 @@
           }
         }
       }
+    },
+    "dashboard_create_failed": {
+      "title": "Quatt Warmteanalyse dashboard could not be created",
+      "description": "The integration could not create its dashboard automatically on this version of Home Assistant.\n\nCreate it yourself: go to **Settings → Dashboards → Add dashboard**, choose **New dashboard from scratch**, and set the URL to `{url_path}` (the title is up to you). Leave it empty. On the next restart, or when you reload the integration, it fills the dashboard and keeps it up to date from then on."
     }
   }
 }
