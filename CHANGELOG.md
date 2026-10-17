@@ -3,6 +3,19 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.5-beta.5 — 2026-10-18
+
+Betaversie met één aanpassing aan het dashboard.
+
+- **Een verwijderd dashboard blijft weg.** Sinds beta.4 maakt de integratie
+  het dashboard weer zelf aan. Zonder deze aanpassing zou een dashboard dat je
+  bewust verwijderde bij elke herstart terugkomen. Nu onthoudt de integratie
+  dat het dashboard er al eens was. Een leeg dashboard op
+  `quatt-warmteanalyse` wordt nog wel gevuld. Verwijder je de hele integratie,
+  dan vergeet ze dat weer, zodat een nieuwe installatie het dashboard opnieuw
+  aanmaakt. Terughalen zonder herinstallatie kan met de service
+  `quatt_stooklijn.update_dashboard`.
+
 ## v0.10.5-beta.4 — 2026-10-17
 
 Betaversie met één reparatie.
