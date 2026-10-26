@@ -3,7 +3,9 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
-## Nog niet uitgebracht
+## v0.10.5-beta.6 — 2026-10-26
+
+Betaversie met één reparatie aan het online warmtemodel.
 
 - **De warmtecapaciteit van het huis zakt niet meer weg in het stookseizoen.**
   Het online model kende geen constante warmtewinst: bewoners, apparaten en
