@@ -3,6 +3,28 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## Nog niet uitgebracht
+
+- **De warmtecapaciteit van het huis zakt niet meer weg in het stookseizoen.**
+  Het online model kende geen constante warmtewinst: bewoners, apparaten en
+  wat er verder binnenkomt zonder dat de warmtepomp het levert. Het balanspunt
+  ligt doorgaans 3–4 °C onder de kamertemperatuur, dus dat is al gauw een
+  kilowatt. Zonder die term moest het model de fout ergens anders kwijt, en
+  dat werd de warmtecapaciteit. Op de ontwikkelinstallatie zakte die in tien
+  stookdagen van 10.700 naar 7.400 Wh/K. Opgeslagen warmte, veilige
+  uitlooptijd en het MPC-advies rekenden daardoor met een huis dat veel
+  sneller afkoelt dan het echte. Het model heeft nu een vierde parameter, de
+  constante warmtewinst (attribuut `model_constant_gain_w`). Die krijgt één
+  keer een startwaarde uit de warmteverliesanalyse (U × (kamerdoel −
+  balanspunt)) en leert daarna zelf bij. Een bestaand model wordt
+  automatisch uitgebreid en houdt wat het al geleerd had. Een capaciteit die
+  al is weggezakt, herstelt wel langzaam: op de ontwikkelinstallatie zo'n
+  15% in tien dagen.
+- Let op voor het voorjaar: de constante warmtewinst leert ook in uren zonder
+  warmtevraag. Wat hij in de zomer leert, moet hij in het najaar weer
+  afleren. Bevriezen, zoals bij de capaciteit, maakte het model bij een koude
+  start instabiel.
+
 ## v0.10.5-beta.5 — 2026-10-18
 
 Betaversie met één aanpassing aan het dashboard.

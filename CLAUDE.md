@@ -39,6 +39,21 @@ Geschiedenis: dit stond al vast voor de knikdetectie, maar raakte zoek. In
 v0.10.3 rekende de modelvergelijking "bewust op uurgemiddelden". Dat is op
 15-10-2026 teruggedraaid.
 
+## Het 1R1C heeft een constante warmtewinst nodig
+
+Zonder term voor constante winst (`θ₄ = P_c/C`) klopt de warmtebalans in het
+stookseizoen niet: het balanspunt ligt 3–4 K onder de kamertemperatuur, dus er
+komt ~1 kW binnen die het model niet kent. Het U-anker houdt U vast, dus de
+fout belandt in C. Gemeten in oktober 2026: C van 10.700 naar 7.400 Wh/K in
+tien dagen. Nagespeeld met de echte RLS-toestand uit `.storage`: met P_c blijft
+C staan en komt P_c zelf op ~1.050 W. Ook 's nachts, dus het is geen zon.
+
+- P_c krijgt één startwaarde uit het balanspunt. Vanaf nul leert RLS hem te
+  traag en zakt C intussen toch (`test_vastleggen_zonder_startwaarde_te_traag`).
+- θ₄ niet bevriezen in uren zonder warmtevraag. Zijn regressor (dt) is nooit
+  nul, en de blokupdate van `RLSEstimator` ontregelt P dan. Uitgeprobeerd: op
+  het koude-starthuis liep C negatief.
+
 ## Op vijfminutendata niet één stap vooruit fitten
 
 Het gevolg van de vorige regel. De kamertemperatuur komt in 0,01 K binnen

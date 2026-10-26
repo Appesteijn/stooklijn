@@ -18,6 +18,7 @@ from custom_components.quatt_stooklijn.analysis.thermal_model import (
     simulate_forward,
     simulate_coast_time,
 )
+from custom_components.quatt_stooklijn.analysis.thermal_model import _P_C as _P_C_INDEX
 
 
 # --------------------------------------------------------------------------- #
@@ -860,3 +861,235 @@ class TestHerstelOpMinimum:
 
     def test_zonder_minimum_geen_uitkomst(self):
         assert self._herstel(None) is None
+
+
+# --------------------------------------------------------------------------- #
+#  Constante warmtewinst (θ₄ = P_c/C)                                         #
+# --------------------------------------------------------------------------- #
+
+
+class TestConstanteWarmtewinst:
+    """Zonder P_c klopt de warmtebalans in het stookseizoen niet, en zakt C weg.
+
+    In oktober 2026 in productie: C van 10.700 naar 7.400 Wh/K in tien
+    stookdagen, U keurig op 287. Het balanspunt ligt 3–4 K onder de
+    kamertemperatuur, dus er komt ~1 kW binnen die het oude model niet kende.
+    Het U-anker houdt U vast, dus kwam de fout in C terecht. Dit huis doet
+    precies dat na: echte constante winst, en een thermostaat die afslaat
+    zodra de vraag onder de drempel zakt, zodat het anker meedoet.
+    """
+
+    U, C, G, P_C = 285.0, 20000.0, 3.5, 1000.0
+
+    @classmethod
+    def _herfst(cls, model: OnlineRCModel, n_hours: int = 600) -> OnlineRCModel:
+        rng = np.random.default_rng(11)
+        t_indoor = 20.0
+        t0 = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        for h in range(n_hours):
+            t_outdoor = 9.0 + 5.0 * np.sin(2 * np.pi * (h - 9) / 24) + rng.normal(0, 1.0)
+            q_solar = max(0.0, 300 * np.sin(2 * np.pi * (h - 8) / 24))
+            q_hp = (cls.U * (20.3 - t_outdoor) - cls.G * q_solar - cls.P_C
+                    + 2000 * (20.0 - t_indoor) + rng.normal(0, 150))
+            q_hp = q_hp if q_hp >= ANCHOR_MAX_Q_HP_W else 0.0
+            model.update(t_indoor, t_outdoor, q_hp, q_solar, t0 + timedelta(hours=h))
+            t_indoor += (q_hp + cls.G * q_solar + cls.P_C
+                         - cls.U * (t_indoor - t_outdoor)) / cls.C + rng.normal(0, 0.01)
+        return model
+
+    @classmethod
+    def _geleerd(cls, oud: bool = False) -> OnlineRCModel:
+        """Een model dat U, C en g al kent, met de kleine P van een draaiende
+        installatie. ``oud`` zet P voor θ₄ op nul: dan beweegt θ₄ nooit en
+        rekent het model precies als het 1R1C zonder P_c."""
+        model = OnlineRCModel()
+        model._rls.initialise_from_physics(cls.U, cls.C, cls.G)
+        model._rls.P = np.diag([1e-6, 1e-8, 1e-9, 1e-9 * 1000.0 ** 2])
+        if oud:
+            model._rls.P[_P_C_INDEX, :] = 0.0
+            model._rls.P[:, _P_C_INDEX] = 0.0
+        model.set_u_prior(cls.U)
+        return model
+
+    def test_vastleggen_zonder_p_c_zakt_c_weg(self):
+        """Het probleem zelf. Faalt deze test, dan is de oorzaak verdwenen."""
+        model = self._herfst(self._geleerd(oud=True))
+        assert model.raw_params["C"] < 0.7 * self.C
+        assert model.raw_params["U"] == pytest.approx(self.U, rel=0.02)
+
+    def test_met_startwaarde_blijft_c_staan(self):
+        model = self._geleerd()
+        model.seed_constant_gain(self.P_C)
+        self._herfst(model)
+        assert model.raw_params["C"] == pytest.approx(self.C, rel=0.05)
+        assert model.raw_params["P_c"] == pytest.approx(self.P_C, abs=100.0)
+        assert model.is_converged
+
+    def test_startwaarde_hoeft_niet_exact(self):
+        """De startwaarde komt uit het balanspunt en zit er dus wat naast.
+        RLS moet hem dan bijsturen, niet laten staan."""
+        model = self._geleerd()
+        model.seed_constant_gain(700.0)
+        self._herfst(model)
+        assert model.raw_params["P_c"] > 720.0
+        assert model.raw_params["C"] > 0.8 * self.C
+
+    def test_vastleggen_zonder_startwaarde_te_traag(self):
+        """Waarom er gezaaid wordt: vanaf nul vindt RLS de kilowatt te
+        langzaam, en zakt C intussen toch weg."""
+        model = self._herfst(self._geleerd())
+        assert model.raw_params["P_c"] < 0.5 * self.P_C
+        assert model.raw_params["C"] < 0.75 * self.C
+
+    def test_zaaien_gebeurt_maar_een_keer(self):
+        model = self._geleerd()
+        assert model.seed_constant_gain(1000.0) is True
+        assert model.seed_constant_gain(500.0) is False
+        assert model.raw_params["P_c"] == pytest.approx(1000.0)
+
+    @pytest.mark.parametrize("p_c", [-5000.0, 10000.0])
+    def test_onzinnige_startwaarde_wordt_genegeerd(self, p_c):
+        model = self._geleerd()
+        assert model.seed_constant_gain(p_c) is False
+        assert model.raw_params["P_c"] == pytest.approx(0.0)
+        assert model.params["constant_gain_seeded"] is False
+
+    def test_batch_init_wist_de_startwaarde(self):
+        """initialise_from_batch zet θ₄ op nul, dus de vlag moet mee."""
+        model = OnlineRCModel()
+        model.seed_constant_gain(1000.0)
+        model.initialise_from_batch(285.0)
+        assert model.params["constant_gain_seeded"] is False
+        assert model.seed_constant_gain(900.0) is True
+
+    def test_vlag_overleeft_serialisatie(self):
+        """Anders zaait elke herstart opnieuw over het geleerde heen."""
+        model = self._geleerd()
+        model.seed_constant_gain(1000.0)
+        restored = OnlineRCModel.from_dict(model.to_dict())
+        assert restored.seed_constant_gain(500.0) is False
+        assert restored.raw_params["P_c"] == pytest.approx(1000.0)
+
+    def test_voorspelling_rekent_met_p_c(self):
+        """In evenwicht: Q_hp + P_c = U·ΔT. Het benodigde vermogen zakt dus
+        met P_c, en zonder warmtepomp koelt het huis trager af."""
+        model = self._geleerd()
+        zonder = model.calc_required_power(20.0, 5.0, 0.0, 20.0)
+        koel_zonder = model.predict_t_indoor(20.0, 5.0, 0.0, 0.0)
+        model.seed_constant_gain(1000.0)
+        assert zonder == pytest.approx(self.U * 15.0)
+        assert model.calc_required_power(20.0, 5.0, 0.0, 20.0) == pytest.approx(
+            self.U * 15.0 - 1000.0)
+        assert model.predict_t_indoor(20.0, 5.0, 0.0, 0.0) > koel_zonder
+
+    def test_params_tonen_p_c(self):
+        model = self._geleerd()
+        model.seed_constant_gain(1000.0)
+        assert model.params["constant_gain_w"] == 1000
+        assert model.params["constant_gain_seeded"] is True
+
+
+class TestMigratieNaarVierParameters:
+    """Opgeslagen modellen van vóór P_c hebben drie parameters."""
+
+    @staticmethod
+    def _oud_opgeslagen() -> dict:
+        """Hetzelfde formaat als .storage in oktober 2026."""
+        return {
+            "rls": {
+                "theta": [0.0385, 0.00042, 0.000134],
+                "P": [[7.3e-05, 9.6e-07, 3.2e-07],
+                      [9.6e-07, 7.9e-08, 3.0e-09],
+                      [3.2e-07, 3.0e-09, 2.1e-09]],
+                "n_updates": 4213,
+                "n_updates_per_param": [4213, 4213, 3408],
+                "forgetting": 0.998,
+            },
+            "u_prior": 287.15,
+            "prev_t_indoor": 19.98,
+            "prev_t_outdoor": 10.75,
+            "prev_q_hp": 2314.5,
+            "prev_q_solar": 0.0,
+            "prev_timestamp": "2026-10-26T21:17:54+00:00",
+        }
+
+    def test_drie_parameters_worden_er_vier(self):
+        model = OnlineRCModel.from_dict(self._oud_opgeslagen())
+        assert model._rls.n_params == 4
+        assert model._rls.theta.shape == (4,)
+        assert model._rls.P.shape == (4, 4)
+
+    def test_geleerde_waarden_blijven_staan(self):
+        """Een draaiende installatie hoeft niet opnieuw te leren."""
+        oud = self._oud_opgeslagen()
+        model = OnlineRCModel.from_dict(oud)
+        np.testing.assert_allclose(model._rls.theta[:3], oud["rls"]["theta"])
+        np.testing.assert_allclose(model._rls.P[:3, :3], oud["rls"]["P"])
+        assert model._rls.theta[_P_C_INDEX] == 0.0
+        assert model._rls.P[_P_C_INDEX, :3] == pytest.approx([0.0, 0.0, 0.0])
+
+    def test_rekent_tot_het_zaaien_als_voorheen(self):
+        oud = self._oud_opgeslagen()
+        model = OnlineRCModel.from_dict(oud)
+        th = oud["rls"]["theta"]
+        verwacht = 20.0 + th[0] * (5.0 - 20.0) + th[1] * 100.0 + th[2] * 2000.0
+        assert model.predict_t_indoor(20.0, 5.0, 2000.0, 100.0) == pytest.approx(verwacht)
+
+    def test_blijft_geconvergeerd(self):
+        """Anders vallen MPC en uitlooptijd na de update dagenlang terug op
+        het batchmodel."""
+        model = OnlineRCModel.from_dict(self._oud_opgeslagen())
+        assert model._rls.n_updates_per_param[_P_C_INDEX] == 3408
+        assert model.is_converged
+
+    def test_nog_niet_gezaaid(self):
+        model = OnlineRCModel.from_dict(self._oud_opgeslagen())
+        assert model.params["constant_gain_seeded"] is False
+        assert model.seed_constant_gain(996.0) is True
+
+    def test_tweede_keer_laden_verandert_niets(self):
+        model = OnlineRCModel.from_dict(self._oud_opgeslagen())
+        model.seed_constant_gain(996.0)
+        opnieuw = OnlineRCModel.from_dict(model.to_dict())
+        np.testing.assert_allclose(opnieuw._rls.theta, model._rls.theta)
+        np.testing.assert_allclose(opnieuw._rls.P, model._rls.P)
+
+
+class TestZaaienVanuitDeSensor:
+    """De MPC-sensor zaait P_c uit de batchregressie: U × (kamer − balanspunt)."""
+
+    @staticmethod
+    def _sensor(balance_point=16.53, slope=-287.15):
+        from unittest.mock import MagicMock
+        from custom_components.quatt_stooklijn.sensor import QuattMpcSensor
+
+        sensor = QuattMpcSensor.__new__(QuattMpcSensor)
+        sensor._thermal_loaded = True
+        sensor._thermal_store = MagicMock()
+        sensor._thermal_store.model = OnlineRCModel()
+        sensor.coordinator = MagicMock()
+        sensor.coordinator.data.heat_loss_hp.slope = slope
+        sensor.coordinator.data.heat_loss_hp.balance_point = balance_point
+        sensor._resolve_room_setpoint = lambda: (20.0, "thermostaat")
+        return sensor
+
+    def test_startwaarde_uit_het_balanspunt(self):
+        sensor = self._sensor()
+        sensor._refresh_u_prior()
+        model = sensor._thermal_store.model
+        assert model.params["constant_gain_seeded"] is True
+        assert model.raw_params["P_c"] == pytest.approx(287.15 * (20.0 - 16.53))
+
+    def test_zonder_balanspunt_geen_startwaarde(self):
+        sensor = self._sensor(balance_point=None)
+        sensor._refresh_u_prior()
+        assert sensor._thermal_store.model.params["constant_gain_seeded"] is False
+
+    def test_volgende_uren_zaaien_niet_opnieuw(self):
+        """_refresh_u_prior draait elk uur; alleen het anker volgt de regressie."""
+        sensor = self._sensor()
+        sensor._refresh_u_prior()
+        sensor.coordinator.data.heat_loss_hp.balance_point = 10.0
+        sensor._refresh_u_prior()
+        assert sensor._thermal_store.model.raw_params["P_c"] == pytest.approx(
+            287.15 * (20.0 - 16.53))

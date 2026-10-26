@@ -1309,9 +1309,19 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         """
         if not self._thermal_loaded or not self.coordinator.data:
             return
-        slope = self.coordinator.data.heat_loss_hp.slope
+        heat_loss = self.coordinator.data.heat_loss_hp
+        slope = heat_loss.slope
         if slope is not None:
             self._thermal_store.model.set_u_prior(-slope)
+            # Wél eenmalig, anders dan het anker: daarna leert RLS P_c zelf.
+            # Het kamerdoel staat voor de binnentemperatuur waarop de regressie
+            # rekende. Dat is een startwaarde; een nachtverlaging op het moment
+            # van zaaien kost alleen wat extra leertijd.
+            if heat_loss.balance_point is not None:
+                room_setpoint, _ = self._resolve_room_setpoint()
+                self._thermal_store.model.seed_constant_gain(
+                    -slope * (room_setpoint - heat_loss.balance_point)
+                )
 
     async def _async_hourly_update(self, _now=None) -> None:
         """Hourly: update thermal model with new measurement, then refresh forecast."""

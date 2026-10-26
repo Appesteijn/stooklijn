@@ -1,17 +1,30 @@
 """Online 1R1C thermal model with Recursive Least Squares parameter learning.
 
 Physics:
-    C × dT_in/dt = Q_hp + g × Q_solar − U × (T_in − T_out)
+    C × dT_in/dt = Q_hp + g × Q_solar + P_c − U × (T_in − T_out)
 
 Where:
     U = heat loss coefficient (W/K)
     C = thermal capacity (Wh/K)
     g = solar gain factor (dimensionless)
+    P_c = constante warmtewinst (W)
 
 Discretised (timestep Δt hours):
-    ΔT = Δt × [θ₁×(T_out−T_in) + θ₂×Q_solar + θ₃×Q_hp]
+    ΔT = Δt × [θ₁×(T_out−T_in) + θ₂×Q_solar + θ₃×Q_hp + θ₄]
 
-    θ₁ = U/C,  θ₂ = g/C,  θ₃ = 1/C
+    θ₁ = U/C,  θ₂ = g/C,  θ₃ = 1/C,  θ₄ = P_c/C
+
+Waarom P_c erin zit: zonder die term klopt de warmtebalans in het stookseizoen
+niet. Het balanspunt ligt bij dit soort huizen 3–4 K onder de kamertemperatuur,
+dus er komt zo'n kilowatt binnen die het model niet kent: bewoners en
+apparaten, maar ook een afwijking in de vermogensmeting of het verschil tussen
+de woonkamersensor en het huisgemiddelde. Vandaar de neutrale naam. Zonder P_c
+moet die fout ergens anders heen. Het U-anker houdt U vast, dus kwam hij in C
+terecht. In oktober 2026 zakte C daardoor in tien stookdagen van 10.700 naar
+7.400 Wh/K, terwijl de afkoelmeting van september τ ≈ 85–100 u gaf. Nagespeeld
+met de echte RLS-toestand: met P_c blijft C staan en komt P_c zelf op ~1.050 W,
+precies wat het balanspunt voorspelt. Ook 's nachts (zon = 0) zit die ~1 kW
+erin, dus het is geen verkeerd toegewezen zonnewinst.
 """
 
 from __future__ import annotations
@@ -42,6 +55,21 @@ C_MIN, C_MAX = 500.0, 30000.0  # Wh/K
 # g_solar: W heat gain per W/m² irradiance = effective_window_area_m2 × SHGC
 # Typical house: 5-20 m² windows × 0.3-0.6 SHGC = 1.5-12 W/(W/m²)
 G_MIN, G_MAX = 0.0, 20.0       # W/(W/m²)
+# Constante warmtewinst. Mag licht negatief: een vermogensmeting die iets te
+# hoog leest, ziet eruit als negatieve winst, en dat is informatie, geen fout.
+P_C_MIN, P_C_MAX = -1000.0, 3000.0  # W
+
+# Aantal parameters van het model: θ₁..θ₄. Opgeslagen modellen van vóór P_c
+# hebben er drie; ``OnlineRCModel.from_dict`` vult de vierde aan.
+N_PARAMS = 4
+_P_C = 3  # index van θ₄
+
+# Onzekerheid van θ₄ bij een opgeslagen model dat P_c nog niet kende. Gelijk
+# aan die van θ₃, maar dan voor een term van deze grootte: P[3,3] =
+# P[2,2] × schaal². Zo heeft P_c dezelfde relatieve vrijheid als C, en schiet
+# hij niet weg bij de eerste stookuren. Bij het naspelen van oktober 2026
+# convergeerde P_c hiermee in een paar dagen.
+P_C_COV_SCALE_W = 1000.0
 
 # Minimum delta-T between indoor/outdoor to include a sample (avoids
 # numerical issues when the temperature difference is too small)
@@ -96,16 +124,22 @@ class RLSEstimator:
         if self.n_updates_per_param is None:
             self.n_updates_per_param = np.zeros(self.n_params, dtype=int)
 
-    def initialise_from_physics(self, U: float, C: float, g: float) -> None:
-        """Set initial θ from physical parameters (cold start)."""
-        self.theta = np.array([U / C, g / C, 1.0 / C])
+    def initialise_from_physics(
+        self, U: float, C: float, g: float, p_c: float = 0.0
+    ) -> None:
+        """Set initial θ from physical parameters (cold start).
+
+        ``p_c`` telt alleen bij een estimator met vier parameters.
+        """
+        theta = [U / C, g / C, 1.0 / C, p_c / C]
+        self.theta = np.array(theta[: self.n_params])
         # Keep large P so new data quickly corrects defaults
         self.P = np.eye(self.n_params) * RLS_INITIAL_COV
 
     def update(
         self, x: np.ndarray, y: float, frozen: tuple[int, ...] = ()
     ) -> None:
-        """One RLS step: x = feature vector (3,), y = measured ΔT.
+        """One RLS step: x = feature vector (n_params,), y = measured ΔT.
 
         ``frozen`` names parameters this sample carries no information about.
         Ze houden hun waarde én hun covariantie. Beide zijn nodig:
@@ -196,7 +230,6 @@ class OnlineRCModel:
     """1R1C thermal model with online parameter learning."""
 
     def __init__(self) -> None:
-        self._rls = RLSEstimator()
         self._prev_t_indoor: float | None = None
         self._prev_t_outdoor: float | None = None
         self._prev_q_hp: float | None = None
@@ -209,6 +242,10 @@ class OnlineRCModel:
         # in `params` so an anchored model is distinguishable from a learned
         # one — otherwise a summer-frozen U looks exactly like a converged one.
         self._u_anchored: bool = False
+        # Of P_c al een startwaarde uit het balanspunt heeft gekregen. Tot dan
+        # staat θ₄ op nul en gedraagt het model zich als het oude 1R1C.
+        self._p_c_seeded: bool = False
+        self._rls = RLSEstimator(n_params=N_PARAMS)
         # Initialise with reasonable defaults
         self._rls.initialise_from_physics(DEFAULT_U, DEFAULT_C, DEFAULT_G_SOLAR)
 
@@ -216,6 +253,8 @@ class OnlineRCModel:
         """Use batch-estimated heat loss as better starting point."""
         if U_MIN <= U <= U_MAX:
             self._rls.initialise_from_physics(U, DEFAULT_C, DEFAULT_G_SOLAR)
+            # θ₄ staat weer op nul, dus een eerdere startwaarde is weg.
+            self._p_c_seeded = False
             _LOGGER.info(
                 "RC model initialised from batch heat loss: U=%.1f W/K", U
             )
@@ -239,6 +278,30 @@ class OnlineRCModel:
                 "RC model: ignoring implausible U prior %.1f W/K "
                 "(outside %.0f-%.0f)", U, U_MIN, U_MAX,
             )
+
+    def seed_constant_gain(self, p_c: float | None) -> bool:
+        """Geef P_c één keer een startwaarde, uit het balanspunt.
+
+        De batchregressie zegt waar de warmtevraag nul wordt: bij T_bal. Daar
+        dekt de constante winst precies het verlies, dus P_c = U × (T_in −
+        T_bal). Zonder startwaarde begint P_c op nul en moet RLS de hele
+        kilowatt zelf vinden; tot die tijd duwt de fout C weer weg.
+
+        Maar één keer: daarna leert RLS P_c, en een tweede startwaarde zou dat
+        overschrijven. Geeft True als er gezaaid is.
+        """
+        if self._p_c_seeded or p_c is None:
+            return False
+        if not P_C_MIN <= p_c <= P_C_MAX:
+            _LOGGER.warning(
+                "RC model: onwaarschijnlijke startwaarde P_c %.0f W genegeerd "
+                "(buiten %.0f–%.0f)", p_c, P_C_MIN, P_C_MAX,
+            )
+            return False
+        self._rls.theta[_P_C] = p_c * self._rls.theta[2]
+        self._p_c_seeded = True
+        _LOGGER.info("RC model: P_c gezaaid op %.0f W", p_c)
+        return True
 
     def update(
         self,
@@ -296,12 +359,13 @@ class OnlineRCModel:
             return False
 
         # Build observation using PREVIOUS conditions:
-        # y = ΔT_indoor (what happened), x = Δt × [T_out-T_in, Q_solar, Q_hp] (what caused it)
+        # y = ΔT_indoor (what happened), x = Δt × [T_out-T_in, Q_solar, Q_hp, 1] (what caused it)
         delta_t = t_indoor - self._prev_t_indoor
         x = np.array([
             dt_hours * (self._prev_t_outdoor - self._prev_t_indoor),  # θ₁ term
             dt_hours * self._prev_q_solar,                            # θ₂ term
             dt_hours * self._prev_q_hp,                               # θ₃ term
+            dt_hours,                                                 # θ₄ term
         ])
 
         # Zonder warmte-input is C net zo onidentificeerbaar als U: de
@@ -315,6 +379,16 @@ class OnlineRCModel:
         # watt onder de drempel loopt C in één seizoen volledig weg, aangejaagd
         # door een P[2,2] die de vergeetfactor intussen heeft opgeblazen.
         # g blijft wél leren: de zomer is juist de beste periode daarvoor.
+        #
+        # θ₄ (P_c/C) wordt bewust níét mee bevroren, hoe logisch dat ook lijkt.
+        # Bevriezen werkt voor θ₃ omdat zijn regressor (dt·Q_hp) in die uren
+        # bijna nul is: dan doen de kruiscovarianties met de actieve
+        # parameters er niet toe. De regressor van θ₄ (dt) is nooit nul. De
+        # blokupdate laat P[actief, θ₄] staan terwijl het actieve blok
+        # krimpt, en dan raakt P ontregeld. Op het koude-starthuis van
+        # TestOnlineRCModel was het model na 80 uur goed en na 150 uur
+        # uitgelopen tot een negatieve C. Prijs van meeleren: P_c volgt ook
+        # de zomer, en moet in het najaar terug. Zie de CHANGELOG.
         q_hp_used = self._prev_q_hp or 0.0
         low_heat = q_hp_used < ANCHOR_MAX_Q_HP_W
 
@@ -354,6 +428,7 @@ class OnlineRCModel:
             theta[0] * (t_outdoor - t_indoor)
             + theta[1] * q_solar_w
             + theta[2] * q_hp_w
+            + theta[_P_C]
         )
         return t_indoor + delta_t
 
@@ -373,13 +448,14 @@ class OnlineRCModel:
         if abs(theta[2]) < 1e-12:
             return 0.0  # model not yet usable
 
-        # Solve: t_setpoint = t_indoor + dt × [θ₁(T_out-T_in) + θ₂×Q_solar + θ₃×Q_hp]
-        # => Q_hp = (t_setpoint - t_indoor - dt×θ₁×(T_out-T_in) - dt×θ₂×Q_solar) / (dt×θ₃)
+        # Solve: t_setpoint = t_indoor + dt × [θ₁(T_out-T_in) + θ₂×Q_solar + θ₃×Q_hp + θ₄]
+        # => Q_hp = (t_setpoint - t_indoor - dt×θ₁×(T_out-T_in) - dt×θ₂×Q_solar - dt×θ₄) / (dt×θ₃)
         numerator = (
             t_setpoint
             - t_indoor
             - dt_hours * theta[0] * (t_outdoor - t_indoor)
             - dt_hours * theta[1] * q_solar_w
+            - dt_hours * theta[_P_C]
         )
         q_hp = numerator / (dt_hours * theta[2])
         return max(0.0, q_hp)
@@ -397,6 +473,7 @@ class OnlineRCModel:
             U_MIN <= p["U"] <= U_MAX
             and C_MIN <= p["C"] <= C_MAX
             and G_MIN <= p["g"] <= G_MAX
+            and P_C_MIN <= p["P_c"] <= P_C_MAX
         )
 
     @property
@@ -408,7 +485,7 @@ class OnlineRCModel:
         C = 1.0 / theta[2]
         U = theta[0] * C
         g = theta[1] * C
-        return {"U": U, "C": C, "g": g}
+        return {"U": U, "C": C, "g": g, "P_c": theta[_P_C] * C}
 
     @property
     def params(self) -> dict:
@@ -425,6 +502,8 @@ class OnlineRCModel:
             "U_wk": round(U, 1),
             "C_whk": round(C, 0),
             "g_solar": round(g, 3),
+            "constant_gain_w": round(p["P_c"]),
+            "constant_gain_seeded": self._p_c_seeded,
             "tau_hours": round(tau, 1) if tau else None,
             "n_updates": self._rls.n_updates,
             "converged": self.is_converged,
@@ -437,6 +516,7 @@ class OnlineRCModel:
         return {
             "rls": self._rls.to_dict(),
             "u_prior": self._u_prior,
+            "p_c_seeded": self._p_c_seeded,
             "prev_t_indoor": self._prev_t_indoor,
             "prev_t_outdoor": self._prev_t_outdoor,
             "prev_q_hp": self._prev_q_hp,
@@ -452,8 +532,9 @@ class OnlineRCModel:
     def from_dict(cls, data: dict) -> OnlineRCModel:
         """Deserialise from stored state."""
         model = cls.__new__(cls)
-        model._rls = RLSEstimator.from_dict(data["rls"])
+        model._rls = _with_constant_gain(RLSEstimator.from_dict(data["rls"]))
         model._u_prior = data.get("u_prior")
+        model._p_c_seeded = bool(data.get("p_c_seeded", False))
         # Niet gepersisteerd: dit beschrijft de laatste update, niet de staat.
         # Wel expliciet zetten — from_dict gebruikt cls.__new__ en slaat
         # __init__ dus over, waardoor elk veld dat hier ontbreekt later een
@@ -468,6 +549,38 @@ class OnlineRCModel:
             datetime.fromisoformat(ts) if ts else None
         )
         return model
+
+
+def _with_constant_gain(rls: RLSEstimator) -> RLSEstimator:
+    """Breid een opgeslagen 1R1C zonder P_c uit naar vier parameters.
+
+    θ₁..θ₃ en hun covariantie blijven staan, zodat een draaiende installatie
+    niet opnieuw hoeft te leren. θ₄ begint op nul, dus het model rekent
+    precies als voorheen tot ``seed_constant_gain`` een startwaarde geeft.
+
+    De teller van θ₄ neemt die van θ₃ over. Anders zou ``is_converged`` het
+    model na de update dagenlang afkeuren, en vallen de MPC en de
+    uitlooptijd terug op het batchmodel. Dat is erger dan een P_c die nog
+    moet bijleren vanaf een gezaaide startwaarde.
+    """
+    if rls.n_params >= N_PARAMS:
+        return rls
+    theta = np.append(rls.theta, 0.0)
+    P = np.zeros((N_PARAMS, N_PARAMS))
+    P[:3, :3] = rls.P
+    P[_P_C, _P_C] = rls.P[2, 2] * P_C_COV_SCALE_W ** 2
+    est = RLSEstimator(
+        n_params=N_PARAMS,
+        forgetting=rls.forgetting,
+        theta=theta,
+        P=P,
+        n_updates=rls.n_updates,
+        n_updates_per_param=np.append(
+            rls.n_updates_per_param, rls.n_updates_per_param[2]
+        ),
+    )
+    _LOGGER.info("RC model uitgebreid met constante warmtewinst (θ₄)")
+    return est
 
 
 def stored_heat_kwh(
