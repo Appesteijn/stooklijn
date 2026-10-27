@@ -3,7 +3,9 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
-## Nog niet uitgebracht
+## v0.10.5-beta.7 — 2026-10-28
+
+Betaversie met drie verbeteringen op beta.6.
 
 - **De COP-bron springt niet meer heen en weer als de warmtepomp stilstaat.**
   Een COP bestaat niet zonder draaiende warmtepomp, en OpenQuatt meldt dan
