@@ -101,6 +101,7 @@ from .discovery import (
     ROLE_TOTAL_POWER,
     async_config_quatt_hubs,
     async_discover_quatt_entities,
+    async_entity_exists,
 )
 from .sources import async_source_entity
 
@@ -385,8 +386,23 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
             self.hass, async_config_quatt_hubs(self.hass, data)
         )
 
+        def _existing(value):
+            """Alleen entiteiten die bestaan, anders niets.
+
+            De resolver geeft als laatste redmiddel een terugvalnaam terug, ook
+            als die niet bestaat (stap 4 in ``async_resolve_entity``). In het
+            formulier werd dat een "onbekende entiteit", en wie opsloeg legde die
+            dode naam vast. Een leeg veld zegt eerlijk dat er niets gevonden is.
+            """
+            if isinstance(value, list):
+                kept = [v for v in value if async_entity_exists(self.hass, v)]
+                return kept or None
+            return value if value and async_entity_exists(self.hass, value) else None
+
         def _current(key: str, role: str | None = None, fallback=None):
-            value = data.get(key)
+            # Een ingestelde entity die niet (meer) bestaat valt door naar de
+            # detectie, net als in de resolver zelf.
+            value = _existing(data.get(key))
             if value:
                 return value
             # Wat er nú levert gaat voor op wat de Quatt-detectie zou kiezen.
@@ -395,9 +411,9 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
             # voorstel. Zonder deze stap stelt het formulier een dode sensor
             # voor en lijkt het alsof die in gebruik is.
             if role:
-                active = async_source_entity(
+                active = _existing(async_source_entity(
                     self.hass, self._config_entry.entry_id, role
-                )
+                ))
                 if active:
                     return active
             if role and role in detected:
@@ -442,7 +458,7 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     ): _entity("sensor"),
                     _prefill(
                         CONF_WEATHER_ENTITY,
-                        _current(CONF_WEATHER_ENTITY, fallback=DEFAULT_WEATHER_ENTITY),
+                        _current(CONF_WEATHER_ENTITY, fallback=_existing(DEFAULT_WEATHER_ENTITY)),
                     ): _entity("weather"),
                     _prefill(
                         CONF_INDOOR_TEMP_ENTITY,

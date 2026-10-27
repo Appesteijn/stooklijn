@@ -1093,3 +1093,20 @@ class TestZaaienVanuitDeSensor:
         sensor._refresh_u_prior()
         assert sensor._thermal_store.model.raw_params["P_c"] == pytest.approx(
             287.15 * (20.0 - 16.53))
+
+    def test_zaait_zodra_de_analyse_binnenkomt(self):
+        """Laadt het model vóór de analyse, dan mag de startwaarde niet tot de
+        eerste uurtik wachten."""
+        from unittest.mock import patch
+        from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+        sensor = self._sensor()
+        data = sensor.coordinator.data
+        sensor.coordinator.data = None
+        sensor._refresh_u_prior()
+        assert sensor._thermal_store.model.params["constant_gain_seeded"] is False
+
+        sensor.coordinator.data = data
+        with patch.object(CoordinatorEntity, "_handle_coordinator_update", create=True):
+            sensor._handle_coordinator_update()
+        assert sensor._thermal_store.model.params["constant_gain_seeded"] is True

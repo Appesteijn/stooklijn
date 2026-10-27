@@ -360,3 +360,45 @@ class TestSetupStapDrieTweeInstallaties:
         }
         _run(flow.async_step_options())
         assert gezien[CONF_FLOW_ENTITY] == "sensor.eigen_flowrate"
+
+
+
+class TestGeenOnbekendeEntiteitenInHetFormulier:
+    """Zonder gevonden bron stond er een terugvalnaam die niet bestaat. In het
+    formulier heette dat "onbekende entiteit", en wie opsloeg legde die dode
+    naam vast (zo gemeld door een gebruiker, oktober 2026)."""
+
+    @staticmethod
+    def _voorstellen(monkeypatch, data=None) -> dict:
+        import custom_components.quatt_stooklijn.config_flow as cf
+
+        gezien: dict = {}
+        echte = cf._prefill
+
+        def _vastleggen(key, value):
+            gezien[key] = value
+            return echte(key, value)
+
+        monkeypatch.setattr(cf, "_prefill", _vastleggen)
+        _run(TestOptiescherm()._options(data).async_step_init())
+        return gezien
+
+    def test_niets_gevonden_geeft_een_leeg_veld(self, monkeypatch):
+        from custom_components.quatt_stooklijn.const import CONF_COMPRESSOR_ENTITY
+
+        assert self._voorstellen(monkeypatch)[CONF_COMPRESSOR_ENTITY] is None
+
+    def test_gevonden_bron_wordt_nog_steeds_voorgesteld(self, monkeypatch):
+        assert self._voorstellen(monkeypatch)[CONF_SUPPLY_TEMP_ENTITY] == (
+            "sensor.flowmeter_temperature"
+        )
+
+    def test_ingestelde_dode_naam_valt_door_naar_de_detectie(self, monkeypatch):
+        gezien = self._voorstellen(
+            monkeypatch, {CONF_SUPPLY_TEMP_ENTITY: "sensor.bestaat_niet"})
+        assert gezien[CONF_SUPPLY_TEMP_ENTITY] == "sensor.flowmeter_temperature"
+
+    def test_bestaande_instelling_blijft_staan(self, monkeypatch):
+        gezien = self._voorstellen(
+            monkeypatch, {CONF_SUPPLY_TEMP_ENTITY: "sensor.cic_total_power"})
+        assert gezien[CONF_SUPPLY_TEMP_ENTITY] == "sensor.cic_total_power"

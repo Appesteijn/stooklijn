@@ -1323,6 +1323,18 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                     -slope * (room_setpoint - heat_loss.balance_point)
                 )
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Nieuwe analyse: anker en startwaarde meteen bijwerken.
+
+        Bij het opstarten laadt het model vaak vóór de analyse, en dan deed
+        ``_refresh_u_prior`` niets. Zonder deze haak kwam de startwaarde van
+        P_c pas bij de eerste uurtik, tot een uur na elke herstart (gezien bij
+        de installatie van v0.10.5-beta.6).
+        """
+        self._refresh_u_prior()
+        super()._handle_coordinator_update()
+
     async def _async_hourly_update(self, _now=None) -> None:
         """Hourly: update thermal model with new measurement, then refresh forecast."""
         # Update thermal model

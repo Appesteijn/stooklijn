@@ -87,6 +87,19 @@ EVALUATE_INTERVAL = timedelta(minutes=1)
 # States die betekenen "deze bron levert nu niets".
 UNUSABLE_STATES = ("unknown", "unavailable", "none", "")
 
+# Rollen waarvoor ``unknown`` een geldig antwoord is en geen kapotte bron. Een
+# COP bestaat niet als de warmtepomp stilstaat, en OpenQuatt meldt dan terecht
+# ``unknown``. Zonder deze uitzondering sprong de bronkeuze bij elke stop naar
+# de Quatt-cloud en bij elke start terug: op de ontwikkelinstallatie 17 keer
+# per etmaal, met een spiegel die in stilstand de COP van de andere bron toonde.
+#
+# Niet voor alle rollen: overstappen bij ``unknown`` is juist gebouwd voor
+# Quatt-sensoren die op ``unknown`` blijven hangen zodra OpenQuatt de regeling
+# overneemt. Daarom ook een plafond: staat de actieve bron langer dan
+# HOLD_ON_UNKNOWN_MAX op ``unknown``, dan is hij waarschijnlijk wél weg.
+HOLD_ON_UNKNOWN_ROLES: frozenset[str] = frozenset({ROLE_COP})
+HOLD_ON_UNKNOWN_MAX = timedelta(hours=12)
+
 # Herkenbare namen voor in de attributen.
 SOURCE_QUATT = "quatt"
 SOURCE_OPENQUATT = "openquatt"
@@ -271,6 +284,9 @@ class RoleSource:
     active: str | None = None
     integration: str | None = None
     switched_at: datetime | None = None
+    #: Sinds wanneer de actieve bron ``unknown`` geeft terwijl hij vastgehouden
+    #: wordt. Alleen voor HOLD_ON_UNKNOWN_ROLES.
+    unknown_since: datetime | None = None
 
     @property
     def available(self) -> bool:
@@ -374,7 +390,11 @@ class SourceRegistry:
                 (c for c in source.candidates if is_usable(self._hass, c)), None
             )
             if best == source.active:
+                source.unknown_since = None
                 continue
+            if self._hold_on_unknown(source, best):
+                continue
+            source.unknown_since = None
 
             previous = source.active
             source.active = best
@@ -403,6 +423,33 @@ class SourceRegistry:
                 )
 
         return changed
+
+    def _hold_on_unknown(self, source: RoleSource, best: str | None) -> bool:
+        """Blijft de actieve bron staan, ook al levert hij nu geen getal?
+
+        Alleen voor HOLD_ON_UNKNOWN_ROLES, alleen bij ``unknown`` (niet bij
+        ``unavailable``: dan is de bron echt weg), alleen als het alternatief
+        lager in de voorkeur staat, en hooguit HOLD_ON_UNKNOWN_MAX lang. Een
+        bron die hoger staat en weer levert, wint gewoon.
+        """
+        active = source.active
+        if (
+            source.role not in HOLD_ON_UNKNOWN_ROLES
+            or active is None
+            or active not in source.candidates
+        ):
+            return False
+        state = self._hass.states.get(active)
+        if state is None or str(state.state).lower() != "unknown":
+            return False
+        if best is not None and (
+            source.candidates.index(best) < source.candidates.index(active)
+        ):
+            return False
+        now = dt_util.now()
+        if source.unknown_since is None:
+            source.unknown_since = now
+        return now - source.unknown_since < HOLD_ON_UNKNOWN_MAX
 
     def _configured_for(self, role: str) -> str | list[str] | None:
         """Wat de gebruiker voor deze rol heeft ingesteld, indien iets."""

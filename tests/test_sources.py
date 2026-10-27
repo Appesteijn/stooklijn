@@ -14,6 +14,7 @@ from homeassistant.helpers import entity_registry as er
 
 from custom_components.quatt_stooklijn.const import CONF_TEMP_ENTITIES, DOMAIN
 from custom_components.quatt_stooklijn.discovery import (
+    ROLE_COP,
     ROLE_INDOOR_TEMP,
     ROLE_OUTDOOR_TEMP,
     ROLE_SUPPLY_TEMP,
@@ -538,3 +539,122 @@ class TestBestaandeConfiguraties:
             {"sensor.mijn_kamer": "22.8"},
         )
         assert registry.active_entity(ROLE_INDOOR_TEMP) == "sensor.mijn_kamer"
+
+
+class TestCopBijStilstand:
+    """Een COP bestaat niet als de warmtepomp stilstaat: ``unknown`` is dan het
+    juiste antwoord, geen kapotte bron. Op de ontwikkelinstallatie sprong de
+    bronkeuze daardoor 17 keer per etmaal tussen OpenQuatt en de Quatt-cloud."""
+
+    OQ_COP = "sensor.openquatt_total_cop"
+    QUATT_COP = "sensor.heatpump_total_quatt_cop"
+    ENTRIES = [
+        _quatt(QUATT_COP, "cic", "computedQuattCop"),
+        _oq(OQ_COP, "Total COP"),
+    ]
+
+    def _registry(self, states, config=None):
+        from custom_components.quatt_stooklijn.const import CONF_COP_ENTITY
+
+        hass = _hass(self.ENTRIES, states=states)
+        cfg = {CONF_COP_ENTITY: self.OQ_COP} if config is None else config
+        registry = SourceRegistry(hass, cfg)
+        registry.async_evaluate()
+        return registry
+
+    def test_blijft_bij_de_bron_als_de_warmtepomp_stopt(self):
+        states = {self.OQ_COP: "5.4", self.QUATT_COP: "5.3"}
+        registry = self._registry(states)
+        assert registry.active_entity(ROLE_COP) == self.OQ_COP
+
+        states[self.OQ_COP] = "unknown"
+        states[self.QUATT_COP] = "0.0"
+        assert ROLE_COP not in registry.async_evaluate()
+        assert registry.active_entity(ROLE_COP) == self.OQ_COP
+
+    def test_wisselt_wel_als_de_bron_echt_weg_is(self):
+        states = {self.OQ_COP: "5.4", self.QUATT_COP: "5.3"}
+        registry = self._registry(states)
+
+        states[self.OQ_COP] = "unavailable"
+        assert ROLE_COP in registry.async_evaluate()
+        assert registry.active_entity(ROLE_COP) == self.QUATT_COP
+
+    def test_wisselt_na_het_plafond(self, monkeypatch):
+        """Een Quatt-sensor die na de overname door OpenQuatt op ``unknown``
+        blijft hangen, mag de COP niet voorgoed vasthouden."""
+        import custom_components.quatt_stooklijn.sources as sources_mod
+        from datetime import datetime, timezone
+
+        klok = [datetime(2026, 10, 27, 12, tzinfo=timezone.utc)]
+        monkeypatch.setattr(sources_mod.dt_util, "now", lambda: klok[0])
+        states = {self.OQ_COP: "5.4", self.QUATT_COP: "5.3"}
+        registry = self._registry(states)
+
+        states[self.OQ_COP] = "unknown"
+        registry.async_evaluate()
+        assert registry.active_entity(ROLE_COP) == self.OQ_COP
+
+        klok[0] = klok[0] + sources_mod.HOLD_ON_UNKNOWN_MAX
+        registry.async_evaluate()
+        assert registry.active_entity(ROLE_COP) == self.QUATT_COP
+
+    def test_plafond_telt_opnieuw_na_een_getal(self, monkeypatch):
+        """Elke stilstand krijgt zijn eigen plafond, anders wisselt hij na
+        twaalf uur aan korte stops alsnog."""
+        import custom_components.quatt_stooklijn.sources as sources_mod
+        from datetime import datetime, timedelta, timezone
+
+        klok = [datetime(2026, 10, 27, 12, tzinfo=timezone.utc)]
+        monkeypatch.setattr(sources_mod.dt_util, "now", lambda: klok[0])
+        states = {self.OQ_COP: "5.4", self.QUATT_COP: "5.3"}
+        registry = self._registry(states)
+
+        for _ in range(3):
+            states[self.OQ_COP] = "unknown"
+            registry.async_evaluate()
+            klok[0] += timedelta(hours=8)
+            registry.async_evaluate()
+            # Midden in de stilstand gekeken: samen al meer dan 12 uur unknown.
+            assert registry.active_entity(ROLE_COP) == self.OQ_COP
+            states[self.OQ_COP] = "5.1"
+            registry.async_evaluate()
+
+    def test_hogere_voorkeur_wint_ook_tijdens_vasthouden(self):
+        """Stond OpenQuatt bij het opstarten op ``unknown``, dan begint de COP
+        op de Quatt-cloud. Komt de voorkeursbron terug, dan wint die gewoon."""
+        states = {self.OQ_COP: "unknown", self.QUATT_COP: "5.3"}
+        registry = self._registry(states)
+        assert registry.active_entity(ROLE_COP) == self.QUATT_COP
+
+        states[self.OQ_COP] = "5.4"
+        assert ROLE_COP in registry.async_evaluate()
+        assert registry.active_entity(ROLE_COP) == self.OQ_COP
+
+    def test_ook_zonder_alternatief_blijft_de_bron_staan(self):
+        """Beide bronnen ``unknown``: de rol valt niet weg, de spiegel toont
+        alleen even geen waarde."""
+        states = {self.OQ_COP: "5.4", self.QUATT_COP: "5.3"}
+        registry = self._registry(states)
+
+        states[self.OQ_COP] = "unknown"
+        states[self.QUATT_COP] = "unknown"
+        registry.async_evaluate()
+        assert registry.get(ROLE_COP).available
+
+    def test_andere_rollen_wisselen_nog_steeds_bij_unknown(self):
+        """Voor metingen die altijd een waarde horen te hebben blijft
+        ``unknown`` een reden om over te stappen."""
+        states = {
+            "sensor.heatpump_flowmeter_temperature": "35.0",
+            "sensor.openquatt_water_supply_temp_selected": "35.2",
+        }
+        hass = _hass([*QUATT_ENTRIES, *OQ_ENTRIES], states=states)
+        registry = SourceRegistry(hass, {})
+        registry.async_evaluate()
+
+        states["sensor.heatpump_flowmeter_temperature"] = "unknown"
+        assert ROLE_SUPPLY_TEMP in registry.async_evaluate()
+        assert registry.active_entity(ROLE_SUPPLY_TEMP) == (
+            "sensor.openquatt_water_supply_temp_selected"
+        )

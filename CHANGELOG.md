@@ -3,6 +3,24 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## Nog niet uitgebracht
+
+- **De COP-bron springt niet meer heen en weer als de warmtepomp stilstaat.**
+  Een COP bestaat niet zonder draaiende warmtepomp, en OpenQuatt meldt dan
+  terecht "onbekend". De integratie zag dat als een kapotte bron en schakelde
+  bij elke stop over naar de Quatt-cloud, en bij elke start terug: op de
+  ontwikkelinstallatie zo'n 17 keer per dag, met evenveel waarschuwingen in
+  het log. De COP blijft nu bij zijn bron en toont in stilstand "onbekend".
+  Overstappen gebeurt nog wel als de bron echt wegvalt, of als hij langer dan
+  12 uur onbekend blijft. Voor de andere metingen verandert er niets.
+- **Geen "onbekende entiteit" meer in de instellingen.** Vond de integratie
+  voor een meting geen sensor, dan stond er een voorbeeldnaam die bij jou niet
+  bestaat. Dat veld blijft nu leeg. Een eerder opgeslagen naam die niet meer
+  bestaat, wordt vervangen door wat de integratie zelf vindt.
+- **De constante warmtewinst krijgt zijn startwaarde meteen na een herstart.**
+  In beta.6 gebeurde dat pas bij het eerste uurlijkse leermoment, omdat het
+  model vaak geladen werd voordat de warmteverliesanalyse klaar was.
+
 ## v0.10.5-beta.6 — 2026-10-26
 
 Betaversie met één reparatie aan het online warmtemodel.
