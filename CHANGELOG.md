@@ -3,7 +3,9 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
-## Nog niet uitgebracht
+## v0.10.5-beta.8 — 2026-10-30
+
+Betaversie met twee verbeteringen aan de modelvergelijking op beta.7.
 
 - **De modelvergelijking krijgt genoeg ruimte om tot een uitkomst te komen.**
   Het tweetoestandsmodel mocht 60 rekenstappen doen om zich aan de data aan te
