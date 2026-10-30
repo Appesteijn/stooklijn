@@ -82,6 +82,15 @@ MAX_GAP_FILL_HOURS = 0.5
 #: uurstempel, en die schuift de vrijloop onvoorspelbaar scheef.
 MIN_BUCKET_COVERAGE = 0.5
 
+#: Iteratieplafond voor de fit. De standaard van ``fit()`` (60) is te krap
+#: voor echte data: een proeffit op het logboek van oktober 2026 stopte op 60
+#: en convergeerde pas bij 133. Een fit die tegen het plafond loopt keurt de
+#: poort af als "fit convergeerde niet", en dan meldt de vergelijking dat elke
+#: nacht opnieuw zonder ooit een uitkomst te geven. Een iteratie kost op een
+#: vol logboek een tiende seconde op een pc; deze draait één keer per nacht in
+#: een executor.
+FIT_MAX_ITER = 200
+
 #: Kolomvolgorde in het meetlogboek.
 _TS, _T_IN, _T_OUT, _Q_HP, _Q_SOLAR = range(5)
 
@@ -309,7 +318,7 @@ def compare(
     horizon_hours: float = DEFAULT_HORIZON_HOURS,
     dt_hours: float = DEFAULT_DT_HOURS,
     min_coverage: float = MIN_BUCKET_COVERAGE,
-    max_iter: int | None = None,
+    max_iter: int = FIT_MAX_ITER,
     fit_dt_hours: float = FIT_DT_HOURS,
 ) -> Comparison:
     """Fit 2R2C op de ene helft van het logboek en scoor drie modellen op de
@@ -367,9 +376,8 @@ def compare(
         if model is not None and test
         else None
     )
-    kwargs = {} if max_iter is None else {"max_iter": max_iter}
     validation = fit_and_score(
         train, test, horizon, reference_rmse=ref,
-        fit_dt_hours=fit_dt_hours, test_dt_hours=dt_hours, **kwargs,
+        fit_dt_hours=fit_dt_hours, test_dt_hours=dt_hours, max_iter=max_iter,
     )
     return _uitkomst(validation, ref)

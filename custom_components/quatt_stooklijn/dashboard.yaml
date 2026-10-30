@@ -1288,6 +1288,14 @@ views:
 
               {% endif %}
 
+              {% if ref is not none and niets is not none %}
+
+              Intussen, op de testweken {{ horizon }} uur vooruit: huidig model
+              (1R1C) **{{ ref }} K**, niets doen **{{ niets }} K**. Lager is
+              beter.
+
+              {% endif %}
+
               {% endif %}
 
               {% endif %}

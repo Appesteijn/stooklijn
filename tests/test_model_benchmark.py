@@ -219,6 +219,8 @@ class TestVergelijking:
         # Leren op vijf minuten, toetsen per uur.
         assert gezien["kwargs"]["fit_dt_hours"] == pytest.approx(5.0 / 60.0)
         assert gezien["kwargs"]["test_dt_hours"] == pytest.approx(1.0)
+        # Niet de 60 van fit(): daar liep een proeffit op echte data tegenaan.
+        assert gezien["kwargs"]["max_iter"] == mb.FIT_MAX_ITER
 
     def test_te_weinig_data(self):
         """Met een paar dagen logboek hoort er geen oordeel te komen."""

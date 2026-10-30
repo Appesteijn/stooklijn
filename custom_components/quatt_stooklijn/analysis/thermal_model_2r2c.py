@@ -694,9 +694,15 @@ def fit_and_score(
     if test_burn_in is None:
         test_burn_in = steps_in(BURN_IN_HOURS, test_dt_hours)
 
+    # Vóór de poort, niet erna: de ondergrens hangt alleen van de testdata af,
+    # en zolang er te weinig trainingsdata is, is dit het enige getal waar
+    # het huidige model tegen af te zetten valt.
+    persist = (persistence_rmse(test, horizon, test_burn_in, test_dt_hours)
+               if test else None)
+
     def _no(reason: str, **kw) -> Validation:
         return Validation(params=None, report=kw.pop("report", {}), rmse=None,
-                          reference_rmse=reference_rmse, persistence_rmse=None,
+                          reference_rmse=reference_rmse, persistence_rmse=persist,
                           accepted=False, reason=reason)
 
     # Kleine marge tegen afronding: 336 uur aan vijfminutenstappen is
@@ -718,7 +724,6 @@ def fit_and_score(
         return _no("fit convergeerde niet", report=report)
 
     rmse = rmse_at_horizon(params, test, horizon, test_burn_in, test_dt_hours)
-    persist = persistence_rmse(test, horizon, test_burn_in, test_dt_hours)
     if rmse is None:
         return _no("geen bruikbare testvensters", report=report)
 

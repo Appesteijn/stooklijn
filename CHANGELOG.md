@@ -3,6 +3,21 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## Nog niet uitgebracht
+
+- **De modelvergelijking krijgt genoeg ruimte om tot een uitkomst te komen.**
+  Het tweetoestandsmodel mocht 60 rekenstappen doen om zich aan de data aan te
+  passen. Een proeffit op echte oktoberdata had er 133 nodig. Zodra er genoeg
+  trainingsdata is, zou de vergelijking daardoor elke nacht "fit convergeerde
+  niet" melden in plaats van een oordeel te geven. Het plafond is nu 200. Dat
+  kost op een vol logboek hooguit een paar minuten rekentijd per nacht, buiten
+  de rest van Home Assistant om.
+- **De kaart Modelvergelijking laat tijdens het wachten al zien hoe het huidige
+  model het doet.** Zolang er te weinig trainingsdata is, staan de fout van het
+  huidige model (1R1C) en die van "niets doen" er nu al naast elkaar, gemeten
+  op dezelfde testweken. Voorheen werd "niets doen" pas na de fit berekend en
+  bleef dat veld leeg.
+
 ## v0.10.5-beta.7 — 2026-10-28
 
 Betaversie met drie verbeteringen op beta.6.

@@ -23,6 +23,7 @@ from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import (
     _to_free,
     discretize,
     fit,
+    fit_and_score,
     fit_and_validate,
     multi_step_residuals,
     one_step_residuals,
@@ -450,3 +451,15 @@ class TestDrempelsVolgenDeStapgrootte:
         assert not v.accepted
         assert v.reason == "te weinig trainingsdata"
         assert steps_in(MIN_TRAIN_HOURS, 1.0 / 12.0) == 4032
+
+    def test_niets_doen_ook_zonder_fit(self):
+        """De ondergrens hangt alleen van de testdata af. Zolang er te weinig
+        trainingsdata is, is hij het enige waar het huidige model tegen af te
+        zetten valt, dus hij hoort er dan al te staan."""
+        train = _genereer(WAAR, n=100)
+        test = _genereer(WAAR, n=200, seed=2)
+        v = fit_and_score(train, test, horizon=12, reference_rmse=0.6)
+        assert v.reason == "te weinig trainingsdata"
+        assert v.params is None and v.rmse is None
+        assert v.persistence_rmse == pytest.approx(persistence_rmse(test, 12))
+        assert v.to_dict()["persistence_rmse_k"] is not None
