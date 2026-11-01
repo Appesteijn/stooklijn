@@ -1286,6 +1286,19 @@ views:
               stookseizoen groeit het logboek wel, maar leert het weinig over
               hoe het huis op verwarming reageert.
 
+              {% set klaar = state_attr(s, 'train_compleet_verwacht') %}
+
+              {% if klaar %}
+
+              {% if state_attr(s, 'huidige_week') == 'test' %}Deze week is
+              een **testweek**: wat er nu gemeten wordt telt niet als
+              trainingsdata, hoe lang de warmtepomp ook draait.
+              {% endif %}De trainingsdata is naar verwachting compleet op
+              **{{ (as_datetime(klaar) | as_local).strftime('%d-%m om %H:%M') }}**.
+              De meting daarna (binnen een etmaal) geeft de eerste uitkomst.
+
+              {% endif %}
+
               {% endif %}
 
               {% if ref is not none and niets is not none %}

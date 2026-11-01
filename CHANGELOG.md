@@ -3,6 +3,19 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.5-beta.9 — 2026-11-01
+
+Betaversie met één verbetering aan de modelvergelijking op beta.8.
+
+- **De kaart Modelvergelijking zegt nu wanneer de trainingsdata compleet is.**
+  Bij bijna genoeg trainingsdata ("99%") leek het alsof een paar stookuren
+  zouden volstaan. Maar alleen tijd in een trainingsweek telt mee, en een week
+  pas zodra er drie dagen aaneengesloten in zitten. In een testweek groeit de
+  trainingsdata helemaal niet, hoe lang de warmtepomp ook draait. De kaart
+  meldt nu of de lopende week een test- of trainingsweek is en wanneer de
+  trainingsdata naar verwachting compleet is. De sensor heeft daarvoor twee
+  nieuwe attributen: `train_compleet_verwacht` en `huidige_week`.
+
 ## v0.10.5-beta.8 — 2026-10-30
 
 Betaversie met twee verbeteringen aan de modelvergelijking op beta.7.

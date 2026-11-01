@@ -149,6 +149,63 @@ class TestSplitsingOpWeek:
         assert len(train) == 0 and len(test) == 0
 
 
+class TestVerwachteTrainingsdatum:
+    """Wanneer de poort open kan. Stookuren tellen niet, trainingsweken wel."""
+
+    WEEK = 7 * 24 * 3600
+
+    def _trainweek(self, na: int = 0) -> int:
+        """Begin van een trainingsweek, ``na`` trainingsweken na 2026-01-01."""
+        week = T0 // self.WEEK + 1
+        if week % 2:
+            week += 1
+        return (week + 2 * na) * self.WEEK
+
+    def test_live_stand_oktober_2026(self):
+        """31-10, testweek, 334,1 van 336 uur: niet over twee uur, maar pas
+        als de trainingsweek van 5 november drie dagen vol heeft."""
+        nu = datetime(2026, 10, 31, 17, 32, tzinfo=timezone.utc).timestamp()
+        assert not mb.is_train_week(nu)
+        klaar = mb.train_ready_at(nu, 334.1)
+        assert klaar == datetime(2026, 11, 8, tzinfo=timezone.utc).timestamp()
+
+    def test_lopende_trainingsweek_telt_al_mee(self):
+        begin = self._trainweek()
+        nu = begin + 100 * 3600
+        assert mb.train_ready_at(nu, 326.0) == pytest.approx(nu + 10 * 3600)
+
+    def test_lopende_trainingsweek_nog_onder_drie_dagen(self):
+        """Een week telt pas mee vanaf 72 uur, ook als er maar één uur ontbreekt."""
+        begin = self._trainweek()
+        nu = begin + 10 * 3600
+        assert mb.train_ready_at(nu, 335.0) == pytest.approx(begin + 72 * 3600)
+
+    def test_loopt_door_naar_de_volgende_trainingsweek(self):
+        """68 uur in deze week, de resterende 32 in de volgende: die telt pas
+        bij 72 uur."""
+        begin = self._trainweek()
+        nu = begin + 100 * 3600
+        klaar = mb.train_ready_at(nu, 236.0)
+        assert klaar == pytest.approx(self._trainweek(1) + 72 * 3600)
+
+    def test_al_genoeg(self):
+        assert mb.train_ready_at(T0, 336.0) is None
+
+    def test_in_de_sensorattributen(self):
+        uitkomst = mb.compare(_rijen(48), MagicMock()).to_dict()
+        laatste = T0 + 48 * 3600 - 300
+        verwacht = mb.train_ready_at(laatste, uitkomst["train_uren"])
+        assert uitkomst["train_compleet_verwacht"] == datetime.fromtimestamp(
+            verwacht, timezone.utc).isoformat()
+        assert uitkomst["huidige_week"] == (
+            "train" if mb.is_train_week(laatste) else "test")
+
+    def test_zonder_logboek(self):
+        uitkomst = mb.compare([], MagicMock()).to_dict()
+        assert uitkomst["train_compleet_verwacht"] is None
+        assert uitkomst["huidige_week"] is None
+
+
 class TestReferentie:
     """De score van het model dat nu draait."""
 

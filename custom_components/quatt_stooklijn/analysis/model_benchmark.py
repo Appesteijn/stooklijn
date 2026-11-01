@@ -39,6 +39,7 @@ in dezelfde helft als het logboek groeit.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import logging
 
 import numpy as np
@@ -192,6 +193,49 @@ def split_by_week(rows: list[list[float]]) -> tuple[np.ndarray, np.ndarray]:
     return data[even], data[~even]
 
 
+def is_train_week(ts: float) -> bool:
+    """Valt dit moment in een trainingsweek? Zelfde klok als ``split_by_week``."""
+    return int(np.floor(ts / (SPLIT_BLOCK_HOURS * 3600.0))) % 2 == 0
+
+
+def train_ready_at(
+    now_ts: float,
+    train_hours: float,
+    required_hours: float = MIN_TRAIN_HOURS,
+) -> float | None:
+    """Wanneer de trainingsdata de poort haalt, als het logboek doorloopt.
+
+    Draaiuren van de warmtepomp tellen hier niet: alleen tijd in een
+    trainingsweek telt, en een week pas zodra er ``MIN_BLOCK_HOURS``
+    aaneengesloten in zit. Valt "nu" in een testweek, dan groeit de
+    trainingsdata die hele week niet, hoe weinig er ook ontbreekt. Zonder deze
+    datum leest "99%, nog twee uur" alsof elk stookuur helpt.
+
+    Een schatting: ze neemt aan dat het logboek vanaf het begin van de lopende
+    trainingsweek zonder gat doorloopt, en dat er vooraan geen trainingsweek
+    uit het logboek valt. ``None`` als de poort al gehaald is.
+    """
+    deficit = required_hours - train_hours
+    if deficit <= 1e-6:
+        return None
+    block_s = SPLIT_BLOCK_HOURS * 3600.0
+    week = int(np.floor(now_ts / block_s))
+    if not is_train_week(week * block_s):
+        week += 1
+    first = True
+    while True:
+        start = week * block_s
+        # Alleen in de lopende week kan er al iets in ``train_hours`` zitten.
+        elapsed = max(0.0, (now_ts - start) / 3600.0) if first else 0.0
+        counted = elapsed if elapsed >= MIN_BLOCK_HOURS - 1e-6 else 0.0
+        need = max(MIN_BLOCK_HOURS, counted + deficit)
+        if need <= SPLIT_BLOCK_HOURS:
+            return start + need * 3600.0
+        deficit -= SPLIT_BLOCK_HOURS - counted
+        week += 2
+        first = False
+
+
 def _long_enough(segments: list[Segment], dt_hours: float) -> list[Segment]:
     """Alleen stukken waar een inlooptijd plus een horizon in past."""
     min_len = steps_in(MIN_BLOCK_HOURS, dt_hours)
@@ -278,6 +322,11 @@ class Comparison:
     #: niet mee.
     train_hours: float = 0.0
     test_hours: float = 0.0
+    #: Unix-tijd waarop ``train_hours`` naar verwachting de poort haalt; None
+    #: als dat al zo is of als er geen logboek is. Zie ``train_ready_at``.
+    train_ready_ts: float | None = None
+    #: Of het laatste monster in een trainingsweek valt. None zonder logboek.
+    train_week_now: bool | None = None
 
     @property
     def verbetering_pct(self) -> float | None:
@@ -307,6 +356,14 @@ class Comparison:
             "train_uren": round(self.train_hours, 1),
             "test_uren": round(self.test_hours, 1),
             "benodigde_train_uren": self.required_train_hours,
+            "train_compleet_verwacht": (
+                datetime.fromtimestamp(self.train_ready_ts, timezone.utc).isoformat()
+                if self.train_ready_ts is not None else None
+            ),
+            "huidige_week": (
+                None if self.train_week_now is None
+                else "train" if self.train_week_now else "test"
+            ),
             "params": self.params,
             "fit": self.fit_report,
         }
@@ -341,6 +398,9 @@ def compare(
     test = _long_enough(resample(test_rows, dt_hours, min_coverage), dt_hours)
     train_hours = _hours(train, fit_dt_hours)
     test_hours = _hours(test, dt_hours)
+    # Het laatste monster als "nu": het logboek schrijft elke vijf minuten,
+    # en zo blijft compare() een zuivere functie van zijn invoer.
+    now_ts = float(rows[-1][_TS]) if rows else None
 
     def _uitkomst(validation: Validation | None, ref: float | None,
                   reason: str | None = None) -> Comparison:
@@ -361,6 +421,10 @@ def compare(
             fit_dt_hours=fit_dt_hours,
             train_hours=train_hours,
             test_hours=test_hours,
+            train_ready_ts=(
+                train_ready_at(now_ts, train_hours) if now_ts is not None else None
+            ),
+            train_week_now=is_train_week(now_ts) if now_ts is not None else None,
         )
 
     if data_hours == 0.0:
