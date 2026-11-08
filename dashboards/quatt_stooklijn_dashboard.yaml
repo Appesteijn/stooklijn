@@ -619,8 +619,7 @@ views:
               verwarming nodig.
 
 
-              **Knikpunt ({{ knee }}°C)** — Onder deze temp moet de
-              cv-ketel bijspringen.
+              {% if knee not in ['unknown', 'unavailable', 'None'] %}**Knikpunt ({{ knee }}°C)** — Onder deze temp moet de cv-ketel bijspringen.{% else %}**Knikpunt** — Nog niet bepaald. Daarvoor zijn uren nodig waarin de warmtepomp op vol vermogen draait, dus een koude periode.{% endif %}
 
 
               **COP ({{ cop }})** — Elke kWh stroom levert {{ cop }} kWh
@@ -858,7 +857,7 @@ views:
               rows: auto
           - type: custom:apexcharts-card
             header:
-              title: Stooklijn — Optimaal vs Huidig
+              title: Optimale stooklijn
               show: true
             update_interval: 30min
             apex_config:
@@ -1032,6 +1031,8 @@ views:
               waterbegrenzer van de firmware blijven.{% if state_attr(wv,
               'firmware_bevestigt') %} De firmware bevestigt dat zelf met
               *demand source = external*.{% endif %}
+              Leegmaken van `{{ state_attr(wv, 'bronhelper') }}` zet de installatie
+              terug op haar eigen huismodel.
 
               {% if state_attr(wv, 'boven_firmware_plafond') %}
 
@@ -1051,19 +1052,14 @@ views:
 
               {% elif state_attr(wv, 'keuzeknop_entity') %}
 
-              Niet gekoppeld — {{ state_attr(wv, 'koppeling') }}. Zet
-              `{{ state_attr(wv, 'bronhelper') }}` op `{{ wv }}` en de
-              OpenQuatt-keuzeknop *External Heat Demand Source* op **HA input**.
-              Leegmaken van die bronhelper zet de installatie terug op haar
-              eigen huismodel.
+              Niet gekoppeld — {{ state_attr(wv, 'koppeling') }}.
 
               {% endif %}
 
               {% endif %}
 
 
-              Maak een HA-automation die deze waarden naar je OpenQuatt
-              entiteiten schrijft.
+              {% if not state_attr(wv, 'koppeling_actief') %}Maak een HA-automation die deze waarden naar je OpenQuatt entiteiten schrijft.{% endif %}
 
               {% endif %}
             grid_options:
@@ -1113,6 +1109,20 @@ views:
             icon: mdi:home-thermometer
             color: orange
 
+      # ── Uitleg bij de tegels ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: markdown
+            title: Hoe lees je dit?
+            content: >
+              **Advies** is de aanvoertemperatuur die het huis volgens de berekening nu nodig heeft. *MPC advies* toont geen waarde als de kamer al op of boven het setpoint staat: dan is er geen warmtevraag.
+
+
+              **Fout** is het advies min de werkelijke aanvoer. Het zegt niet dat het model fout zit. Negatief betekent dat de warmtepomp warmer stookt dan het advies, positief dat hij kouder stookt. Beide tonen geen waarde als er geen water circuleert.
+            grid_options:
+              columns: full
+
       # ── Thermisch model (volle breedte) ──
       - type: grid
         column_span: 2
@@ -1139,6 +1149,10 @@ views:
 
               {% set tau = state_attr(mpc, 'model_tau_hours') %}
 
+              {% set pc = state_attr(mpc, 'model_constant_gain_w') %}
+
+              {% set nmin = state_attr(mpc, 'model_n_updates_min') | int(n) %}
+
               {% if conv %}
 
               | Parameter | Waarde | Betekenis |
@@ -1154,8 +1168,9 @@ views:
               | Tijdconstante | **{{ tau }} uur** | Tijd om 63% af te
               koelen zonder verwarming |
 
-              | Zonnewinst | **{{ g }} W/(W/m²)** | Effectief
-              raamoppervlak × glastransmissie |
+              | Zonnewinst | **{{ g }} W/(W/m²)** | Effectief raamoppervlak × glastransmissie |
+
+              | Constante warmtewinst | **{{ pc }} W** | Warmte die het model niet aan warmtepomp of zon kan toewijzen, zoals bewoners en apparaten |
 
               | Updates | **{{ n }}** ({{ (n / 24) | round(0) | int }}
               dagen) | |
@@ -1163,10 +1178,9 @@ views:
 
               Bron: **{{ src }}** — het model leert elk uur bij.
 
-              {% elif n < 48 %}
+              {% elif nmin < 48 %}
 
-              Model is aan het leren... **{{ n }}/48 updates** (nog {{
-              48 - n }} uur).
+              Model is aan het leren... **{{ nmin }}/48 bruikbare uren**. De thermische massa leert alleen op uren met warmtevraag, dus buiten het stookseizoen kan dit stilstaan.
 
 
               Gebruikt nu het batch warmteverliesmodel als fallback.
@@ -1215,7 +1229,7 @@ views:
 
               {% if not gemeten %}
 
-              *Nog niet gemeten. De vergelijking draait elke nacht; na een
+              *Nog niet gemeten. De vergelijking draait elke 24 uur; na een
               herstart duurt het tien minuten voor de eerste meting.*
 
               {% else %}
@@ -1432,6 +1446,293 @@ views:
               columns: full
               rows: auto
 
+      # ── Aanvoertemperatuur vergelijking (volle breedte) ──
+      #
+      # Voorwaardelijk, en dat is geen cosmetiek. mini-graph-card haalt per
+      # entity de historie op en blijft in een laadspinner hangen als een van
+      # zijn reeksen er geen heeft. Buiten het stookseizoen staan beide
+      # adviessensoren op 'unknown' — bewust: onder 30 L/h vergelijk je een
+      # aanvoeradvies met stilstaand water — en dan draaide deze kaart maanden
+      # achtereen een spinner in plaats van te zeggen dat er niets te tonen is.
+      - type: grid
+        column_span: 2
+        cards:
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
+                state_not: unknown
+              - condition: state
+                entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
+                state_not: unavailable
+            card:
+              type: custom:mini-graph-card
+              name: Aanvoertemperatuur — Advies vs Werkelijk (24 uur)
+              hours_to_show: 24
+              points_per_hour: 4
+              line_width: 1.5
+              show:
+                labels: true
+                points: false
+              entities:
+                - entity: sensor.quatt_warmteanalyse_aanvoertemperatuur
+                  name: Werkelijk
+                  color: "#90A4AE"
+                - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
+                  name: Stooklijn advies
+                  color: "#2196F3"
+                - entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
+                  name: MPC advies
+                  color: "#4CAF50"
+            grid_options:
+              columns: full
+              rows: auto
+          # Exact de tegenhanger van de conditie hierboven, inclusief
+          # 'unavailable' — anders valt er tijdens een herstart een gat waarin
+          # geen van beide kaarten staat.
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
+                state:
+                  - unknown
+                  - unavailable
+            card:
+              type: markdown
+              content: >
+                **Aanvoertemperatuur — Advies vs Werkelijk**
+
+
+                Geen vergelijking op dit moment: het debiet is
+                {{ states('sensor.quatt_warmteanalyse_debiet') | float(0) | round(0) }} L/h.
+                Onder de 30 L/h circuleert er niets en houden de adviessensoren
+                zich stil — een aanvoeradvies afzetten tegen stilstaand water
+                zegt niets. Zodra de pomp weer draait staat de grafiek hier
+                vanzelf.
+            grid_options:
+              columns: full
+              rows: auto
+
+      # ── Foutmeting (volle breedte) ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: custom:apexcharts-card
+            header:
+              title: Fout — Advies minus Werkelijk (24 uur)
+              show: true
+            graph_span: 24h
+            apex_config:
+              chart:
+                height: 200
+              yaxis:
+                min: -10
+                max: 10
+                tickAmount: 4
+              stroke:
+                width: [2, 2]
+                curve: smooth
+                dashArray: [0, 4]
+              annotations:
+                yaxis:
+                  - "y": 0
+                    borderColor: "#999"
+                    strokeDashArray: 4
+                    borderWidth: 1
+              legend:
+                position: bottom
+            series:
+              - entity: sensor.quatt_warmteanalyse_stooklijn_fout_aanvoertemperatuur
+                name: Stooklijn fout
+                color: "#2196F3"
+                stroke_width: 2
+              - entity: sensor.quatt_warmteanalyse_mpc_fout_aanvoertemperatuur
+                name: MPC fout
+                color: "#FF9800"
+                stroke_width: 2
+            grid_options:
+              columns: full
+              rows: auto
+
+      # ── Buitentemperatuur context ──
+      - type: grid
+        cards:
+          - type: custom:mini-graph-card
+            name: Buitentemperatuur (7 dagen)
+            hours_to_show: 168
+            points_per_hour: 1
+            line_width: 1
+            show:
+              labels: true
+              points: false
+            entities:
+              - entity: sensor.quatt_warmteanalyse_buitentemperatuur
+                name: Buitentemp
+                color: "#78909C"
+            grid_options:
+              columns: full
+              rows: auto
+
+  # ─── VIEW 5: RENDEMENT & BESPARING ────────────────────────────────────
+  # Beantwoordt: "Heeft mijn aanpassing geholpen, en zou goedkoper stoken lonen?"
+  - title: Rendement & besparing
+    icon: mdi:piggy-bank-outline
+    type: sections
+    max_columns: 2
+    cards: []
+    sections:
+      # ── Rendement: de enige gesloten lus rond een regelwijziging ──
+      #
+      # De norm is bevroren op de dagen vóór de grens en gebint per
+      # seizoenshelft, zodat het getal zegt wat het belooft. Wat het niet kan,
+      # staat er ook: onder de dagruis hoort geen conclusie.
+      - type: grid
+        column_span: 2
+        cards:
+          - type: markdown
+            title: Rendement
+            content: >
+              {% set cp = 'sensor.quatt_warmteanalyse_cop_prestatie' %}
+
+              {% set ratio = states(cp) | float(none) %}
+
+              {% if ratio is none %}
+
+              *Nog geen rendementsmaat — er zijn stookdagen nodig om een norm te
+              bouwen.*
+
+              {% else %}
+
+              {% set van = state_attr(cp, 'venster_van') %}
+
+              {% set tot = state_attr(cp, 'venster_tot') %}
+
+              {% set sinds = state_attr(cp, 'dagen_sinds_laatste_stookdag') | int(0) %}
+
+              {% set bevroren = state_attr(cp, 'norm_bevroren') %}
+
+              {% set grens = state_attr(cp, 'norm_grens') %}
+
+              {% set handmatig = state_attr(cp, 'norm_grens_handmatig') %}
+
+              {% set gevraagd = state_attr(cp, 'norm_grens_gevraagd') %}
+
+              {% set spreiding = state_attr(cp, 'dagspreiding_pct') %}
+
+              ### {{ ratio }} — rendement t.o.v. de eigen norm
+
+              De norm is je eigen verleden: wat deze installatie bij déze
+              buitentemperatuur en in dít deel van het seizoen zelf presteerde.
+              Geen fabrieksopgave en geen vergelijking met andere huizen. 1,00 is
+              precies zoals je het altijd deed, hoger is beter.
+
+              | | Waarde |
+
+              |:--|--:|
+
+              | Laatste 30 stookdagen{% if van %} ({{ van }} → {{ tot }}){% endif %} | **{{ ratio }}** |
+
+              | Norm gebouwd uit | {{ state_attr(cp, 'referentie_stookdagen') }} stookdagen{% if grens %} vóór {{ grens }}{% endif %} |
+
+              | Beoordeeld | {{ state_attr(cp, 'beoordeelde_dagen') }} stookdagen |
+
+              {% if spreiding %}
+
+              | Dagspreiding | ±{{ spreiding }}% per dag |
+
+              {% endif %}
+
+              {% if not bevroren %}
+
+              > **De norm is nog niet bevroren.** Er zijn te weinig stookdagen om
+              de beoordeelde dagen erbuiten te houden, dus zitten ze in hun eigen
+              norm en leest een verbetering structureel te laag. Dit lost zichzelf
+              op zodra er een seizoen historie staat.
+
+              {% elif gevraagd and not handmatig %}
+
+              > **Je wijzigingsdatum {{ gevraagd }} is niet gebruikt.** Er staan te
+              weinig stookdagen vóór die datum om er een norm op te bouwen. De
+              grens schuift zolang mee met het venster.
+
+              {% endif %}
+
+              {% if sinds > 14 %}
+
+              > **Buiten het stookseizoen.** De laatste stookdag was {{ sinds }}
+              dagen geleden. Dit getal gaat over die periode en verandert niet tot
+              de verwarming weer aan gaat.
+
+              {% endif %}
+
+              {% set na_n = state_attr(cp, 'na_dagen') | int(0) %}
+
+              {% set na_totaal = state_attr(cp, 'na_dagen_totaal') | int(0) %}
+
+              {% set voor_n = state_attr(cp, 'voor_dagen') | int(0) %}
+
+              {% set verschil = state_attr(cp, 'verschil_pct') %}
+
+              ### Heeft je aanpassing geholpen?
+
+              {% if not grens %}
+
+              Nog niet te zeggen: de norm bevat de beoordeelde dagen nog, dus er
+              valt niets tegen af te zetten.
+
+              {% elif na_totaal == 0 %}
+
+              Nog geen stookdagen ná {{ grens }} om te beoordelen. Zodra er weer
+              gestookt wordt verschijnt hier het verschil.
+
+              {% elif not state_attr(cp, 'verschil_vergelijkbaar') %}
+
+              Er zijn {{ na_totaal }} stookdagen ná {{ grens }}, maar geen daarvan
+              valt in dezelfde periode van het jaar als de dagen ervóór
+              ({{ state_attr(cp, 'voor_van') or 'geen' }}{% if state_attr(cp, 'voor_van') %} → {{ state_attr(cp, 'voor_tot') }}{% endif %}).
+              Bij 10 °C in februari vraagt het huis nog warmte en draait de pomp
+              lang; bij 10 °C in mei niet, en dat kost rendement zonder dat er iets
+              aan de installatie mankeert. Zo'n vergelijking zou dus het seizoen
+              meten en niet je aanpassing — daarom staat er geen getal. Zodra je
+              dezelfde maanden een jaar later opnieuw hebt, verschijnt het hier.
+
+              {% else %}
+
+              **{{ '%+.1f'|format(verschil) }}%** over {{ na_n }} van de
+              {{ na_totaal }} stookdagen ná {{ grens }} — alleen de dagen die met
+              dezelfde periode van het jaar te vergelijken zijn — tegen
+              {{ voor_n }} stookdagen van
+              {{ state_attr(cp, 'voor_van') }} → {{ state_attr(cp, 'voor_tot') }}.
+
+              {% if state_attr(cp, 'verschil_significant') %}
+
+              Dat ligt buiten de dagruis van ±{{ spreiding }}%: dit is een echt
+              verschil en geen toeval.
+
+              {% else %}
+
+              Dat valt bínnen de dagruis van ±{{ spreiding }}% per dag. Met
+              {{ na_n }} vergelijkbare stookdagen is dit nog niet van toeval te
+              onderscheiden — hier hoort dus nog geen conclusie aan te hangen.
+
+              {% endif %}
+
+              {% endif %}
+
+              {% if not handmatig %}
+
+              *De grens schuift mee met het venster: de laatste 30 stookdagen
+              worden getoetst aan alles daarvóór. Verander je iets aan de regeling,
+              zet die datum dan in de integratie-opties — dan blijft de norm daarop
+              staan en meet je die aanpassing in plaats van de vorige maand.*
+
+              {% endif %}
+
+              {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
+
       # ── Prijsverschuiving (schaduwmeting) ──
       #
       # Alleen zichtbaar als er een tarief is ingesteld: zonder tarief maakt de
@@ -1633,286 +1934,7 @@ views:
             grid_options:
               columns: full
 
-      # ── Rendement: de enige gesloten lus rond een regelwijziging ──
-      #
-      # De norm is bevroren op de dagen vóór de grens en gebint per
-      # seizoenshelft, zodat het getal zegt wat het belooft. Wat het niet kan,
-      # staat er ook: onder de dagruis hoort geen conclusie.
-      - type: grid
-        column_span: 2
-        cards:
-          - type: markdown
-            title: Rendement
-            content: >
-              {% set cp = 'sensor.quatt_warmteanalyse_cop_prestatie' %}
-
-              {% set ratio = states(cp) | float(none) %}
-
-              {% if ratio is none %}
-
-              *Nog geen rendementsmaat — er zijn stookdagen nodig om een norm te
-              bouwen.*
-
-              {% else %}
-
-              {% set van = state_attr(cp, 'venster_van') %}
-
-              {% set tot = state_attr(cp, 'venster_tot') %}
-
-              {% set sinds = state_attr(cp, 'dagen_sinds_laatste_stookdag') | int(0) %}
-
-              {% set bevroren = state_attr(cp, 'norm_bevroren') %}
-
-              {% set grens = state_attr(cp, 'norm_grens') %}
-
-              {% set handmatig = state_attr(cp, 'norm_grens_handmatig') %}
-
-              {% set gevraagd = state_attr(cp, 'norm_grens_gevraagd') %}
-
-              {% set spreiding = state_attr(cp, 'dagspreiding_pct') %}
-
-              ### {{ ratio }} — rendement t.o.v. de eigen norm
-
-              De norm is je eigen verleden: wat deze installatie bij déze
-              buitentemperatuur en in dít deel van het seizoen zelf presteerde.
-              Geen fabrieksopgave en geen vergelijking met andere huizen. 1,00 is
-              precies zoals je het altijd deed, hoger is beter.
-
-              | | Waarde |
-
-              |:--|--:|
-
-              | Laatste 30 stookdagen{% if van %} ({{ van }} → {{ tot }}){% endif %} | **{{ ratio }}** |
-
-              | Norm gebouwd uit | {{ state_attr(cp, 'referentie_stookdagen') }} stookdagen{% if grens %} vóór {{ grens }}{% endif %} |
-
-              | Beoordeeld | {{ state_attr(cp, 'beoordeelde_dagen') }} stookdagen |
-
-              {% if spreiding %}
-
-              | Dagspreiding | ±{{ spreiding }}% per dag |
-
-              {% endif %}
-
-              {% if not bevroren %}
-
-              > **De norm is nog niet bevroren.** Er zijn te weinig stookdagen om
-              de beoordeelde dagen erbuiten te houden, dus zitten ze in hun eigen
-              norm en leest een verbetering structureel te laag. Dit lost zichzelf
-              op zodra er een seizoen historie staat.
-
-              {% elif gevraagd and not handmatig %}
-
-              > **Je wijzigingsdatum {{ gevraagd }} is niet gebruikt.** Er staan te
-              weinig stookdagen vóór die datum om er een norm op te bouwen. De
-              grens schuift zolang mee met het venster.
-
-              {% endif %}
-
-              {% if sinds > 14 %}
-
-              > **Buiten het stookseizoen.** De laatste stookdag was {{ sinds }}
-              dagen geleden. Dit getal gaat over die periode en verandert niet tot
-              de verwarming weer aan gaat.
-
-              {% endif %}
-
-              {% set na_n = state_attr(cp, 'na_dagen') | int(0) %}
-
-              {% set na_totaal = state_attr(cp, 'na_dagen_totaal') | int(0) %}
-
-              {% set voor_n = state_attr(cp, 'voor_dagen') | int(0) %}
-
-              {% set verschil = state_attr(cp, 'verschil_pct') %}
-
-              ### Heeft je aanpassing geholpen?
-
-              {% if not grens %}
-
-              Nog niet te zeggen: de norm bevat de beoordeelde dagen nog, dus er
-              valt niets tegen af te zetten.
-
-              {% elif na_totaal == 0 %}
-
-              Nog geen stookdagen ná {{ grens }} om te beoordelen. Zodra er weer
-              gestookt wordt verschijnt hier het verschil.
-
-              {% elif not state_attr(cp, 'verschil_vergelijkbaar') %}
-
-              Er zijn {{ na_totaal }} stookdagen ná {{ grens }}, maar geen daarvan
-              valt in dezelfde periode van het jaar als de dagen ervóór
-              ({{ state_attr(cp, 'voor_van') or 'geen' }}{% if state_attr(cp, 'voor_van') %} → {{ state_attr(cp, 'voor_tot') }}{% endif %}).
-              Bij 10 °C in februari vraagt het huis nog warmte en draait de pomp
-              lang; bij 10 °C in mei niet, en dat kost rendement zonder dat er iets
-              aan de installatie mankeert. Zo'n vergelijking zou dus het seizoen
-              meten en niet je aanpassing — daarom staat er geen getal. Zodra je
-              dezelfde maanden een jaar later opnieuw hebt, verschijnt het hier.
-
-              {% else %}
-
-              **{{ '%+.1f'|format(verschil) }}%** over {{ na_n }} van de
-              {{ na_totaal }} stookdagen ná {{ grens }} — alleen de dagen die met
-              dezelfde periode van het jaar te vergelijken zijn — tegen
-              {{ voor_n }} stookdagen van
-              {{ state_attr(cp, 'voor_van') }} → {{ state_attr(cp, 'voor_tot') }}.
-
-              {% if state_attr(cp, 'verschil_significant') %}
-
-              Dat ligt buiten de dagruis van ±{{ spreiding }}%: dit is een echt
-              verschil en geen toeval.
-
-              {% else %}
-
-              Dat valt bínnen de dagruis van ±{{ spreiding }}% per dag. Met
-              {{ na_n }} vergelijkbare stookdagen is dit nog niet van toeval te
-              onderscheiden — hier hoort dus nog geen conclusie aan te hangen.
-
-              {% endif %}
-
-              {% endif %}
-
-              {% if not handmatig %}
-
-              *De grens schuift mee met het venster: de laatste 30 stookdagen
-              worden getoetst aan alles daarvóór. Verander je iets aan de regeling,
-              zet die datum dan in de integratie-opties — dan blijft de norm daarop
-              staan en meet je die aanpassing in plaats van de vorige maand.*
-
-              {% endif %}
-
-              {% endif %}
-            grid_options:
-              columns: full
-              rows: auto
-
-      # ── Aanvoertemperatuur vergelijking (volle breedte) ──
-      #
-      # Voorwaardelijk, en dat is geen cosmetiek. mini-graph-card haalt per
-      # entity de historie op en blijft in een laadspinner hangen als een van
-      # zijn reeksen er geen heeft. Buiten het stookseizoen staan beide
-      # adviessensoren op 'unknown' — bewust: onder 30 L/h vergelijk je een
-      # aanvoeradvies met stilstaand water — en dan draaide deze kaart maanden
-      # achtereen een spinner in plaats van te zeggen dat er niets te tonen is.
-      - type: grid
-        column_span: 2
-        cards:
-          - type: conditional
-            conditions:
-              - condition: state
-                entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-                state_not: unknown
-              - condition: state
-                entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-                state_not: unavailable
-            card:
-              type: custom:mini-graph-card
-              name: Aanvoertemperatuur — Advies vs Werkelijk (24 uur)
-              hours_to_show: 24
-              points_per_hour: 4
-              line_width: 1.5
-              show:
-                labels: true
-                points: false
-              entities:
-                - entity: sensor.quatt_warmteanalyse_aanvoertemperatuur
-                  name: Werkelijk
-                  color: "#90A4AE"
-                - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-                  name: Stooklijn advies
-                  color: "#2196F3"
-                - entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
-                  name: MPC advies
-                  color: "#4CAF50"
-            grid_options:
-              columns: full
-              rows: auto
-          # Exact de tegenhanger van de conditie hierboven, inclusief
-          # 'unavailable' — anders valt er tijdens een herstart een gat waarin
-          # geen van beide kaarten staat.
-          - type: conditional
-            conditions:
-              - condition: state
-                entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-                state:
-                  - unknown
-                  - unavailable
-            card:
-              type: markdown
-              content: >
-                **Aanvoertemperatuur — Advies vs Werkelijk**
-
-
-                Geen vergelijking op dit moment: het debiet is
-                {{ states('sensor.quatt_warmteanalyse_debiet') | float(0) | round(0) }} L/h.
-                Onder de 30 L/h circuleert er niets en houden de adviessensoren
-                zich stil — een aanvoeradvies afzetten tegen stilstaand water
-                zegt niets. Zodra de pomp weer draait staat de grafiek hier
-                vanzelf.
-            grid_options:
-              columns: full
-              rows: auto
-
-      # ── Foutmeting (volle breedte) ──
-      - type: grid
-        column_span: 2
-        cards:
-          - type: custom:apexcharts-card
-            header:
-              title: Fout — Advies minus Werkelijk (24 uur)
-              show: true
-            graph_span: 24h
-            apex_config:
-              chart:
-                height: 200
-              yaxis:
-                min: -10
-                max: 10
-                tickAmount: 4
-              stroke:
-                width: [2, 2]
-                curve: smooth
-                dashArray: [0, 4]
-              annotations:
-                yaxis:
-                  - "y": 0
-                    borderColor: "#999"
-                    strokeDashArray: 4
-                    borderWidth: 1
-              legend:
-                position: bottom
-            series:
-              - entity: sensor.quatt_warmteanalyse_stooklijn_fout_aanvoertemperatuur
-                name: Stooklijn fout
-                color: "#2196F3"
-                stroke_width: 2
-              - entity: sensor.quatt_warmteanalyse_mpc_fout_aanvoertemperatuur
-                name: MPC fout
-                color: "#FF9800"
-                stroke_width: 2
-            grid_options:
-              columns: full
-              rows: auto
-
-      # ── Buitentemperatuur context ──
-      - type: grid
-        cards:
-          - type: custom:mini-graph-card
-            name: Buitentemperatuur (7 dagen)
-            hours_to_show: 168
-            points_per_hour: 1
-            line_width: 1
-            show:
-              labels: true
-              points: false
-            entities:
-              - entity: sensor.quatt_warmteanalyse_buitentemperatuur
-                name: Buitentemp
-                color: "#78909C"
-            grid_options:
-              columns: full
-              rows: auto
-
-  # ─── VIEW 5: SYSTEEM ────────────────────────────────────────────────
+  # ─── VIEW 6: SYSTEEM ────────────────────────────────────────────────
   # Beantwoordt: "Waar komen mijn metingen vandaan en hoe stookt het systeem?"
   #
   # Geluidsniveaucompensatie (sound_level_enabled) en aanvoerbegrenzing
@@ -2470,7 +2492,7 @@ views:
 
                 {% if not hp %}
 
-                HP inactief — geluidsniveau gereset naar '{{ state_attr('switch.quatt_warmteanalyse_geluidsniveau_compensatie', 'effective_max') | default('normal') }}'.
+                HP inactief — na 10 minuten zonder debiet gaat het geluidsniveau terug naar '{{ state_attr('switch.quatt_warmteanalyse_geluidsniveau_compensatie', 'effective_max') | default('normal') }}'.
 
                 {% elif gas %}
 
@@ -2484,8 +2506,7 @@ views:
 
                 {% elif mpc_err is not none and mpc_err > 2 %}
 
-                Aanvoer te laag (fout={{ mpc_err }}°C) — geluidsniveau staat al
-                op **{{ level }}** (max).
+                Aanvoer te laag (fout={{ mpc_err }}°C) — geluidsniveau omhoog tot het maximum, nu **{{ level }}**.
 
                 {% else %}
 

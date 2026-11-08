@@ -161,6 +161,21 @@ class TestSensorAttrFunctions:
         assert attrs is not None
         assert attrs["intercept"] == 7000
 
+    def test_knee_temperature_op_nul_graden(self):
+        """0,0 °C is een geldig knikpunt, geen ontbrekende waarde."""
+        data = _make_data(
+            stooklijn=StooklijnResult(knee_temperature=0.0, knee_power=6000)
+        )
+        desc = _find_desc("knee_temperature")
+        assert desc.value_fn(data) == 0.0
+        assert desc.attr_fn(data)["knee_power"] == 6000
+
+    def test_knee_temperature_ontbreekt(self):
+        data = _make_data(stooklijn=StooklijnResult(knee_temperature=None))
+        desc = _find_desc("knee_temperature")
+        assert desc.value_fn(data) is None
+        assert desc.attr_fn(data) is None
+
     def test_knee_temperature_attrs(self):
         data = _make_data(
             stooklijn=StooklijnResult(knee_temperature=2.0, knee_power=6000)

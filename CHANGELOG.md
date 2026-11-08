@@ -3,6 +3,30 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.5-beta.10 — 2026-11-08
+
+Betaversie met één bugfix, een nieuwe dashboardtab en een bijgewerkte README.
+
+- **Knikpunt op precies 0 °C werd als "onbekend" getoond.** De sensor behandelde
+  0,0 als ontbrekende waarde. Nu is 0 °C gewoon een geldig knikpunt. Is er echt
+  nog geen knikpunt, dan zegt de kaart dat een koude periode nodig is.
+- **Nieuwe tab Rendement & besparing.** Het rendement ten opzichte van de eigen
+  norm en de prijsverschuiving staan niet meer op de MPC-tab, die nu alleen nog
+  over het model en het advies gaat.
+- **Uitleg op de MPC-tab.** Een korte kaart legt uit wat advies en fout betekenen
+  en waarom een tegel soms geen waarde toont.
+- **Thermisch model op het dashboard.** De kaart toont nu ook de constante
+  warmtewinst. Wachten op stookuren heet niet meer ten onrechte "buiten fysisch
+  bereik"; daarvoor is het attribuut `model_n_updates_min` toegevoegd.
+- **Kleine tekstcorrecties op het dashboard.** De koppelstatus van de warmtevraag
+  noemt elke stap nog maar één keer, de grafiek heet "Optimale stooklijn", de
+  modelvergelijking zegt "elke 24 uur" en de geluidskaart volgt de echte regeling.
+- **README herschreven voor nieuwe gebruikers.** Vooraan staat nu wat je ermee
+  kunt, en wat er per regelaar kan. Beschrijvingen die niet meer klopten zijn
+  gecorrigeerd: het MPC-advies, de geluidsregeling, de prijsverschuiving en de
+  vervallen PV-optie. De modellensectie is in het Engels en beschrijft nu ook
+  het 2R2C-model en de aanvoertemperatuurregeling.
+
 ## v0.10.5-beta.9 — 2026-11-01
 
 Betaversie met één verbetering aan de modelvergelijking op beta.8.

@@ -250,15 +250,16 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:thermometer-alert",
+        # ``is not None``: 0,0 °C is een geldig knikpunt.
         value_fn=lambda d: (
             round(d.stooklijn.knee_temperature, 2)
-            if d.stooklijn.knee_temperature
+            if d.stooklijn.knee_temperature is not None
             else None
         ),
         attr_fn=lambda d: {
             "knee_power": d.stooklijn.knee_power,
         }
-        if d.stooklijn.knee_temperature
+        if d.stooklijn.knee_temperature is not None
         else None,
     ),
     QuattSensorDescription(

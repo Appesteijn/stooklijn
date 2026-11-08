@@ -506,6 +506,9 @@ class OnlineRCModel:
             "constant_gain_seeded": self._p_c_seeded,
             "tau_hours": round(tau, 1) if tau else None,
             "n_updates": self._rls.n_updates,
+            # Convergentie kijkt naar de traagste parameter; n_updates alleen
+            # loopt ook door in uren waarin C bevroren is.
+            "n_updates_min": int(self._rls.n_updates_per_param.min()),
             "converged": self.is_converged,
             "u_prior_wk": round(self._u_prior, 1) if self._u_prior else None,
             "u_anchored": self._u_anchored,

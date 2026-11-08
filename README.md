@@ -10,11 +10,62 @@ boiler has to assist — and turns that into concrete settings you can ask Quatt
 Optionally compares against your gas consumption from before the heat pump.
 
 Everything it does is read-only by default: it advises, it does not steer your installation.
+Two optional features do write to the heat pump, and both are off until you enable them:
+[sound level compensation](#geluidsniveaucompensatie) and
+[supply-temperature control](#supply-temperature-control).
 
 ![Overzicht tab](screenshot-overzicht.png)
 
 *The Overzicht tab: current COP, your home's measured heat loss and balance point, the knee
 temperature where the boiler has to assist, and the concrete change to ask Quatt for.*
+
+## What can you do with it?
+
+Install it, let it run, and it answers these questions from your own data. The answers are on
+the dashboard the integration creates for you.
+
+| Question | Where to look | What you do with it |
+|----------|---------------|---------------------|
+| **What does my house need, and what should I ask to have changed?** | **Advies** tab | Pass the recommended heating limit (*stookgrens*) and rated power (*nominaal vermogen*) to your installer or Quatt support. The maximum water temperature you can change yourself in the Quatt app. See [Quatt advies sensor](#quatt-advies-sensor) |
+| **Below which outdoor temperature does the boiler have to help?** | **Overzicht** tab | See where the heat pump no longer keeps up alone. This needs a cold period first |
+| **Is my heating curve set too high?** | **Systeem** tab | Many compressor starts per hour while it is cold point at a curve that is too high. The **Advies** tab shows the measured curve. See [Short cycling](#short-cycling) |
+| **Did the change I made actually help?** | **Rendement & besparing** tab | Enter the date of your change as the *Change marker date*. Later days are compared with your own installation at the same outdoor temperature. See [Judging a change](#judging-a-change) |
+| **How long can the heat pump stay off before the house gets too cold?** | **MPC** tab | Read the safe coast time, measured against the lowest indoor temperature you accept |
+| **Would heating during cheap hours pay off?** | **Rendement & besparing** tab | Enter your tariff and read the predicted savings per day. It is a prediction and changes nothing. See [Price shift](#price-shift-shadow-measurement) |
+| **How does this compare to my old gas boiler?** | **Analyse** tab | Optional: enter your gas meter and a period from before the heat pump |
+
+### What you can act on depends on your controller
+
+- **Quatt CiC:** you get advice to pass on. The heating limit and rated power are installation
+  settings that only your installer or Quatt support can change. The CiC does not expose them, so
+  the integration gives the recommended values without comparing them to what is set now.
+- **OpenQuatt:** the integration reads your heating limit and tells you when it differs from the
+  measurement. You set the recommended values yourself, and you can feed the measured heat demand
+  directly into OpenQuatt's Power House. See [OpenQuatt readiness](#openquatt-readiness).
+
+## First run — what to expect
+
+The analysis starts automatically when Home Assistant starts, and again on demand. What it
+can tell you depends entirely on how much data it has seen.
+
+| When | What works |
+|------|-----------|
+| Immediately | Mirror sensors, data sources overview, live COP estimate |
+| First run | Heat loss regression and balance point, using Home Assistant's long-term statistics — these often go back months, so results can be meaningful straight away |
+| After ~2 days of heating | The online thermal model converges (48 hourly updates) and the MPC advice switches from the linear model to the learned model |
+| After the first cold period | Knee detection becomes reliable — it needs hours where the heat pump ran at full capacity below 10 °C |
+| Over the following winters | Knee detection and the Quatt advice keep sharpening as the knee data store fills |
+
+Two things are normal and not errors:
+
+- **`unknown` on the error sensors while the pump is idle.** Comparing advice to actual
+  supply temperature is meaningless without circulation, so they deliberately return
+  nothing below 30 L/h.
+- **An empty data sources table right after a restart.** Sources are re-evaluated once a
+  minute; other integrations may still be starting.
+
+The `analysis_status` sensor and the **Analyse** dashboard tab show what data is available.
+If a result stays empty, that tab tells you which input is missing.
 
 ## Terminology
 
@@ -30,24 +81,6 @@ them verbatim when you ask for a change. Dutch and English are used interchangea
 | **Knikpunt** | Knee temperature — the outdoor temperature below which the heat pump alone can no longer keep up and the gas boiler must assist. |
 | **Nominaal vermogen** | Rated power — the heat output Quatt assumes your house needs at −10 °C. |
 | **Warmtevraag** | Heat demand — how much power (W) your house currently needs. |
-
-## Features
-
-- **Heating curve analysis** — Calculates the optimal stooklijn based on actual heat pump data and compares it with Quatt's estimated curve
-- **Heat loss coefficient** — Determines your home's heat loss in W/K using linear regression
-- **COP tracking** — Average coefficient of performance and per-temperature scatter data
-- **Knee temperature** — Detects the outdoor temperature where supplemental heating (boiler) kicks in
-- **Gas comparison** (optional) — Compare heat pump performance with historical gas consumption from before installation
-- **MPC shadow sensor** — Calculates an optimal supply temperature advice based on a 12-hour weather forecast, without touching your system
-- **Online thermisch model** — Learns your home's thermal characteristics (heat loss W/K, thermal mass Wh/K, solar gain) in real-time using Recursive Least Squares; improves MPC accuracy continuously
-- **Quatt advies** — Shows exactly which parameters to ask Quatt to adjust (stookgrens, nominaal vermogen, stooklijn breakpoints)
-- **Geluidsniveaucompensatie** (optional) — Automatically adjusts the compressor sound level based on MPC error and boiler activity, with separate day/night limits
-- **OpenQuatt ready** — Output sensors with optimal heating curve breakpoints and balance point, ready for OpenQuatt automations
-- **Power House feedforward** — Publishes the measured house heat demand (W) for OpenQuatt's external heat demand input
-- **Source abstraction** — Every measurement is exposed through a mirror sensor with a stable entity ID. Dashboards and automations keep working while the underlying source (Quatt, OpenQuatt, or your own sensor) switches or drops out
-- **Runs without the cloud** — The Quatt Insights API is optional. With it off, the analysis continues on Home Assistant's own long-term statistics plus the integration's stored history
-- **Kortcyclen zichtbaar** — Counts compressor starts per hour and plots them against outdoor temperature; many starts while it is cold is the signature of a heating curve set too high
-- **Dashboard included** — Pre-built Lovelace dashboard with five tabs, including a Systeem view showing which integration delivers each measurement
 
 ## Requirements
 
@@ -95,7 +128,7 @@ Leave a field empty and auto-detection picks the entity at runtime. That is usua
 - **Hot water threshold** — Temperature above which gas usage is counted as hot water only (default: 18°C)
 
 ### Step 3: Geluidsniveaucompensatie (optional)
-- Enable the sound level compensation switch and configure day/night maximum levels and the day/night start times
+- Enable the sound level compensation switch and configure day/night maximum levels and the hours at which night starts and ends
 
 ### Change marker (optional)
 
@@ -103,6 +136,14 @@ Leave a field empty and auto-detection picks the entity at runtime. That is usua
 changed something. The norm freezes on everything before that date, and every heating day after it
 is tested against it. Leave it empty and the boundary simply follows the last 30 heating days. See
 [Judging a change](#judging-a-change).
+
+### Other options
+
+These are in **Configure**:
+
+- **Comfort floor** (default 19 °C) — The lowest indoor temperature you accept. It is the reference for coast time and stored heat, not the target temperature.
+- **Fallback room setpoint** (default 20 °C) — Used only when the thermostat provides no setpoint.
+- **External throttle entity** (empty by default) — For an external controller that caps the heat pump, such as a tariff-driven helper. Minutes where its value is below 20 are left out of the knee, stooklijn and heat-loss analysis, because a capped heat pump does not follow its natural curve.
 
 ## Data sources
 
@@ -142,30 +183,6 @@ What you give up is the hourly Quatt detail (a fallback for knee detection and a
 
 Worth knowing: this switch does not affect the Quatt HA integration, which polls your CIC locally. If OpenQuatt is your only other source, consider that turning the cloud off leaves each role with a single candidate and no fallback.
 
-## First run — what to expect
-
-The analysis starts automatically when Home Assistant starts, and again on demand. What it
-can tell you depends entirely on how much data it has seen.
-
-| When | What works |
-|------|-----------|
-| Immediately | Mirror sensors, data sources overview, live COP estimate |
-| First run | Heat loss regression and balance point, using Home Assistant's long-term statistics — these often go back months, so results can be meaningful straight away |
-| After ~2 days | The online thermal model converges (48 hourly updates) and the MPC advice becomes available |
-| After the first cold period | Knee detection becomes reliable — it needs hours where the heat pump ran at full capacity below 10 °C |
-| Over the following winters | Knee detection and the Quatt advice keep sharpening as the knee data store fills |
-
-Two things are normal and not errors:
-
-- **`unknown` on the error sensors while the pump is idle.** Comparing advice to actual
-  supply temperature is meaningless without circulation, so they deliberately return
-  nothing below 30 L/h.
-- **An empty data sources table right after a restart.** Sources are re-evaluated once a
-  minute; other integrations may still be starting.
-
-The `analysis_status` sensor and the **Analyse** dashboard tab show what data is available.
-If a result stays empty, that tab tells you which input is missing.
-
 ## Usage
 
 The analysis runs **automatically** when Home Assistant starts, so your dashboards are always populated after a restart.
@@ -203,14 +220,15 @@ Later releases keep it up to date, but only when that is safe:
 To take the shipped version regardless (and lose your changes to that dashboard), call the
 `quatt_stooklijn.update_dashboard` service.
 
-The dashboard has five tabs:
+The dashboard has six tabs:
 
 | Tab | Contents |
 |-----|----------|
 | **Overzicht** | Key metrics (COP, heat loss, balance temp, knee), comfort chart, quick advice |
 | **Analyse** | Heat loss scatter + trendlines, COP vs temperature, heat demand table, data availability |
 | **Advies** | Quatt parameter recommendations, stooklijn breakpoints, OpenQuatt integration |
-| **MPC** | Thermal model status, 12-hour forecast, supply temperature comparison, error sensors |
+| **MPC** | Thermal model status, 12-hour forecast, supply temperature comparison, error sensors, model comparison |
+| **Rendement & besparing** | Efficiency against your own norm, whether a change helped, price shift (when a tariff is configured) |
 | **Systeem** | Data sources per measurement, supply-temperature limiting, compressor starts, 48-hour aligned charts: power, starts vs outdoor temp, MPC deviation, flow & outdoor temp; sound level status when enabled |
 
 ### Adapting the dashboard to your setup
@@ -225,22 +243,44 @@ naming difference does not matter.
 Cards for optional features hide themselves when the feature is off, so an unused card does
 not show errors — it simply is not there.
 
-**Weather forecast — required for MPC shadow sensor:**
+**Weather forecast — needed for the 12-hour look-ahead:**
 
-The MPC sensor needs a weather forecast entity to predict the next 12 hours of outdoor temperature and solar radiation. During setup you are asked to provide one; the default is `weather.home`.
+The look-ahead on the MPC tab needs a weather forecast entity for the outdoor temperature of the next 12 hours. Solar radiation comes separately from [Open-Meteo](https://open-meteo.com/). During setup you are asked to provide a weather entity; the default is `weather.home`.
 
 Almost every Home Assistant installation has this: the built-in [Met.no integration](https://www.home-assistant.io/integrations/met/) creates `weather.home` automatically. If your entity is named differently (e.g. `weather.your_city`), update it in **Settings > Devices & Services > Quatt Warmteanalyse > Configure**.
 
-> **No weather integration?** The MPC sensor will stay `unavailable`. Install Met.no (free, no API key) or any other HA weather integration to enable it.
+> **No weather integration?** The MPC advice keeps working, because it only uses current conditions. The look-ahead then assumes the current outdoor temperature for every hour, and the [price shift](#price-shift-shadow-measurement) has no result. Install Met.no (free, no API key) or any other HA weather integration to get a real forecast.
+
+## Feature overview
+
+- **Heating curve analysis** — Calculates the optimal stooklijn based on actual heat pump data and compares it with Quatt's estimated curve
+- **Heat loss coefficient** — Determines your home's heat loss in W/K using linear regression
+- **COP tracking** — Average coefficient of performance and per-temperature scatter data
+- **Knee temperature** — Detects the outdoor temperature where supplemental heating (boiler) kicks in
+- **Gas comparison** (optional) — Compare heat pump performance with historical gas consumption from before installation
+- **MPC shadow sensor** — Calculates a recommended supply temperature from the learned house model and current conditions, plus a 12-hour look-ahead based on the weather forecast, without touching your system
+- **Online thermisch model** — Learns your home's thermal characteristics (heat loss W/K, thermal mass Wh/K, solar gain, constant heat gain) in real-time using Recursive Least Squares; improves MPC accuracy continuously
+- **Model comparison** — Scores a two-node (2R2C) house model against the running model on held-out data, once a day. It only measures; the 2R2C model drives nothing
+- **Quatt advies** — Shows exactly which parameters to ask Quatt to adjust (stookgrens, nominaal vermogen, stooklijn breakpoints)
+- **Geluidsniveaucompensatie** (optional) — Automatically adjusts the compressor sound level based on MPC error and boiler activity, with separate day/night limits
+- **Supply-temperature control** (optional) — Writes the recommended supply temperature to the controller's maximum supply temperature setting
+- **OpenQuatt ready** — Output sensors with optimal heating curve breakpoints and balance point, ready for OpenQuatt automations
+- **Power House feedforward** — Publishes the measured house heat demand (W) for OpenQuatt's external heat demand input
+- **Source abstraction** — Every measurement is exposed through a mirror sensor with a stable entity ID. Dashboards and automations keep working while the underlying source (Quatt, OpenQuatt, or your own sensor) switches or drops out
+- **Runs without the cloud** — The Quatt Insights API is optional. With it off, the analysis continues on Home Assistant's own long-term statistics plus the integration's stored history
+- **Kortcyclen zichtbaar** — Counts compressor starts per hour and plots them against outdoor temperature; many starts while it is cold is the signature of a heating curve set too high
+- **Dashboard included** — Pre-built Lovelace dashboard with six tabs, including a Systeem view showing which integration delivers each measurement
 
 ## Sensors
+
+Entity IDs are `sensor.quatt_warmteanalyse_<name>`, with the names below.
 
 | Sensor | Unit | Description |
 |--------|------|-------------|
 | `heat_loss_coefficient` | W/K | Heat loss per degree below balance point |
-| `balance_point` | °C | Outdoor temp where no heating is needed |
+| `balance_point_temperature` | °C | Outdoor temp where no heating is needed |
 | `optimal_stooklijn_slope` | W/°C | Slope of the optimal heating curve |
-| `quatt_stooklijn_slope` | W/°C | Slope of Quatt's estimated curve |
+| `quatt_warmteanalyse_slope` | W/°C | Slope of Quatt's estimated curve |
 | `knee_temperature` | °C | Temperature where boiler must assist |
 | `average_cop` | — | Average coefficient of performance |
 | `freezing_performance_slope` | W/°C | Heat pump performance below 0°C |
@@ -254,6 +294,7 @@ Almost every Home Assistant installation has this: the built-in [Met.no integrat
 | `openquatt_power_house_kalibratie` | — | Advised Power House parameters (cold temp, rated power, zero-power temp) |
 | `warmtevraag` | W | House heat demand, feeds OpenQuatt's Power House feedforward |
 | `databronnen` | — | Which integration delivers which measurement, with candidates and switch times |
+| `modelvergelijking` | — | Result of the daily 2R2C comparison — see [2R2C model](#2r2c-model-measured-only) |
 
 **Mirror sensors** (one per role, stable entity ID regardless of which integration delivers — use these in dashboards and automations):
 
@@ -274,12 +315,13 @@ Each carries `source_entity`, `source_integration`, `candidates` and `switched_a
 |--------|------|-------------|
 | `geschatte_actuele_cop` | — | Interpolated COP at current outdoor temperature |
 | `aanbevolen_aanvoertemperatuur` | °C | Recommended supply temperature (stooklijn-based) |
-| `mpc_aanbevolen_aanvoertemperatuur` | °C | MPC recommended supply temperature (weather + solar + RC model) |
+| `mpc_aanbevolen_aanvoertemperatuur` | °C | MPC recommended supply temperature (current conditions + solar + RC model) |
 | `stooklijn_fout_aanvoertemperatuur` | °C | Error: stooklijn advice − actual supply |
 | `mpc_fout_aanvoertemperatuur` | °C | Error: MPC advice − actual supply |
 | `veilige_uitlooptijd` | min | How long the house can coast with the heat pump off before hitting the comfort floor; attribute `recovery_on_min_minutes` is how long getting back to the room setpoint takes with the heat pump at its minimum output |
-| `max_aanvoertemperatuur_instelling` | °C | Value last written to the heat pump's max supply temperature (only when supply-temperature control is enabled) |
-| `geluidsniveau` | — | Current compressor sound level (`uit` / `building87` / `silent` / `library` / `normal`) — only when sound level compensation is enabled |
+| `opgeslagen_warmte` | kWh | Heat stored in the building above the comfort floor: what the house has to lose before it reaches that floor. Negative when the room is below it. Available once the online model has converged |
+| `max_aanvoertemperatuur_instelling` | °C | Value last written to the heat pump's max supply temperature (only when [supply-temperature control](#supply-temperature-control) is enabled) |
+| `geluidsniveau` | — | Current compressor sound level (`building87` / `silent` / `library` / `normal`) — only when sound level compensation is enabled |
 | `compressorstarts` | starts/uur | Compressor starts in the last hour — see [Short cycling](#short-cycling) |
 | `cop_prestatie` | — | Efficiency against this installation's own norm at the same outdoor temperature and the same half of the season — see [Judging a change](#judging-a-change) |
 | `prijsverschuiving` | EUR | Predicted savings, summed per day, had heat demand been shifted to cheaper hours — only when a tariff is configured, see [Price shift](#price-shift-shadow-measurement) |
@@ -310,19 +352,26 @@ Both error sensors return no value while the pump is idle (flow below 30 L/h): c
 |---------|-------------|
 | `quatt_stooklijn.run_analysis` | Run the full analysis pipeline |
 | `quatt_stooklijn.clear_data` | Clear all analysis results and reset sensors |
+| `quatt_stooklijn.update_dashboard` | Overwrite the dashboard with the shipped version, or create it again if you deleted it. Your changes to that dashboard are lost |
 
 ## MPC shadow sensor
 
-The MPC (Model Predictive Control) sensor calculates what supply temperature your heat pump *should* be running at, given the weather forecast for the next 12 hours. It runs in **shadow mode**: it only produces advice and never writes any setpoints to your system.
+The MPC (Model Predictive Control) sensor calculates what supply temperature your heat pump *should* be running at, and looks 12 hours ahead. It runs in **shadow mode**: it only produces advice and never writes any setpoints to your system.
 
 ### How it works
 
-Every update cycle the sensor:
+The sensor produces two things, from different inputs.
 
-1. Fetches the outdoor temperature forecast for the next 12 hours from your weather entity
-2. Estimates solar heat gain for each hour based on solar radiation forecast (from [Open-Meteo](https://open-meteo.com/)) or your PV inverter output
-3. Applies a simple RC thermal model of your home (heat loss coefficient + thermal mass) to predict how much heat the house will need hour by hour
-4. Picks the supply temperature that keeps the house comfortable while avoiding unnecessary overheating
+**The advice** (the sensor's value) uses current conditions only:
+
+1. Reads the current outdoor, room and return temperature, the flow and the room setpoint
+2. Takes the solar radiation for the current hour from [Open-Meteo](https://open-meteo.com/)
+3. Calculates with the learned RC model how much power is needed to reach the room setpoint within one hour. Until that model has converged it uses the linear heat-loss model instead
+4. Converts that power to a supply temperature, limited to 20–55 °C. With the learned model, a room already at its setpoint means no demand and no value
+
+**The look-ahead** (the 12-hour table on the MPC tab) simulates the house forward with the outdoor temperature forecast from your weather entity and the radiation forecast from Open-Meteo.
+
+Despite the name, the advice is not an optimisation over the forecast horizon: the forecast does not change the sensor's value.
 
 The result is compared to the actual supply temperature via the **error sensors** on the MPC tab:
 - A positive error means the sensor advises a higher supply temperature than what's currently running (risk of underheating)
@@ -335,7 +384,7 @@ pump off, the 12-hour forecast, and advice versus actual supply temperature.*
 
 ### Solar gain correction
 
-The integration uses [Open-Meteo](https://open-meteo.com/) shortwave radiation (W/m²) as the primary solar input. If you have a PV inverter sensor configured, the integration can also learn how much of your solar production translates into actual heat gain inside your home; this calibration improves over time.
+The integration uses [Open-Meteo](https://open-meteo.com/) shortwave radiation (W/m²) as its solar input. The online model learns how much of that radiation ends up as heat inside your home; this calibration improves over time. Solar panel output is not used.
 
 ### Shadow mode
 
@@ -349,7 +398,7 @@ configurable) or `dynamisch` (a price sensor that carries today's and tomorrow's
 attributes — Nord Pool, ENTSO-e, EnergyZero and similar; quarter-hour prices are averaged per
 hour). The `prijsverschuiving` sensor then appears.
 
-Every night at 00:05 it takes the coming 24 hours: the same heat that `warmtevraag` would publish,
+Every night at 00:05 it takes the coming 24 hours: the heat the house model needs to hold the room setpoint,
 redistributed to the hours with the most heat per euro. The plan bends away from the flat path:
 `P + γ · P̄ · (1 − r)`, where `r` is the cost of a kWh of heat in that hour (price / COP) relative
 to the average. γ = 0 is the flat path itself and the deviation grows linearly with γ. The total
@@ -375,9 +424,8 @@ middle of a run (attribute `minimumvermogen` on the MPC sensor). Until enough st
 logged nothing uses it. The forecast table shows per hour which share of the hour the heat pump
 runs (`aan_pct`), and the coast-time sensor shows the recovery time at minimum output.
 
-It is a model prediction, not a metered result, and **it controls nothing**. Solar gain and room
-temperature are not part of it, for the same reason as in [Driving Power House with the measured
-house model](#driving-power-house-with-the-measured-house-model). Actually shifting heat would
+It is a model prediction, not a metered result, and **it controls nothing**. Solar gain, room
+temperature, setpoint and thermal mass are part of it. Actually shifting heat would
 have to go through the room setpoint; the firmware's comfort term cancels a higher power demand
 as soon as the room is above setpoint.
 
@@ -419,21 +467,21 @@ The integration can automatically manage the Quatt compressor sound level based 
 
 ### How it works
 
-Every update cycle the switch checks three conditions and adjusts the sound level accordingly:
+Every 5 minutes the switch goes through these conditions in order and acts on the first that applies:
 
 | Condition | Action |
 |-----------|--------|
-| Heat pump inactive (flow = 0) | Reset to configured maximum — ready for next cycle |
-| Gas boiler active | Raise to maximum — HP needs full output, noise acceptable |
+| Heat pump inactive (flow below 30 L/h) | After 10 minutes of this: reset to configured maximum, ready for the next cycle |
+| Gas boiler active (above 200 W) | Raise by one step (up to maximum), so the heat pump can deliver more |
 | MPC error < −2°C (supply too high) | Lower by one step — overheating, reduce compressor |
 | MPC error > +2°C (supply too low) | Raise by one step (up to maximum) |
 | Within dead band (±2°C) | No change |
 
-The 10-minute minimum hold time prevents rapid oscillation between levels.
+The level changes by at most one step per cycle, which limits how fast it can move. If the MPC advice has no value for more than 10 minutes, the level is reset to the configured maximum.
 
 ### Day/night limits
 
-Configure separate maximum sound levels for day and night in the integration options. The switch automatically applies the right maximum based on the current time. A 10-minute reset guard prevents flapping around midnight.
+Configure separate maximum sound levels for day and night in the integration options. The switch automatically applies the right maximum based on the current time. When the period changes, the level is lowered to the new maximum if needed.
 
 ### Configuration
 
@@ -443,9 +491,9 @@ Enable in the integration options:
 |---------|---------|-------------|
 | `sound_level_enabled` | `false` | Enable geluidsniveaucompensatie |
 | `sound_level_max_day` | `normal` | Maximum level during the day |
-| `sound_level_max_night` | `library` | Maximum level at night |
-| `sound_level_day_start` | `07:00` | Start of day period |
-| `sound_level_night_start` | `23:00` | Start of night period |
+| `sound_level_max_night` | `normal` | Maximum level at night |
+| `sound_night_start_hour` | `23` | Hour the night period starts (local time) |
+| `sound_night_end_hour` | `7` | Hour the night period ends (local time) |
 
 After enabling, a switch entity appears: `switch.quatt_warmteanalyse_geluidsniveau_compensatie`. It starts on automatically.
 
@@ -460,7 +508,23 @@ The switch exposes these attributes for monitoring:
 | `gas_active` | Whether the gas boiler is currently active |
 | `boiler_heat_w` | Current boiler heat output (W) |
 
-**Sound levels** (low → high): `uit` → `building87` → `silent` → `library` → `normal`
+**Sound levels** (low → high): `building87` → `silent` → `library` → `normal`
+
+## Supply-temperature control
+
+Optional and off by default. When enabled, the integration periodically writes the recommended supply temperature to the maximum supply temperature setting of whichever controller is in charge: the Quatt CiC, or OpenQuatt when it runs the outdoor units.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `ch_max_water_enabled` | `false` | Enable supply-temperature control |
+| `ch_max_water_entity` | empty | Target number entity; empty means auto-detection |
+| `ch_max_water_source` | `stooklijn` | Which advice to write: `stooklijn` or `mpc` |
+| `ch_max_water_hysteresis` | `1.0` | Only write when the advice differs this many °C from the last written value |
+| `ch_max_water_interval` | `30` | Minutes between checks |
+
+The last written value is shown by `sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling`.
+
+It stands down by itself while `sensor.quatt_warmteanalyse_warmtevraag` drives OpenQuatt's Power House, see [below](#driving-power-house-with-the-measured-house-model).
 
 ## OpenQuatt readiness
 
@@ -480,7 +544,7 @@ State = number of breakpoints (6). Attributes:
 
 **`sensor.quatt_warmteanalyse_openquatt_balance_point`** — Optimal balance temperature (°C)
 
-**`sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur`** — Real-time optimal supply temperature (°C), updated with weather forecast and solar gain.
+**`sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur`** — Real-time recommended supply temperature (°C), updated with current conditions and solar gain.
 
 **`sensor.quatt_warmteanalyse_warmtevraag`** — House heat demand (W), see below.
 
@@ -559,7 +623,7 @@ automation:
     action:
       - service: number.set_value
         target:
-          entity_id: number.openquatt_house_zero_power_temp_c
+          entity_id: number.openquatt_maximum_heating_outdoor_temperature
         data:
           value: "{{ states('sensor.quatt_warmteanalyse_openquatt_balance_point') }}"
 ```
@@ -570,7 +634,7 @@ The integration ports the analysis from a Jupyter notebook into a Home Assistant
 
 1. **Data collection** — Uses a hybrid approach combining five data sources (see below)
 2. **Stooklijn estimation** — Estimates the current Quatt stooklijn from HA recorder minute-level power data, using the 2500W filter to capture full-capacity operation
-3. **Knee detection** — Piecewise linear fit on Quatt hourly data to find the temperature where the boiler must assist
+3. **Knee detection** — Piecewise linear fit on recorder minute data, with Quatt hourly data as fallback, to find the temperature where the boiler must assist
 4. **Heat loss regression** — Linear regression on daily heat energy vs outdoor temperature to determine your home's thermal characteristics
 5. **COP calculation** — Computes daily COP from heat output (`totalHpHeat`) and electrical input (`totalHpElectric`) for accurate values
 6. **Auto-startup** — Analysis runs automatically when Home Assistant starts, so dashboards are always populated
@@ -598,77 +662,91 @@ The integration combines five data sources for the best balance of coverage, acc
 
 **Result:** From the first run you get months of daily data (via recorder), plus 30 days of hourly detail. Both caches grow organically over time, and knee detection improves with each cold period.
 
-## Voorspellingsmodellen
+## Prediction models
 
-De integratie gebruikt drie modellen die op elkaar voortbouwen:
+The integration uses three models that build on each other. A fourth, the [2R2C model](#2r2c-model-measured-only), is only measured and drives nothing.
 
-### Lineair model (heat loss regressie)
+### Linear model (heat loss regression)
 
-De basis van de hele integratie. Past een rechte lijn door je historische dagdata:
-
-```
-warmtevraag (W) = slope × T_buiten + intercept
-```
-
-- **Input:** dagelijkse Quatt API data (gemiddelde buitentemperatuur vs. totaal vermogen)
-- **Output:** warmteverliescoëfficiënt (W/K), balanspunt (°C), nominaal vermogen bij elke temperatuur
-- **Gebruikt door:** MPC sensor, Quatt advies sensor, stooklijn breakpoints, OpenQuatt sensoren
-- **Methode:** twee-pass lineaire regressie met outlier-filtering (residuen > 2.5σ worden verwijderd)
-- **Beperking:** neemt aan dat de relatie temperatuur→warmtevraag een rechte lijn is — houdt geen rekening met wind, zon of thermische massa
-
-### Online thermisch model (1R1C met RLS)
-
-Het primaire model voor MPC. Leert elk uur de thermische eigenschappen van je woning bij via Recursive Least Squares:
+The basis of the whole integration. It fits a straight line through your historical daily data:
 
 ```
-C × dT_binnen/dt = Q_hp − U × (T_binnen − T_buiten) + g × straling
+heat demand (W) = slope × T_outdoor + intercept
 ```
 
-- **Parameters die het model leert:** warmteverlies U (W/K), thermische massa C (Wh/K), zonnewinst g (W per W/m²)
-- **Input:** uurlijkse metingen van binnentemp, buitentemp, HP-vermogen en Open-Meteo zonnestraling
-- **Convergentie:** na ~48 uur actieve stookdata zijn de parameters betrouwbaar; het dashboard toont de voortgang
-- **Fallback:** zolang het model nog niet convergeert, gebruikt de MPC het batch lineaire model
+- **Input:** daily data from the HA statistics, supplemented by the Quatt API when enabled (average outdoor temperature vs. total power)
+- **Output:** heat loss coefficient (W/K), balance point (°C), rated power at any temperature
+- **Used by:** MPC sensor, Quatt advies sensor, stooklijn breakpoints, OpenQuatt sensors
+- **Method:** two-pass linear regression with outlier filtering (residuals above 2.5σ are removed)
+- **Limitation:** assumes the relation between temperature and heat demand is a straight line, and ignores wind, sun and thermal mass
+
+### Online thermal model (1R1C with RLS)
+
+The primary model for the MPC. It updates the thermal properties of your home every hour using Recursive Least Squares:
+
+```
+C × dT_indoor/dt = Q_hp − U × (T_indoor − T_outdoor) + g × radiation + P_c
+```
+
+- **Parameters it learns:** heat loss U (W/K), thermal mass C (Wh/K), solar gain g (W per W/m²), constant heat gain P_c (W)
+- **Why P_c:** the balance point lies a few degrees below room temperature, so heat comes in that the other terms do not explain. Without this term that error ends up in C
+- **Input:** hourly readings of indoor temperature, outdoor temperature, heat pump power and Open-Meteo solar radiation
+- **Convergence:** after ~48 hours of active heating the parameters are reliable; the dashboard shows the progress
+- **Fallback:** until the model has converged, the MPC uses the batch linear model
 
 ### MPC forecast (physics-based)
 
-Bouwt voort op het RC-model en berekent de optimale aanvoertemperatuur:
+Builds on the RC model and calculates the recommended supply temperature:
 
 ```
-T_aanvoer = T_retour + max(0, warmtevraag − zonnewarmte) / (1.16 × debiet)
+T_supply = T_return + max(0, heat demand − solar heat) / (1.16 × flow)
 ```
 
-- **Input:** live sensordata (retourtemp, debiet, buitentemp) + weersvoorspelling (12 uur) + zonnestraling (Open-Meteo)
-- **Output:** aanbevolen aanvoertemperatuur per uur, nu + 12 uur vooruit
+- **Input for the advice:** live sensor data (return temperature, flow, outdoor and room temperature, setpoint) + solar radiation for the current hour (Open-Meteo)
+- **Input for the look-ahead:** weather forecast (12 hours) + forecast solar radiation (Open-Meteo)
+- **Output:** recommended supply temperature now, plus a 12-hour look-ahead. The forecast does not change the current advice
 
-| | Lineair model | RC model (online) | MPC forecast |
+| | Linear model | RC model (online) | MPC forecast |
 |---|---|---|---|
-| **Databron** | Historische dagdata | Uurlijkse metingen (continu) | Live sensors + weersvoorspelling |
-| **Zon/wind** | Nee | Zon ja | Zon ja |
-| **Updatefrequentie** | Bij analyse (opstart) | Elk uur | Elke sensorupdate |
-| **Doel** | Thermische karakteristiek (basis) | Verfijnde U/C/g parameters | Real-time aanvoertemp advies |
+| **Data source** | Historical daily data | Hourly readings (continuous) | Live sensors, plus the weather forecast for the look-ahead |
+| **Sun/wind** | No | Sun yes | Sun yes |
+| **Update frequency** | On analysis (startup) | Every hour | Every sensor update |
+| **Purpose** | Thermal characteristics (basis) | Refined U/C/g/P_c parameters | Real-time supply temperature advice |
 
-### XGBoost (experimenteel, niet actief)
+### 2R2C model (measured only)
 
-In de repository staan getrainde XGBoost modellen (`.ubj` bestanden) uit de Jupyter notebooks (`ml_train_baseline.ipynb`, `ml_multistep.ipynb`). Deze zijn **niet geïntegreerd** in de Home Assistant component.
+The 1R1C model treats the house as one whole with one speed of response. The 2R2C model splits it into a fast node (the air and what moves directly with it) and a slow node (the building mass). It drives nothing: `sensor.quatt_warmteanalyse_modelvergelijking` measures whether it predicts better than the running 1R1C model and better than "doing nothing" (assuming the room temperature stays the same).
 
-- **Wat het doet:** voorspelt warmtevraag met meer features dan het lineaire model (wind, zon, tijd, thermische massa)
-- **Potentieel voordeel:** nauwkeuriger voorspelling bij wisselend weer, kan het lineaire model in de MPC vervangen
-- **Status:** research-fase — de modellen zijn getraind maar nog niet aangesloten op de integratie
+- **Input:** the integration's own log, with readings every 5 minutes
+- **Fitting and testing:** fitted on 5-minute data over 6 hours ahead, tested per hour over 12 hours ahead. Calendar weeks alternate between training and testing, so the test data is not part of the fit
+- **Gate:** at least 336 hours of training data (a weekly block only counts from 72 hours), and an RMSE at least 5% below both the 1R1C model and "doing nothing"
+- **When:** 10 minutes after a (re)start and every 24 hours after that. The result is not stored, so after a restart it briefly shows `nog niet gemeten`
+- **Sensor states:** `nog niet gemeten` (not measured yet), `te weinig data` (too little data), `fit mislukt` (fit failed), `niet beter` (not better) or `beter` (better)
 
-### Hoe de modellen samenwerken
+`beter` only says the prediction error is lower. The individual parameters can differ a lot between periods, because a few weeks of data cannot separate them well.
+
+### XGBoost (experimental, not active)
+
+XGBoost models were trained in Jupyter notebooks during research. Those files are not in the repository and are **not integrated** into the Home Assistant component.
+
+- **What it does:** predicts heat demand with more features than the linear model (wind, sun, time, thermal mass)
+- **Potential benefit:** more accurate predictions in changing weather; could replace the linear model in the MPC
+- **Status:** research stage, not connected to the integration
+
+### How the models work together
 
 ```
-Historische data → [Lineair model] → slope, intercept, balanspunt
+Historical data → [Linear model] → slope, intercept, balance point
                                           ↓
-Uurlijkse metingen → [RC model (RLS)] → U, C, g (online learning)
+Hourly readings → [RC model (RLS)] → U, C, g, P_c (online learning)
                                           ↓
-Live sensors + weer → [MPC forecast] → optimale aanvoertemperatuur
+Live sensors + weather → [MPC forecast] → recommended supply temperature
                                           ↓
                           ┌───────────────┼─────────────────────┐
                           ↓               ↓                     ↓
-                    Quatt advies    Geluidsniveau-          OpenQuatt
-                   (statisch)       compensatie             (output sensoren)
-                                   (compressor sturing)
+                    Quatt advies    Sound level             OpenQuatt
+                     (static)       compensation          (output sensors)
+                                  (compressor control)
 ```
 
 ## Short cycling
