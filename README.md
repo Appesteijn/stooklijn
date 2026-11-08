@@ -814,8 +814,8 @@ Two properties make the number mean what it says:
 
 Set **Change marker date** in the integration options to the day you changed something. The norm
 then freezes on everything before that date and every day after it is tested against it. The
-dashboard shows the difference, over how many days, and whether it clears the measured day-to-day
-noise.
+dashboard shows the difference, over how many days, and whether it is more than chance would
+likely give.
 
 Only days from the *same part of the year* enter that comparison — a March day is matched against
 late-January and February days, never against May. Comparing across the season measures the

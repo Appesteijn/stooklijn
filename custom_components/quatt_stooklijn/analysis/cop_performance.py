@@ -160,6 +160,10 @@ class CopPerformanceResult:
     # Ligt het verschil buiten twee standaardfouten? Zo niet, dan is het verschil
     # niet van toeval te onderscheiden en zijn er meer stookdagen nodig.
     delta_significant: bool = False
+    # Vanaf hoeveel procent verschil de toets het boven toeval plaatst: twee
+    # standaardfouten van het gemiddelde, in dezelfde eenheid als delta_pct.
+    # Dat is iets anders dan spread_pct, de spreiding van één losse dag.
+    delta_threshold_pct: float | None = None
     # Liggen de twee periodes in hetzelfde deel van het stookseizoen? Zo niet,
     # dan zit er seizoen in het verschil en is het geen uitspraak over de
     # aanpassing. Zie SEASON_MATCH_DAYS.
@@ -457,6 +461,9 @@ def calculate_cop_performance(
             # gehangen te worden.
             std = float(np.std([d["ratio"] for d in voor]))
             fout = std * np.sqrt(1 / len(voor) + 1 / len(na))
+            result.delta_threshold_pct = round(
+                2 * fout / result.before.mean * 100, 1
+            )
             result.delta_significant = bool(
                 fout > 0
                 and len(na) >= MIN_EVAL_DAYS_FOR_VERDICT

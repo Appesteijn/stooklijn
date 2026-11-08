@@ -1585,7 +1585,7 @@ views:
       #
       # De norm is bevroren op de dagen vóór de grens en gebint per
       # seizoenshelft, zodat het getal zegt wat het belooft. Wat het niet kan,
-      # staat er ook: onder de dagruis hoort geen conclusie.
+      # staat er ook: binnen wat toeval kan geven hoort geen conclusie.
       - type: grid
         column_span: 2
         cards:
@@ -1673,7 +1673,9 @@ views:
 
               {% set verschil = state_attr(cp, 'verschil_pct') %}
 
-              ### Heeft je aanpassing geholpen?
+              {% set drempel = state_attr(cp, 'verschil_grens_pct') %}
+
+              ### {% if handmatig %}Heeft je aanpassing geholpen?{% else %}Vergelijking met dezelfde periode eerder{% endif %}
 
               {% if not grens %}
 
@@ -1698,22 +1700,17 @@ views:
 
               {% else %}
 
-              **{{ '%+.1f'|format(verschil) }}%** over {{ na_n }} van de
-              {{ na_totaal }} stookdagen ná {{ grens }} — alleen de dagen die met
-              dezelfde periode van het jaar te vergelijken zijn — tegen
+              **{{ '%+.1f'|format(verschil) }}%** over {{ na_n }}{% if na_n != na_totaal %} van de {{ na_totaal }}{% endif %} stookdagen sinds {{ grens }}{% if na_n != na_totaal %} (alleen de dagen die met dezelfde periode van het jaar te vergelijken zijn){% endif %}, tegen
               {{ voor_n }} stookdagen van
               {{ state_attr(cp, 'voor_van') }} → {{ state_attr(cp, 'voor_tot') }}.
 
               {% if state_attr(cp, 'verschil_significant') %}
 
-              Dat ligt buiten de dagruis van ±{{ spreiding }}%: dit is een echt
-              verschil en geen toeval.
+              Dat is meer dan toeval waarschijnlijk geeft (grens ±{{ drempel }}%). {% if handmatig %}Ook andere veranderingen sinds die datum tellen mee, dus het is geen bewijs dat alleen deze aanpassing het deed.{% else %}Het zegt niet waardoor het komt: alles wat tussen die periodes veranderde, zit in dit getal.{% endif %}
 
               {% else %}
 
-              Dat valt bínnen de dagruis van ±{{ spreiding }}% per dag. Met
-              {{ na_n }} vergelijkbare stookdagen is dit nog niet van toeval te
-              onderscheiden — hier hoort dus nog geen conclusie aan te hangen.
+              {% if na_n < 7 %}Met {{ na_n }} vergelijkbare stookdagen is dat te weinig voor een conclusie; daarvoor zijn er minstens 7 nodig.{% else %}Dat valt binnen wat toeval kan geven (grens ±{{ drempel }}%), dus hier hoort nog geen conclusie aan te hangen.{% endif %}
 
               {% endif %}
 

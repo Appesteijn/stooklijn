@@ -208,6 +208,18 @@ class TestVoorEnNa:
         assert res.delta_pct == pytest.approx(10, abs=3)
         assert res.delta_significant
 
+    def test_de_grens_is_die_van_de_toets_en_niet_de_dagspreiding(self):
+        """De kaart toont deze grens; hij moet dezelfde uitkomst geven als de toets."""
+        for factor in (1.00, 1.002, 1.01, 1.03, 1.10):
+            res = calculate_cop_performance(
+                self._met_sprong(factor), baseline_date="2026-03-05"
+            )
+            assert res.delta_threshold_pct is not None
+            assert res.delta_threshold_pct <= res.spread_pct
+            verschil = abs(res.after.mean / res.before.mean - 1) * 100
+            if abs(verschil - res.delta_threshold_pct) > 0.2:
+                assert res.delta_significant == (verschil > res.delta_threshold_pct)
+
     def test_gelijk_gebleven_rendement_geeft_geen_conclusie(self):
         """Nul verschil mag niet als resultaat lezen."""
         res = calculate_cop_performance(

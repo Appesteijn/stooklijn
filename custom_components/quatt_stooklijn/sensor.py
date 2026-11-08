@@ -2351,9 +2351,11 @@ class QuattCopPerformanceSensor(
             "na_dagen_totaal": perf.after_days_total,
             "na_gemiddelde": perf.after.mean,
             "verschil_pct": perf.delta_pct,
-            # De gemeten dagspreiding, en of het verschil daarbovenuit komt.
+            # De spreiding van één dag, de grens voor het gemiddelde verschil,
+            # en of het verschil daarbovenuit komt.
             # Zonder dit zou elke toevallige uitschieting als resultaat lezen.
             "dagspreiding_pct": perf.spread_pct,
+            "verschil_grens_pct": perf.delta_threshold_pct,
             "verschil_significant": perf.delta_significant,
             # Liggen vóór en ná in hetzelfde deel van het stookseizoen? Zo niet,
             # dan zit er seizoen in het verschil en is het geen oordeel over de

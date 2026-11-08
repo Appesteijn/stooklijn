@@ -3,6 +3,22 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.5-beta.11 — 2026-11-08
+
+Betaversie met een eerlijkere conclusie op de rendementskaart.
+
+- **De conclusie bij het rendementsverschil klopt nu.** De kaart zei dat een
+  verschil "buiten de dagruis" lag en "een echt verschil en geen toeval" was.
+  Die zin vergeleek met de spreiding van één losse dag, terwijl de toets naar het
+  gemiddelde over alle dagen kijkt. De kaart toont nu de echte grens van de toets
+  en zegt erbij dat het getal niet vertelt waardoor het verschil komt. De sensor
+  heeft daarvoor het nieuwe attribuut `verschil_grens_pct`.
+- **"Heeft je aanpassing geholpen?" alleen bij een ingestelde wijzigingsdatum.**
+  Zonder datum is de grens gewoon het begin van de laatste 30 stookdagen en heet
+  de kaart "Vergelijking met dezelfde periode eerder".
+- **Te weinig dagen.** Bij minder dan 7 vergelijkbare stookdagen zegt de kaart nu
+  dat er te weinig dagen zijn voor een conclusie.
+
 ## v0.10.5-beta.10 — 2026-11-08
 
 Betaversie met één bugfix, een nieuwe dashboardtab en een bijgewerkte README.
