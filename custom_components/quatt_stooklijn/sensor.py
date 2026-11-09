@@ -431,7 +431,8 @@ async def async_setup_entry(
     entities.append(QuattCoastTimeSensor(coordinator, entry, mpc_sensor))
     entities.append(QuattStoredHeatSensor(coordinator, entry, mpc_sensor))
     # Deelt hetzelfde model en meetlogboek; scoort alleen, stuurt niets aan.
-    entities.append(QuattModelBenchmarkSensor(coordinator, entry, mpc_sensor))
+    benchmark_sensor = QuattModelBenchmarkSensor(coordinator, entry, mpc_sensor)
+    entities.append(benchmark_sensor)
 
     # Geen entity-ID's meer meegeven: die werden hier één keer bij het opstarten
     # bepaald en daarna nooit meer. De sensor zoekt ze nu zelf op via de
@@ -455,7 +456,9 @@ async def async_setup_entry(
     # "niet ingesteld" zegt kost alleen aandacht.
     cfg = {**entry.data, **entry.options}
     if cfg.get(CONF_PRICE_MODE, DEFAULT_PRICE_MODE) != PRICE_MODE_OFF:
-        entities.append(QuattPriceShiftSensor(hass, coordinator, entry, mpc_sensor))
+        entities.append(
+            QuattPriceShiftSensor(hass, coordinator, entry, mpc_sensor, benchmark_sensor)
+        )
 
     if {**entry.data, **entry.options}.get(CONF_SOUND_LEVEL_ENABLED, False):
         entities.append(QuattSoundLevelSensor(hass, entry))
@@ -2074,6 +2077,11 @@ class QuattModelBenchmarkSensor(
         )
 
     @property
+    def result(self) -> Comparison | None:
+        """De laatste uitkomst, of ``None`` zolang er niet gemeten is."""
+        return self._result
+
+    @property
     def native_value(self) -> str:
         if self._result is None:
             return "nog niet gemeten"
@@ -3377,9 +3385,11 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
         coordinator: QuattStooklijnCoordinator,
         entry: ConfigEntry,
         mpc_sensor: "QuattMpcSensor",
+        benchmark_sensor: QuattModelBenchmarkSensor,
     ) -> None:
         super().__init__(hass, coordinator, entry)
         self._mpc = mpc_sensor
+        self._benchmark = benchmark_sensor
         self._attr_unique_id = f"{entry.entry_id}_price_shift"
         # Entity-ID vastpinnen, zie de toelichting bij MirrorSpec.slug.
         self.entity_id = async_generate_entity_id(
@@ -3569,6 +3579,14 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
         def _eur(r) -> float:
             return round((r.cost_flat_eur or 0.0) - (r.cost_shifted_eur or 0.0), 4)
 
+        kamer, kamer_uit = self._room_forecast(
+            first_utc,
+            per_stap(fc_temps),
+            per_stap(fc_solar),
+            r_p.flat,
+            r_p.shifted,
+        )
+
         return {
             "datum": start.date().isoformat(),
             "methode": PRICE_SHIFT_METHOD,
@@ -3588,6 +3606,8 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             "uren_onder_minimum": r_p.hours_below_min,
             "gamma_alleen_cop": gamma_c,
             "besparing_alleen_cop_eur": _eur(r_c),
+            # Alleen voor de voorvertoning, net als "_uren".
+            "_kamer": kamer_uit,
             # Per kwartier, alleen voor de voorvertoning; gaat niet de store in.
             # De sleutel heet historisch "uren": eigen dashboards lezen hem.
             # Met tijdstempel, zodat het dashboard er een tijdas van kan maken.
@@ -3602,12 +3622,65 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
                     "vlak_w": round(f),
                     "verschoven_w": round(v),
                     "min_w": round(m) if m is not None else None,
+                    "kamer_vlak_c": kamer.flat[i] if kamer.flat else None,
+                    "kamer_verschoven_c": kamer.shifted[i] if kamer.shifted else None,
                 }
                 for i, (p, f, v, m) in enumerate(
                     zip(prices, r_p.flat, r_p.shifted, min_power or [None] * len(prices))
                 )
             ],
         }
+
+    def _room_forecast(
+        self,
+        first_utc: datetime,
+        temps: list[float],
+        solar: list[float],
+        flat: list[float],
+        shifted: list[float],
+    ) -> tuple[Any, dict]:
+        """Kamertemperatuur volgens het 2R2C, plus de samenvatting ervan.
+
+        Alleen met een fit die de poort van de modelvergelijking haalde. Een
+        fout hier mag de dagmeting niet meenemen: dit is een grafiek, de
+        besparingsteller loopt erlangs.
+        """
+        from .analysis.shift_room_temp import RoomForecast, forecast_room_temperature
+        from .analysis.thermal_model_2r2c import TwoStateParams
+
+        result = self._benchmark.result
+        if result is None:
+            reden = "modelvergelijking nog niet gemeten"
+        elif not result.accepted or not result.params:
+            reden = "2R2C voorspelt nog niet beter dan het huidige model"
+        else:
+            try:
+                kamer = forecast_room_temperature(
+                    TwoStateParams.from_dict(result.params),
+                    self._mpc.highres_samples,
+                    first_utc.timestamp(),
+                    temps,
+                    solar,
+                    flat,
+                    shifted,
+                    DEMAND_SHIFT_STEP_MINUTES / 60,
+                )
+            except (KeyError, IndexError, TypeError, ValueError, ArithmeticError):
+                _LOGGER.warning("Kamertemperatuur doorrekenen mislukt", exc_info=True)
+                kamer = RoomForecast(reason="doorrekenen mislukt")
+            if kamer.reason is None:
+                verschil = [s - f for f, s in zip(kamer.flat, kamer.shifted)]
+                return kamer, {
+                    "model": "2R2C",
+                    "fout_12u_k": result.rmse_k,
+                    "start_c": kamer.t_indoor0,
+                    "massa_c": kamer.t_mass0,
+                    "afwijking_min_k": round(min(verschil), 2),
+                    "afwijking_max_k": round(max(verschil), 2),
+                    "reden": None,
+                }
+            reden = kamer.reason
+        return RoomForecast(reason=reden), {"model": "2R2C", "reden": reden}
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -3646,6 +3719,14 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self._mpc.entity_id], self._handle_mpc_update
+            )
+        )
+        # De modelvergelijking meet tien minuten na een herstart en daarna één
+        # keer per etmaal. Zonder dit bleef de kamertemperatuur tot het volgende
+        # hele uur leeg.
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self._benchmark.entity_id], self._handle_preview
             )
         )
         await self._handle_preview()

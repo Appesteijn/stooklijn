@@ -1930,6 +1930,75 @@ views:
                   return u.map(h => [new Date(h.tijd).getTime(), h.prijs]);
             grid_options:
               columns: full
+          - type: custom:apexcharts-card
+            header:
+              title: Komend etmaal — kamertemperatuur zonder en met verschuiven
+              show: true
+            graph_span: 24h
+            span:
+              start: hour
+            now:
+              show: true
+            yaxis:
+              - id: c
+                decimals: 1
+                apex_config:
+                  title:
+                    text: "°C"
+            apex_config:
+              chart:
+                height: 240
+              legend:
+                show: true
+            series:
+              - entity: sensor.quatt_warmteanalyse_prijsverschuiving
+                name: Zonder verschuiven
+                unit: °C
+                float_precision: 2
+                show:
+                  legend_value: false
+                yaxis_id: c
+                type: line
+                color: "#9E9E9E"
+                stroke_width: 2
+                data_generator: |
+                  const u = entity.attributes?.komend_etmaal?.uren || [];
+                  return u.filter(h => h.kamer_vlak_c != null)
+                          .map(h => [new Date(h.tijd).getTime(), h.kamer_vlak_c]);
+              - entity: sensor.quatt_warmteanalyse_prijsverschuiving
+                name: Verschoven
+                unit: °C
+                float_precision: 2
+                show:
+                  legend_value: false
+                yaxis_id: c
+                type: line
+                color: "#4CAF50"
+                stroke_width: 2.5
+                data_generator: |
+                  const u = entity.attributes?.komend_etmaal?.uren || [];
+                  return u.filter(h => h.kamer_verschoven_c != null)
+                          .map(h => [new Date(h.tijd).getTime(), h.kamer_verschoven_c]);
+            grid_options:
+              columns: full
+          - type: markdown
+            content: >-
+              {% set ke = state_attr('sensor.quatt_warmteanalyse_prijsverschuiving', 'komend_etmaal') %}
+              {% set k = ke.kamer if ke else none %}
+              {% if k and k.reden is none %}
+              Kamertemperatuur volgens het 2R2C-model, geen meting. Het model zit
+              twaalf uur vooruit gemiddeld {{ '%.2f' | format(k.fout_12u_k) }} K
+              naast de meting. Vertrouw vooral het verschil tussen de lijnen:
+              verschuiven verandert de kamer met
+              {{ '%+.2f' | format(k.afwijking_min_k) }} tot
+              {{ '%+.2f' | format(k.afwijking_max_k) }} K. De begrenzing rekent
+              met het 1R1C-model op {{ '%+.2f' | format(ke.drift_k) }} K.
+              {% elif k %}
+              Nog geen kamertemperatuur: {{ k.reden }}.
+              {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
 
   # ─── VIEW 6: SYSTEEM ────────────────────────────────────────────────
   # Beantwoordt: "Waar komen mijn metingen vandaan en hoe stookt het systeem?"

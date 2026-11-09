@@ -58,7 +58,7 @@ def _formule(temps):
 
 def _sensor(
     *, options, temps, states=None, data=True, forecast=True, heat_need=_formule,
-    min_power=None,
+    min_power=None, benchmark=None,
 ):
     from custom_components.quatt_stooklijn.sensor import QuattPriceShiftSensor
 
@@ -91,6 +91,8 @@ def _sensor(
     sensor.coordinator = type("C", (), {"data": payload})()
     sensor._entry = type("E", (), {"data": {}, "options": options})()
     sensor._mpc = MagicMock()
+    sensor._benchmark = MagicMock()
+    sensor._benchmark.result = benchmark
     def _fc(t, n_hours):
         n = min(n_hours, len(temps))
         # Zonder verwachting: wat build_forecast_arrays dan doet — elk uur de
@@ -564,3 +566,58 @@ class TestSimulateHeatNeed:
             reeks, reden = sensor.simulate_heat_need([5.0] * 6, [0.0] * 6)
         assert reeks is None
         assert reden == "huismodel nog niet gekalibreerd"
+
+
+class TestKamertemperatuur:
+    """De grafiek hangt aan de modelvergelijking; de teller niet."""
+
+    PARAMS = {
+        "U": 300.0, "Ci": 20000.0, "Cm": 120000.0, "Hm": 8000.0,
+        "g": 4.0, "P_int": 500.0, "alpha": 0.9,
+    }
+
+    def _benchmark(self, accepted=True):
+        return MagicMock(accepted=accepted, params=self.PARAMS, rmse_k=0.28)
+
+    def _logboek(self):
+        ts = NU.astimezone(timezone.utc).replace(minute=0, second=0).timestamp()
+        return [[ts - 300 * i, 20.0, 5.0, 3000.0, 0.0] for i in range(600, -1, -1)]
+
+    def test_nog_niet_gemeten_geeft_lege_lijnen_en_een_reden(self):
+        s = _sensor(options=NORMAAL_DAL, temps=STOOKDAG)
+        r = s._evaluate(NU)
+        assert r["_kamer"]["reden"] == "modelvergelijking nog niet gemeten"
+        assert all(u["kamer_vlak_c"] is None for u in r["_uren"])
+        assert r["besparing_eur"] is not None
+
+    def test_afgewezen_model_tekent_niets(self):
+        s = _sensor(
+            options=NORMAAL_DAL, temps=STOOKDAG,
+            benchmark=self._benchmark(accepted=False),
+        )
+        s._mpc.highres_samples = self._logboek()
+        r = s._evaluate(NU)
+        assert r["_kamer"]["reden"].startswith("2R2C voorspelt nog niet")
+        assert all(u["kamer_verschoven_c"] is None for u in r["_uren"])
+
+    def test_goedgekeurd_model_vult_elk_kwartier(self):
+        s = _sensor(options=NORMAAL_DAL, temps=STOOKDAG, benchmark=self._benchmark())
+        s._mpc.highres_samples = self._logboek()
+        r = s._evaluate(NU)
+        assert r["_kamer"]["reden"] is None
+        assert r["_kamer"]["afwijking_min_k"] <= r["_kamer"]["afwijking_max_k"]
+        assert all(u["kamer_vlak_c"] is not None for u in r["_uren"])
+        assert r["_uren"][0]["kamer_vlak_c"] == 20.0
+
+    def test_kapot_logboek_laat_de_meting_staan(self):
+        s = _sensor(options=NORMAAL_DAL, temps=STOOKDAG, benchmark=self._benchmark())
+        s._mpc.highres_samples = [r[:2] for r in self._logboek()]
+        r = s._evaluate(NU)
+        assert r["_kamer"]["reden"]
+        assert r["besparing_eur"] is not None
+
+    def test_kamer_gaat_niet_de_store_in(self):
+        s = _sensor(options=NORMAAL_DAL, temps=STOOKDAG, benchmark=self._benchmark())
+        s._mpc.highres_samples = self._logboek()
+        _run_daily(s)
+        assert s._days and not any(k.startswith("_") for k in s._days[0])

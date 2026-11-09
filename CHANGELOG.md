@@ -3,6 +3,20 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.5-beta.13 — 2026-11-09
+
+Betaversie die laat zien wat verschuiven met de kamertemperatuur doet.
+
+- **Nieuwe grafiek: kamertemperatuur zonder en met verschuiven.** Berekend met het
+  2R2C-model, per kwartier, vanaf de gemeten kamertemperatuur en de uit het
+  meetlogboek gereconstrueerde massatemperatuur. De lijnen verschijnen alleen als
+  het 2R2C de modelvergelijking heeft gehaald; anders staat er waarom niet.
+- **Bewust geen 2R2C-warmtevraag.** Die leunt op wat het model het slechtst kent:
+  de stationaire balans en de niet-gemeten massatemperatuur. De verschuiving, de
+  teller en de aansturing veranderen niet.
+- `komend_etmaal` heeft nu het blok `kamer` en per punt `kamer_vlak_c` en
+  `kamer_verschoven_c`.
+
 ## v0.10.5-beta.12 — 2026-11-09
 
 Betaversie die de prijsverschuiving per kwartier doorrekent.
