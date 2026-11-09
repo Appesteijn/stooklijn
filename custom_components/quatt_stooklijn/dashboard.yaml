@@ -1815,7 +1815,7 @@ views:
               {% if pr %}Prijsverschil in dit venster:
               {{ '%.1f' | format((pr | max - pr | min) * 100) }} ct/kWh.{% endif %}
               {% if ke.minimumvermogen %}Verschoven in aan/uit-blokken: elk
-              uur uit of op minstens het minimum van de warmtepomp{% if
+              kwartier uit of op minstens het minimum van de warmtepomp{% if
               ke.uren_onder_minimum %} ({{ ke.uren_onder_minimum }} uur bleef
               eronder){% endif %}.{% endif %}
 

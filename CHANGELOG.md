@@ -3,6 +3,26 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.5-beta.12 — 2026-11-09
+
+Betaversie die de prijsverschuiving per kwartier doorrekent.
+
+- **Geen heel uur meer 0 W net onder het minimum.** Een uur dat net onder het
+  minimumvermogen van de warmtepomp uitkwam, viel volledig uit en de warmte
+  belandde twee uur later als piek. Op 09-11-2026 stond het uur met een van de
+  beste COP's zo op 0 W, en de kamer zakte in het plan 0,49 K in plaats van de
+  toegestane 0,30 K. Nu is dat hooguit één kwartier.
+- **De verschuiving rekent per kwartier.** Temperatuur, zon en warmtevraag blijven
+  uurwaarden. Een dynamische prijsbron houdt zijn echte kwartierprijzen in plaats
+  van een uurgemiddelde; bij een bron per uur krijgen de vier kwartieren dezelfde
+  prijs. Een gat in de prijzen wordt niet opgevuld.
+- **Aan/uit-blokken draaien minstens 45 minuten**, in lijn met de gemeten
+  35–43 minuten. Tegen een draaiend uur aan mag een blok korter zijn. Restwarmte
+  wordt over meerdere kwartieren verdeeld.
+- `komend_etmaal.uren` heeft nu 96 punten, met het nieuwe veld `stap_minuten`. De
+  grafiek toont die kwartieren. De lopende teller loopt door, dus dagen van vóór
+  en na deze versie staan in hetzelfde totaal.
+
 ## v0.10.5-beta.11 — 2026-11-08
 
 Betaversie met een eerlijkere conclusie op de rendementskaart.

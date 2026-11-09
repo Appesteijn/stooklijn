@@ -348,6 +348,14 @@ CONF_PRICE_ENTITY = "price_entity"
 # analysis/demand_shift.py: met zes uur valt er niets te verdelen.
 DEMAND_SHIFT_HOURS = 24
 
+# Rekenstap van de herverdeling. De day-ahead-markt handelt sinds oktober 2025
+# per kwartier; weersverwachting en warmtevraag zijn uurwaarden die binnen het uur
+# gelijk blijven. Zonder kwartierprijzen is de verdeling dus die van een uurplan,
+# alleen de aan/uit-blokken worden fijner.
+DEMAND_SHIFT_STEP_MINUTES = 15
+# Kortste blok dat de warmtepomp draait. Gemeten op 09-10-2026: 35–43 minuten aan.
+DEMAND_SHIFT_MIN_RUN_MINUTES = 45
+
 # Hoeveel de kamer maximaal onder (drift) of boven (overshoot) de vlakke baan
 # mag uitkomen, in K. Onder: dezelfde grens als de oude COP-schaduwsensor,
 # gemeten op 20 januari 2026. Boven: voorverwarmen op een goedkoop uur is

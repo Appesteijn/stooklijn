@@ -10,7 +10,7 @@ uit één van twee bronnen:
   normaal, wat de winst van verschuiven licht onderschat.
 * **Dynamisch** — een prijssensor die de uurprijzen van vandaag en morgen als
   attribuut meelevert. Welke integratie dat is maakt niet uit zolang het een
-  lijst met tijdstempels en waarden is; zie ``hourly_prices_from_attributes``.
+  lijst met tijdstempels en waarden is; zie ``prices_from_attributes``.
 
 Bewust zonder Home Assistant, zodat de tijdrekening — DST, weekend, kwartier-
 prijzen — testbaar is zonder draaiende HA.
@@ -142,40 +142,57 @@ def _points(attributes: Mapping) -> list[tuple[datetime | str, float]]:
     return found
 
 
-def hourly_prices_from_attributes(
+def prices_from_attributes(
     attributes: Mapping,
     start: datetime,
     n_hours: int,
     *,
+    step_minutes: int = 60,
     unit: str | None = None,
     tz: tzinfo | None = None,
 ) -> list[float]:
-    """Uurprijzen vanaf ``start`` uit de attributen van een prijssensor.
+    """Prijzen per stap vanaf ``start`` uit de attributen van een prijssensor.
 
-    Kwartierprijzen (sinds oktober 2025 op de day-ahead-markt) worden per uur
-    gemiddeld. De reeks stopt bij het eerste uur zonder prijs: een gat
-    opvullen met een gemiddelde zou een verschuiving naar een verzonnen goedkoop
-    uur kunnen opleveren. Wie een kortere reeks terugkrijgt dan gevraagd, kort
-    het venster in; bij minder dan ``MIN_PRICED_HOURS`` uur is er niets zinvols
-    te verschuiven en is de uitkomst leeg.
+    ``start`` wordt afgerond op het hele uur en de uitkomst telt altijd hele
+    uren. Punten binnen één stap worden gemiddeld, dus met ``step_minutes=60``
+    worden kwartierprijzen uurprijzen. Levert de bron per uur en wordt er per
+    kwartier gevraagd, dan krijgen de vier kwartieren de prijs van dat uur.
+
+    De reeks stopt bij de eerste stap zonder prijs: een gat opvullen met een
+    gemiddelde zou een verschuiving naar een verzonnen goedkoop moment kunnen
+    opleveren. Wie een kortere reeks terugkrijgt dan gevraagd, kort het venster
+    in; bij minder dan ``MIN_PRICED_HOURS`` uur is er niets zinvols te
+    verschuiven en is de uitkomst leeg.
     """
     factor = _unit_factor(unit)
-    per_hour: dict[datetime, list[float]] = {}
+    per_step: dict[datetime, list[float]] = {}
+    minutes_in_hour: dict[datetime, set[int]] = {}
     for t, v in _points(attributes):
         moment = _parse_time(t, tz)
         if moment is None:
             continue
-        hour = moment.replace(minute=0, second=0, microsecond=0)
-        per_hour.setdefault(hour, []).append(v * factor)
+        slot = moment.replace(
+            minute=moment.minute - moment.minute % step_minutes,
+            second=0,
+            microsecond=0,
+        )
+        per_step.setdefault(slot, []).append(v * factor)
+        minutes_in_hour.setdefault(slot.replace(minute=0), set()).add(slot.minute)
 
     if start.tzinfo is None:
         start = start.replace(tzinfo=tz or timezone.utc)
     first = start.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
 
+    steps_per_hour = 60 // step_minutes
     prices: list[float] = []
-    for i in range(n_hours):
-        values = per_hour.get(first + timedelta(hours=i))
+    for i in range(n_hours * steps_per_hour):
+        slot = first + timedelta(minutes=step_minutes * i)
+        values = per_step.get(slot)
+        if not values and minutes_in_hour.get(slot.replace(minute=0)) == {0}:
+            # Bron per uur: dit kwartier valt in dat ene uurpunt.
+            values = per_step[slot.replace(minute=0)]
         if not values:
             break
         prices.append(sum(values) / len(values))
-    return prices if len(prices) >= MIN_PRICED_HOURS else []
+    hours = len(prices) // steps_per_hour
+    return prices[: hours * steps_per_hour] if hours >= MIN_PRICED_HOURS else []

@@ -62,6 +62,8 @@ from .const import (
     DEMAND_SHIFT_HOURS,
     DEMAND_SHIFT_MAX_DRIFT_K,
     DEMAND_SHIFT_MAX_OVERSHOOT_K,
+    DEMAND_SHIFT_MIN_RUN_MINUTES,
+    DEMAND_SHIFT_STEP_MINUTES,
     PRICE_MODE_DYNAMIC,
     PRICE_MODE_NORMAL_DAL,
     PRICE_MODE_OFF,
@@ -3367,6 +3369,7 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
     _unrecorded_attributes = frozenset({"komend_etmaal"})
 
     _REASON_NO_FORECAST = "weersverwachting nog niet geladen"
+    _STEPS_PER_HOUR = 60 // DEMAND_SHIFT_STEP_MINUTES
 
     def __init__(
         self,
@@ -3409,12 +3412,12 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
         return self._cfg.get(CONF_PRICE_MODE, DEFAULT_PRICE_MODE)
 
     def _prices(self, start: datetime, n_hours: int) -> list[float]:
-        """Prijs per uur vanaf ``start``; leeg als er geen bruikbare reeks is."""
-        from .analysis.tariff import hourly_prices_from_attributes, normal_dal_prices
+        """Prijs per kwartier vanaf ``start``; leeg zonder bruikbare reeks."""
+        from .analysis.tariff import normal_dal_prices, prices_from_attributes
 
         cfg = self._cfg
         if self._mode == PRICE_MODE_NORMAL_DAL:
-            return normal_dal_prices(
+            per_uur = normal_dal_prices(
                 start,
                 n_hours,
                 float(cfg.get(CONF_PRICE_NORMAL, DEFAULT_PRICE_NORMAL)),
@@ -3424,15 +3427,17 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
                 bool(cfg.get(CONF_DAL_WEEKEND, DEFAULT_DAL_WEEKEND)),
                 tz=start.tzinfo,
             )
+            return [p for p in per_uur for _ in range(self._STEPS_PER_HOUR)]
         if self._mode == PRICE_MODE_DYNAMIC:
             entity_id = cfg.get(CONF_PRICE_ENTITY)
             state = self.hass.states.get(entity_id) if entity_id else None
             if state is None:
                 return []
-            return hourly_prices_from_attributes(
+            return prices_from_attributes(
                 state.attributes,
                 start,
                 n_hours,
+                step_minutes=DEMAND_SHIFT_STEP_MINUTES,
                 unit=state.attributes.get("unit_of_measurement"),
                 tz=start.tzinfo,
             )
@@ -3481,8 +3486,9 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             return None
         # Een dynamische reeks kan korter zijn dan de weersverwachting (morgen
         # nog niet bekend). Dan het venster inkorten, niet de prijs verzinnen.
-        fc_temps = fc_temps[: len(prices)]
-        fc_solar = fc_solar[: len(prices)]
+        venster_uren = len(prices) // self._STEPS_PER_HOUR
+        fc_temps = fc_temps[:venster_uren]
+        fc_solar = fc_solar[:venster_uren]
 
         baseline, reden = self._mpc.simulate_heat_need(fc_temps, fc_solar)
         if baseline is None or len(baseline) != len(fc_temps):
@@ -3506,6 +3512,15 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
         # Aan/uit per uur zodra het minimumvermogen geleerd is; daarvoor None
         # en rekent de verschuiving zonder, zoals voorheen.
         min_power = self._mpc.min_power_curve.for_temps(fc_temps)
+
+        # De verschuiving rekent per kwartier. Temperatuur, vraag en minimum zijn
+        # uurwaarden en blijven binnen het uur gelijk, zodat er geen energie bij
+        # komt of verdwijnt.
+        def per_stap(reeks: list[float]) -> list[float]:
+            return [v for v in reeks for _ in range(self._STEPS_PER_HOUR)]
+
+        baseline = per_stap(baseline)
+        min_power = per_stap(min_power) if min_power is not None else None
         common = {
             "ceiling_w": ceiling,
             "thermal_mass_wh_k": c_whk,
@@ -3513,9 +3528,13 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             "max_overshoot_k": DEMAND_SHIFT_MAX_OVERSHOOT_K,
             "baseline": baseline,
             "min_power_w": min_power,
+            "dt_hours": DEMAND_SHIFT_STEP_MINUTES / 60,
+            "min_run_steps": (
+                DEMAND_SHIFT_MIN_RUN_MINUTES // DEMAND_SHIFT_STEP_MINUTES
+            ),
         }
         # Nulpunt ``None``: met een basisreeks rekent demand_shift er niet mee.
-        args = (fc_temps, curve, float(hlc), None)
+        args = (per_stap(fc_temps), curve, float(hlc), None)
 
         # Begrensde punten tellen mee: een teruggeschaalde verschuiving blijft
         # binnen de comfortgrens en is dus een geldig plan. Zie scan_gamma.
@@ -3554,7 +3573,8 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             "datum": start.date().isoformat(),
             "methode": PRICE_SHIFT_METHOD,
             "tariefbron": self._mode,
-            "venster_uren": len(prices),
+            "venster_uren": venster_uren,
+            "stap_minuten": DEMAND_SHIFT_STEP_MINUTES,
             "gamma": gamma_p,
             "kosten_vlak_eur": r_p.cost_flat_eur,
             "besparing_eur": _eur(r_p),
@@ -3568,13 +3588,16 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             "uren_onder_minimum": r_p.hours_below_min,
             "gamma_alleen_cop": gamma_c,
             "besparing_alleen_cop_eur": _eur(r_c),
-            # Per uur, alleen voor de voorvertoning; gaat niet de store in.
+            # Per kwartier, alleen voor de voorvertoning; gaat niet de store in.
+            # De sleutel heet historisch "uren": eigen dashboards lezen hem.
             # Met tijdstempel, zodat het dashboard er een tijdas van kan maken.
             # Doorgeteld in UTC, net als de prijsreeks: in een DST-nacht klopt
             # uur-rekenwerk op lokale tijd niet.
             "_uren": [
                 {
-                    "tijd": (first_utc + timedelta(hours=i)).isoformat(),
+                    "tijd": (
+                        first_utc + timedelta(minutes=DEMAND_SHIFT_STEP_MINUTES * i)
+                    ).isoformat(),
                     "prijs": round(p, 4),
                     "vlak_w": round(f),
                     "verschoven_w": round(v),

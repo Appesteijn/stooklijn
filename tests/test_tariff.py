@@ -13,7 +13,7 @@ import pytest
 
 from custom_components.quatt_stooklijn.analysis.tariff import (
     MIN_PRICED_HOURS,
-    hourly_prices_from_attributes,
+    prices_from_attributes,
     is_dal,
     normal_dal_prices,
 )
@@ -95,13 +95,13 @@ class TestDynamisch:
     def test_nordpool_uurprijzen(self):
         waarden = [0.20 + 0.01 * i for i in range(24)]
         attrs = {"raw_today": _nordpool(self.START, waarden), "today": waarden}
-        p = hourly_prices_from_attributes(attrs, self.START, 24, tz=AMS)
+        p = prices_from_attributes(attrs, self.START, 24, tz=AMS)
         assert p == pytest.approx(waarden)
 
     def test_start_halverwege_een_uur(self):
         waarden = [0.20 + 0.01 * i for i in range(24)]
         attrs = {"raw_today": _nordpool(self.START, waarden)}
-        p = hourly_prices_from_attributes(
+        p = prices_from_attributes(
             attrs, self.START + timedelta(hours=2, minutes=5), 12, tz=AMS
         )
         assert p[0] == pytest.approx(0.22)
@@ -109,7 +109,7 @@ class TestDynamisch:
     def test_kwartierprijzen_worden_per_uur_gemiddeld(self):
         waarden = [0.10, 0.20, 0.30, 0.40] * 8
         attrs = {"raw_today": _nordpool(self.START, waarden, stap_min=15)}
-        p = hourly_prices_from_attributes(attrs, self.START, 8, tz=AMS)
+        p = prices_from_attributes(attrs, self.START, 8, tz=AMS)
         assert p == pytest.approx([0.25] * 8)
 
     def test_iso_strings_met_z(self):
@@ -124,19 +124,19 @@ class TestDynamisch:
                 for i in range(8)
             ]
         }
-        p = hourly_prices_from_attributes(attrs, self.START, 8, tz=AMS)
+        p = prices_from_attributes(attrs, self.START, 8, tz=AMS)
         assert p == pytest.approx([0.3 + i / 100 for i in range(8)])
 
     def test_eenheid_cent(self):
         attrs = {"raw_today": _nordpool(self.START, [25.0] * 24)}
-        p = hourly_prices_from_attributes(
+        p = prices_from_attributes(
             attrs, self.START, 24, unit="ct/kWh", tz=AMS
         )
         assert p == pytest.approx([0.25] * 24)
 
     def test_eenheid_mwh(self):
         attrs = {"raw_today": _nordpool(self.START, [250.0] * 24)}
-        p = hourly_prices_from_attributes(
+        p = prices_from_attributes(
             attrs, self.START, 24, unit="EUR/MWh", tz=AMS
         )
         assert p == pytest.approx([0.25] * 24)
@@ -144,18 +144,18 @@ class TestDynamisch:
     def test_stopt_bij_het_eerste_gat(self):
         """Morgen nog niet bekend: inkorten, niet opvullen."""
         attrs = {"raw_today": _nordpool(self.START, [0.2] * 10)}
-        p = hourly_prices_from_attributes(attrs, self.START, 24, tz=AMS)
+        p = prices_from_attributes(attrs, self.START, 24, tz=AMS)
         assert len(p) == 10
 
     def test_te_kort_geeft_niets(self):
         attrs = {"raw_today": _nordpool(self.START, [0.2] * (MIN_PRICED_HOURS - 1))}
-        assert hourly_prices_from_attributes(attrs, self.START, 24, tz=AMS) == []
+        assert prices_from_attributes(attrs, self.START, 24, tz=AMS) == []
 
     def test_vandaag_en_morgen_samen(self):
         vandaag = _nordpool(self.START, [0.2] * 24)
         morgen = _nordpool(self.START + timedelta(days=1), [0.3] * 24)
         attrs = {"raw_today": vandaag, "raw_tomorrow": morgen}
-        p = hourly_prices_from_attributes(
+        p = prices_from_attributes(
             attrs, self.START + timedelta(hours=14), 24, tz=AMS
         )
         assert p[:10] == pytest.approx([0.2] * 10)
@@ -164,7 +164,7 @@ class TestDynamisch:
     def test_negatieve_prijs_blijft_negatief(self):
         """De weging klemt, de reeks zelf niet — de kosten horen te kloppen."""
         attrs = {"raw_today": _nordpool(self.START, [-0.05] + [0.2] * 23)}
-        p = hourly_prices_from_attributes(attrs, self.START, 24, tz=AMS)
+        p = prices_from_attributes(attrs, self.START, 24, tz=AMS)
         assert p[0] == pytest.approx(-0.05)
 
     def test_onzin_attributen_worden_genegeerd(self):
@@ -173,4 +173,43 @@ class TestDynamisch:
             "raw_today": _nordpool(self.START, [0.2] * 24),
             "extra": [{"foo": 1}, "bar", 3],
         }
-        assert len(hourly_prices_from_attributes(attrs, self.START, 24, tz=AMS)) == 24
+        assert len(prices_from_attributes(attrs, self.START, 24, tz=AMS)) == 24
+
+
+class TestKwartierstap:
+    START = datetime(2026, 10, 7, 0, 0, tzinfo=timezone.utc)
+
+    def _punten(self, uren, minuten):
+        return {
+            "prices": [
+                {
+                    "time": (self.START + timedelta(hours=h, minutes=m)).isoformat(),
+                    "price": 0.1 * h + 0.01 * m,
+                }
+                for h in range(uren)
+                for m in minuten
+            ]
+        }
+
+    def test_kwartierprijzen_blijven_kwartierprijzen(self):
+        out = prices_from_attributes(
+            self._punten(6, (0, 15, 30, 45)), self.START, 6, step_minutes=15
+        )
+        assert len(out) == 24
+        assert out[:4] == pytest.approx([0.0, 0.15, 0.30, 0.45])
+
+    def test_bron_per_uur_krijgt_vier_gelijke_kwartieren(self):
+        out = prices_from_attributes(
+            self._punten(6, (0,)), self.START, 6, step_minutes=15
+        )
+        assert len(out) == 24
+        assert out[4:8] == pytest.approx([0.1] * 4)
+
+    def test_gat_in_kwartieren_wordt_niet_opgevuld(self):
+        attrs = self._punten(8, (0, 15, 30, 45))
+        attrs["prices"] = [
+            p for p in attrs["prices"]
+            if p["time"] != (self.START + timedelta(hours=6, minutes=30)).isoformat()
+        ]
+        out = prices_from_attributes(attrs, self.START, 8, step_minutes=15)
+        assert len(out) == 24, "alleen hele uren voor het gat"

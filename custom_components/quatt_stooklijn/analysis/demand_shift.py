@@ -102,13 +102,14 @@ class DemandShiftResult:
     expected_saving: float | None = None
     # Uren waarin de verschoven vraag boven het firmwareplafond zou uitkomen.
     # Daar kapt de firmware af en gaat de energie-neutraliteit alsnog verloren.
-    hours_above_ceiling: int = 0
+    # In uren, dus bij kwartierstappen in veelvouden van 0,25.
+    hours_above_ceiling: float = 0
     # Of er met een minimumvermogen is gerekend, en hoeveel uren er daarna nog
     # tussen nul en dat minimum liggen. Dat gebeurt alleen als een losse reeks
     # uren samen minder vraagt dan één uur op het minimum en er geen draaiend
     # buuruur is om het bij te leggen.
     min_power_applied: bool = False
-    hours_below_min: int = 0
+    hours_below_min: float = 0
     gamma: float = 0.0
     # Diepste voorspelde uitwijking van de kamertemperatuur (K, negatief = kouder).
     worst_drift_k: float | None = None
@@ -142,7 +143,7 @@ class GammaPunt:
     gamma: float
     besparing: float | None = None
     drift_k: float | None = None
-    uren_boven_plafond: int = 0
+    uren_boven_plafond: float = 0
     drift_begrenzing: float = 1.0
 
     @property
@@ -202,6 +203,8 @@ def scan_gamma(
     baseline: list[float] | None = None,
     min_power_w: list[float] | None = None,
     weigh_prices: bool = True,
+    dt_hours: float = 1.0,
+    min_run_steps: int = 1,
 ) -> GammaScan:
     """Reken het hele bereik van gamma door en wijs de bruikbaarste aan.
 
@@ -250,6 +253,8 @@ def scan_gamma(
             baseline=baseline,
             min_power_w=min_power_w,
             weigh_prices=weigh_prices,
+            dt_hours=dt_hours,
+            min_run_steps=min_run_steps,
         )
         return GammaPunt(
             gamma=round(gamma, 2),
@@ -352,6 +357,8 @@ def calculate_demand_shift(
     weigh_prices: bool = True,
     baseline: list[float] | None = None,
     min_power_w: list[float] | None = None,
+    dt_hours: float = 1.0,
+    min_run_steps: int = 1,
 ) -> DemandShiftResult:
     """Herverdeel de warmtevraag over het venster naar COP, en optioneel prijs.
 
@@ -391,6 +398,9 @@ def calculate_demand_shift(
             minimum. γ = 0 blijft de
             vlakke reeks: dat is wat de firmware nu doet, pendelen binnen het
             uur inbegrepen.
+        dt_hours: lengte van één stap in uren. Alle reeksen hebben deze stap;
+            vermogens blijven in W, energie en drift tellen met ``dt_hours``.
+        min_run_steps: hoeveel stappen een blok minstens draait, zie ``_blocks``.
     """
     result = DemandShiftResult(gamma=gamma)
     if not forecast_temps or ua is None or ua <= 0:
@@ -429,7 +439,7 @@ def calculate_demand_shift(
         result.now_shifted = result.now_flat
         result.expected_saving = 0.0
         if prices is not None and cops_ok:
-            _fill_costs(result, flat, flat, cops, prices, None, ua)
+            _fill_costs(result, flat, flat, cops, prices, None, ua, dt_hours)
         return result
 
     if not cops_ok:
@@ -465,7 +475,7 @@ def calculate_demand_shift(
     # maken landt juist op het koude uur met de slechte COP.
     drift = None
     if thermal_mass_wh_k and thermal_mass_wh_k > 0:
-        drift = np.cumsum(shifted - flat_arr) / thermal_mass_wh_k
+        drift = np.cumsum(shifted - flat_arr) * dt_hours / thermal_mass_wh_k
         worst = float(drift.min())
         peak = float(drift.max())
         # Evenredig terugschalen naar precies de limiet. Σ(shifted−flat) = 0
@@ -480,7 +490,7 @@ def calculate_demand_shift(
         if factor < 1.0:
             shifted = flat_arr + factor * (shifted - flat_arr)
             result.drift_limit_factor = round(factor, 3)
-            drift = np.cumsum(shifted - flat_arr) / thermal_mass_wh_k
+            drift = np.cumsum(shifted - flat_arr) * dt_hours / thermal_mass_wh_k
             worst = float(drift.min())
             peak = float(drift.max())
         result.worst_drift_k = round(worst, 3)
@@ -490,12 +500,13 @@ def calculate_demand_shift(
     # De drift wordt daarna opnieuw berekend; het verplaatsen blijft binnen een
     # reeks uren onder het minimum en houdt die drift dus klein.
     if min_power_w is not None and len(min_power_w) == len(flat):
-        shifted, result.hours_below_min = _blocks(
-            shifted, np.array(min_power_w, dtype=float), cost
+        shifted, steps_below_min = _blocks(
+            shifted, np.array(min_power_w, dtype=float), cost, min_run_steps
         )
+        result.hours_below_min = steps_below_min * dt_hours
         result.min_power_applied = True
         if drift is not None:
-            drift = np.cumsum(shifted - flat_arr) / thermal_mass_wh_k
+            drift = np.cumsum(shifted - flat_arr) * dt_hours / thermal_mass_wh_k
             result.worst_drift_k = round(float(drift.min()), 3)
             result.peak_drift_k = round(float(drift.max()), 3)
 
@@ -511,10 +522,10 @@ def calculate_demand_shift(
         result.expected_saving = round((elec_flat - elec_shift) / elec_flat, 4)
 
     if ceiling_w is not None and ceiling_w > 0:
-        result.hours_above_ceiling = int(np.sum(shifted > ceiling_w))
+        result.hours_above_ceiling = float(np.sum(shifted > ceiling_w)) * dt_hours
 
     if prices is not None:
-        _fill_costs(result, flat, list(shifted), cops, prices, drift, ua)
+        _fill_costs(result, flat, list(shifted), cops, prices, drift, ua, dt_hours)
 
     return result
 
@@ -563,7 +574,10 @@ def _bend(
 
 
 def _blocks(
-    shifted: np.ndarray, min_w: np.ndarray, cost: np.ndarray
+    shifted: np.ndarray,
+    min_w: np.ndarray,
+    cost: np.ndarray,
+    min_run_steps: int = 1,
 ) -> tuple[np.ndarray, int]:
     """Maak van elke reeks uren onder het minimum aan/uit-blokken.
 
@@ -590,10 +604,22 @@ def _blocks(
     Zo draait de warmtepomp niet; hij loopt op zijn laagste stand en gaat af en
     toe uit.
 
-    Geeft de nieuwe reeks en het aantal uren dat onder het minimum blijft.
+    **Minimale looptijd (``min_run_steps``).** Op kwartieren zou "aan zodra het
+    minimum gehaald is" bij een halve vraag om het kwartier schakelen, en zo
+    draait de warmtepomp niet: gemeten 35–43 minuten aan. Een blok start daarom
+    pas als de opgespaarde vraag plus wat er tijdens het blok binnenkomt het
+    hele blok dekt, en loopt dan minstens ``min_run_steps`` stappen. Tegen een
+    draaiend uur aan mag een blok korter zijn: de warmtepomp loopt daar gewoon
+    door. Daarna blijft hij aan zolang het opgespaarde het minimum haalt.
+
+    Het restje van een reeks gaat over het hele laatste blok, of over evenzoveel
+    stappen van het draaiende buuruur, zodat het op kwartieren geen piek wordt.
+
+    Geeft de nieuwe reeks en het aantal stappen dat onder het minimum blijft.
     """
     p = shifted.astype(float).copy()
     n = len(p)
+    k = max(1, int(min_run_steps))
     onder = (p > 0) & (p < min_w)
     blijft_onder = 0
     i = 0
@@ -607,21 +633,50 @@ def _blocks(
         # Reeks [i, j).
         gespaard = 0.0
         laatst_aan = None
+        blok_start = None
+        blok_over = 0
+        loopt_door = j < n and p[j] > 0
         for h in range(i, j):
             gespaard += p[h]
             p[h] = 0.0
-            if gespaard >= min_w[h]:
+            if blok_over > 0:
+                aan = True
+            elif laatst_aan == h - 1:
+                aan = gespaard >= min_w[h]
+            else:
+                einde = min(h + k, j)
+                past = einde == h + k or loopt_door
+                aan = past and (
+                    gespaard + float(p[h + 1:einde].sum())
+                    >= float(min_w[h:einde].sum())
+                )
+                if aan:
+                    blok_start = h
+                    blok_over = einde - h
+            if aan:
                 p[h] = min_w[h]
                 gespaard -= min_w[h]
                 laatst_aan = h
+                blok_over = max(0, blok_over - 1)
         if gespaard > 0:
             # De buren liggen per constructie buiten de reeks, dus draaien ze
             # óf op minstens het minimum óf helemaal niet.
             buren = [b for b in (i - 1, j) if 0 <= b < n and p[b] > 0]
             if laatst_aan is not None:
-                p[laatst_aan] += gespaard
+                p[blok_start : laatst_aan + 1] += gespaard / (
+                    laatst_aan + 1 - blok_start
+                )
             elif buren:
-                p[min(buren, key=lambda b: cost[b])] += gespaard
+                b = min(buren, key=lambda x: cost[x])
+                stap = -1 if b < i else 1
+                stappen = [b]
+                while (
+                    len(stappen) < k
+                    and 0 <= stappen[-1] + stap < n
+                    and p[stappen[-1] + stap] >= min_w[stappen[-1] + stap]
+                ):
+                    stappen.append(stappen[-1] + stap)
+                p[stappen] += gespaard / len(stappen)
             else:
                 p[j - 1] = gespaard
                 blijft_onder += 1
@@ -636,10 +691,11 @@ def _fill_costs(
     prices: list[float],
     drift: np.ndarray | None,
     ua: float,
+    dt_hours: float = 1.0,
 ) -> None:
     """Zet de stroomkosten van beide reeksen in euro's op het resultaat.
 
-    Elke stap is een uur, dus W is hier Wh; stroom is warmte gedeeld door COP.
+    Energie is vermogen maal ``dt_hours``; stroom is warmte gedeeld door COP.
 
     De kamerdrift wordt als warmteverlies meegeteld: een huis dat door
     voorverwarmen ``drift`` K warmer staat dan in de vlakke baan verliest per uur
@@ -661,17 +717,18 @@ def _fill_costs(
     shift_arr = np.array(shifted, dtype=float)
     cop_arr = np.array(cops, dtype=float)
     price_arr = np.array(prices, dtype=float)
+    kwh = dt_hours / 1000.0
 
-    cost_flat = float(np.sum(flat_arr / cop_arr / 1000.0 * price_arr))
-    cost_shift = float(np.sum(shift_arr / cop_arr / 1000.0 * price_arr))
-    result.elec_flat_kwh = round(float(np.sum(flat_arr / cop_arr)) / 1000.0, 3)
-    result.elec_shifted_kwh = round(float(np.sum(shift_arr / cop_arr)) / 1000.0, 3)
+    cost_flat = float(np.sum(flat_arr / cop_arr * price_arr)) * kwh
+    cost_shift = float(np.sum(shift_arr / cop_arr * price_arr)) * kwh
+    result.elec_flat_kwh = round(float(np.sum(flat_arr / cop_arr)) * kwh, 3)
+    result.elec_shifted_kwh = round(float(np.sum(shift_arr / cop_arr)) * kwh, 3)
 
     loss_eur = 0.0
-    heat_kwh = float(shift_arr.sum()) / 1000.0
+    heat_kwh = float(shift_arr.sum()) * kwh
     if drift is not None and heat_kwh > 0:
         eur_per_kwh_heat = cost_shift / heat_kwh
-        extra_heat_kwh = float(np.sum(ua * np.maximum(drift, 0.0))) / 1000.0
+        extra_heat_kwh = float(np.sum(ua * np.maximum(drift, 0.0))) * kwh
         loss_eur = extra_heat_kwh * eur_per_kwh_heat
     result.drift_loss_eur = round(loss_eur, 4)
 

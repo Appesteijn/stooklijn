@@ -356,7 +356,9 @@ class TestZonderIngangen:
         ):
             asyncio.run(sensor._handle_preview())
         etmaal = sensor.extra_state_attributes["komend_etmaal"]
-        assert len(etmaal["uren"]) == 24
+        assert len(etmaal["uren"]) == 96
+        assert etmaal["stap_minuten"] == 15
+        assert etmaal["venster_uren"] == 24
         assert {"tijd", "prijs", "vlak_w", "verschoven_w"} <= set(etmaal["uren"][0])
         assert etmaal["uren"][1]["tijd"] > etmaal["uren"][0]["tijd"]
         # Een voorvertoning is geen meetdag.
@@ -489,9 +491,9 @@ class TestBasisreeksUitHetHuismodel:
         ):
             asyncio.run(sensor._handle_preview())
         uren = sensor.extra_state_attributes["komend_etmaal"]["uren"]
-        assert [u["vlak_w"] for u in uren] == [round(v) for v in vraag]
-        # Dezelfde warmte, alleen anders verdeeld.
-        assert sum(u["verschoven_w"] for u in uren) == pytest.approx(
+        assert [u["vlak_w"] for u in uren] == [round(v) for v in vraag for _ in range(4)]
+        # Dezelfde warmte, alleen anders verdeeld. Vier kwartieren per uur.
+        assert sum(u["verschoven_w"] for u in uren) / 4 == pytest.approx(
             sum(vraag), abs=len(vraag)
         )
 

@@ -682,6 +682,88 @@ class TestMinimumvermogen:
         assert scan.punten
 
 
+class TestKwartierstappen:
+    """Per kwartier rekenen: zelfde energie, fijnere aan/uit-blokken."""
+
+    PRIJS = [0.25] * 6 + [0.20] * 6
+
+    @staticmethod
+    def _q(reeks):
+        return [v for v in reeks for _ in range(4)]
+
+    @pytest.mark.parametrize("gamma", [0.5, 2.0])
+    def test_uurwaarden_op_kwartieren_geven_het_uurplan(self, gamma):
+        kw = dict(thermal_mass_wh_k=C_WH_K, max_drift_k=0.3, max_overshoot_k=0.5)
+        uur = calculate_demand_shift(DAG, CURVE, UA, T0, gamma, prices=self.PRIJS, **kw)
+        kwartier = calculate_demand_shift(
+            self._q(DAG), CURVE, UA, T0, gamma, prices=self._q(self.PRIJS),
+            dt_hours=0.25, **kw,
+        )
+        assert kwartier.shifted == pytest.approx(self._q(uur.shifted), rel=1e-6)
+        assert kwartier.cost_flat_eur == pytest.approx(uur.cost_flat_eur, abs=1e-3)
+        assert kwartier.cost_shifted_eur == pytest.approx(
+            uur.cost_shifted_eur, abs=0.02
+        )
+        assert kwartier.elec_flat_kwh == pytest.approx(uur.elec_flat_kwh, abs=1e-3)
+
+    def test_uren_boven_plafond_tellen_in_uren(self):
+        r = calculate_demand_shift(
+            self._q(DAG), CURVE, UA, T0, 0.0, dt_hours=0.25, ceiling_w=1.0
+        )
+        assert r.hours_above_ceiling == 0  # γ 0 wordt niet doorgerekend
+        r = calculate_demand_shift(
+            self._q(DAG), CURVE, UA, T0, 0.5, dt_hours=0.25, ceiling_w=1.0
+        )
+        assert r.hours_above_ceiling == pytest.approx(
+            sum(1 for p in r.shifted if p > 1.0) * 0.25
+        )
+
+    def test_een_uur_net_onder_het_minimum_valt_niet_uit(self):
+        """Grafiek 09-11-2026: 2.020 W tegen 2.063 W gaf een heel uur 0 W."""
+        from custom_components.quatt_stooklijn.analysis.demand_shift import _blocks
+
+        p = np.array(self._q([2500.0, 2020.0, 2500.0]))
+        out, onder = _blocks(p, np.full(12, 2063.0), np.ones(12), min_run_steps=3)
+        assert list(out[4:8]).count(0.0) <= 1
+        assert sum(out) == pytest.approx(sum(p))
+        assert onder == 0
+
+    def test_lage_vraag_schakelt_niet_om_het_kwartier(self):
+        from custom_components.quatt_stooklijn.analysis.demand_shift import _blocks
+
+        p = np.full(24, 1030.0)
+        out, _ = _blocks(p, np.full(24, 2063.0), np.ones(24), min_run_steps=3)
+        looptijden, huidig = [], 0
+        for v in list(out) + [0.0]:
+            if v > 0:
+                huidig += 1
+            elif huidig:
+                looptijden.append(huidig)
+                huidig = 0
+        assert looptijden, "er hoort iets te draaien"
+        assert min(looptijden) >= 3
+        assert sum(out) == pytest.approx(sum(p))
+
+    def test_blok_mag_korter_tegen_een_draaiend_uur_aan(self):
+        from custom_components.quatt_stooklijn.analysis.demand_shift import _blocks
+
+        p = np.array(self._q([1500.0, 2500.0]))
+        out, _ = _blocks(p, np.full(8, 2063.0), np.ones(8), min_run_steps=3)
+        assert out[3] > 0, "loopt door in het draaiende uur"
+        assert out[:4].max() < 4000.0, "geen piek van een uur warmte in één kwartier"
+        assert sum(out) == pytest.approx(sum(p))
+
+    def test_restje_gaat_over_meerdere_stappen_van_de_buur(self):
+        from custom_components.quatt_stooklijn.analysis.demand_shift import _blocks
+
+        p = np.array([2500.0] * 4 + [800.0, 700.0] + [0.0] * 2)
+        out, onder = _blocks(p, np.full(8, 2000.0), np.ones(8), min_run_steps=3)
+        assert list(out[4:]) == [0.0] * 4
+        assert out[1] == pytest.approx(3000.0)
+        assert out[0] == pytest.approx(2500.0)
+        assert onder == 0
+
+
 class TestCopVergelijkingKiestOpKosten:
     """De pure COP-verschuiving wordt in euro's gerapporteerd, dus ook zo gekozen.
 
