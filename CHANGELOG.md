@@ -3,6 +3,60 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.5 — 2026-11-12
+
+Stabiele afsluiting van v0.10.5-beta.1 t/m beta.13, zonder codewijzigingen
+ten opzichte van beta.13. Voor wie geen beta's volgt, alles sinds v0.10.4:
+
+**Nieuw**
+
+- **Tab Rendement & besparing** op het dashboard, met het rendement ten
+  opzichte van de eigen norm en de prijsverschuiving. De MPC-tab gaat nu
+  alleen over het model en het advies, met een uitlegkaart erbij.
+- **Prijsverschuiving per kwartier.** Echte kwartierprijzen van een
+  dynamische prijsbron, aan/uit-blokken van minstens 45 minuten, en geen
+  heel uur meer op 0 W net onder het minimumvermogen.
+- **Grafiek kamertemperatuur zonder en met verschuiven** (2R2C-model), zodat
+  je ziet wat de prijsverschuiving met de kamer doet.
+- **Advies voor de maximale watertemperatuur**, de instelling die wél in de
+  Quatt-app staat. Het stooklijnadvies verschijnt alleen nog bij OpenQuatt
+  in Heating Curve-modus.
+- **Compressorstarts en draaiuren over 7 dagen per unit**, naast de starts
+  van het laatste etmaal.
+- **Meerdere Quatt-installaties in één Home Assistant**: elke installatie
+  blijft bij haar eigen CiC (PR #2, met dank aan marnixt).
+
+**Verbeterd**
+
+- **Het online warmtemodel (1R1C) kent nu een constante warmtewinst**
+  (bewoners, apparaten). Zonder die term zakte de warmtecapaciteit van het
+  huis in het stookseizoen weg, waardoor opgeslagen warmte, veilige
+  uitlooptijd en MPC-advies met een te snel afkoelend huis rekenden. Een
+  bestaand model wordt automatisch uitgebreid; een al weggezakte capaciteit
+  herstelt langzaam.
+- **Modelvergelijking (2R2C tegen 1R1C)** leert op vijfminutenmetingen, fit
+  zes uur vooruit, gebruikt vaste train- en testweken en overbrugt korte
+  gaten. De kaart laat tijdens het wachten al de fout van het huidige model
+  zien en zegt wanneer de trainingsdata naar verwachting compleet is.
+- **De rendementskaart trekt een eerlijke conclusie**: ze toont de echte
+  grens van de toets, en zegt bij minder dan 7 vergelijkbare stookdagen dat
+  er te weinig dagen zijn.
+- **README herschreven** voor nieuwe gebruikers.
+
+**Opgelost**
+
+- **Het dashboard wordt weer vanzelf aangemaakt** op Home Assistant 2025.2
+  en later. Een bewust verwijderd dashboard komt niet terug; bij
+  herinstallatie wel.
+- **Het meetlogboek verliest geen metingen meer bij een herstart.**
+- **De COP-bron springt niet meer heen en weer** tussen OpenQuatt en de
+  Quatt-cloud als de warmtepomp stilstaat.
+- **Geen "onbekende entiteit" meer in de instellingen** als er voor een
+  meting geen sensor gevonden is.
+- **Een knikpunt van precies 0 °C** werd als "onbekend" getoond.
+- **Quatt-advies verwijst niet meer naar de Quatt-app** voor stookgrens en
+  vermogen; die staan daar niet in.
+
 ## v0.10.5-beta.13 — 2026-11-09
 
 Betaversie die laat zien wat verschuiven met de kamertemperatuur doet.
