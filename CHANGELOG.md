@@ -3,6 +3,23 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.6-beta.1 — 2026-11-16
+
+Betaversie met een fix in de geluidsniveau-compensatie.
+
+- **Geluidsniveau-compensatie gaf vrij spel als de kamer al warm genoeg was.**
+  Staat de kamer op of boven het setpoint, dan geeft het MPC-advies bewust geen
+  waarde. De compensatie zag dat als een storing en zette het geluidsniveau na
+  tien minuten op het maximum, terwijl de warmtepomp nog draaide. Gemeten op een
+  echt huis: ~1x per dag bij zacht weer, mediaan 15 minuten, 2,6% van de
+  draaiuren. Nu stapt de compensatie dan juist een niveau omlaag, net als bij
+  een te warme aanvoer. Op het laagste niveau stuurt hij niets meer naar de CiC.
+- De terugval naar het maximum blijft voor echte uitval: ontbrekende metingen,
+  geen analysedata, of een MPC-sensor die unavailable is.
+- De MPC-sensor heeft een nieuw attribuut `advies_status` (`advies`,
+  `geen_vraag` of `geen_invoer`), en de compensatieswitch toont het als
+  `mpc_advies_status`.
+
 ## v0.10.5 — 2026-11-12
 
 Stabiele afsluiting van v0.10.5-beta.1 t/m beta.13, zonder codewijzigingen

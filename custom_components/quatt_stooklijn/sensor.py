@@ -109,6 +109,10 @@ from .const import (
     MIN_HEATING_WATTS,
     NOMINAL_FLOW_LPH,
     MPC_FORECAST_HOURS,
+    MPC_ADVICE_NO_DEMAND,
+    MPC_ADVICE_NO_INPUT,
+    MPC_ADVICE_OK,
+    MPC_ADVICE_STATUS_ATTR,
     MPC_SUPPLY_TEMP_MAX,
     MPC_SUPPLY_TEMP_MIN,
     OPEN_METEO_FORECAST_URL,
@@ -1513,12 +1517,23 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     @property
     def native_value(self) -> float | None:
         """Aanbevolen aanvoertemp voor het huidige moment."""
+        return self._current_advice()[0]
+
+    def _current_advice(self) -> tuple[float | None, str]:
+        """Het advies van nu, met de reden als er geen is.
+
+        Waarde en reden komen uit één berekening, zodat het attribuut nooit iets
+        anders kan zeggen dan de state ernaast. Wie het advies volgt, zoals de
+        geluidsniveau-compensatie, moet "het huis is warm genoeg" kunnen
+        onderscheiden van "er ontbreekt een meting": het eerste betekent dat de
+        aanvoer te warm is, het tweede dat er niets bekend is.
+        """
         t_outdoor = get_float_state(self.hass, self._outdoor_entity)
         t_return = get_float_state(self.hass, self._return_temp_entity)
         flow_lph = get_float_state(self.hass, self._flow_entity)
 
         if t_outdoor is None or t_return is None:
-            return None
+            return None, MPC_ADVICE_NO_INPUT
 
         effective_flow = get_effective_flow(flow_lph)
 
@@ -1539,7 +1554,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 if q_needed <= 0:
                     # Kamer op of boven setpoint: geen vraag, geen advies. De
                     # ondergrens hieronder zou anders 20 °C tonen bij nul vraag.
-                    return None
+                    return None, MPC_ADVICE_NO_DEMAND
                 t_supply = t_return + q_needed / (1.16 * effective_flow)
                 # Heating branch: floor at MPC_SUPPLY_TEMP_MIN (HP is inefficient
                 # below ~20°C aanvoer). COOL_MIN (15°C) is reserved for the future
@@ -1547,17 +1562,17 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 return round(
                     max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, t_supply)),
                     1,
-                )
+                ), MPC_ADVICE_OK
 
         # Fallback: batch heat loss model
         if self.coordinator.data is None:
-            return None
+            return None, MPC_ADVICE_NO_INPUT
         heat_loss = self.coordinator.data.heat_loss_hp
         if heat_loss.slope is None or heat_loss.intercept is None or heat_loss.balance_point is None:
-            return None
+            return None, MPC_ADVICE_NO_INPUT
 
         solar_gain_w = (self._get_current_solar_radiation_wm2() or 0.0) * SOLAR_RADIATION_DEFAULT_FACTOR
-        return _calc_mpc_supply_temp(
+        value = _calc_mpc_supply_temp(
             heat_loss.slope,
             heat_loss.intercept,
             heat_loss.balance_point,
@@ -1566,6 +1581,15 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             effective_flow,
             solar_gain_w,
         )
+        if value is not None:
+            return value, MPC_ADVICE_OK
+        # _calc_mpc_supply_temp zwijgt om precies twee redenen: te weinig debiet
+        # of geen netto vraag. effective_flow valt bij een stilstaande pomp al
+        # terug op het nominale debiet, dus de eerste komt hier in de praktijk
+        # niet voor — maar mocht dat ooit veranderen, dan is het geen "warm genoeg".
+        if effective_flow < MIN_FLOW_LPH:
+            return None, MPC_ADVICE_NO_INPUT
+        return None, MPC_ADVICE_NO_DEMAND
 
     @property
     def extra_state_attributes(self) -> dict | None:
@@ -1673,6 +1697,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 net_demand = max(0.0, raw_demand - solar_gain_w)
 
         return {
+            # Waarom de state er wel of niet staat; zie MPC_ADVICE_STATUS_ATTR.
+            MPC_ADVICE_STATUS_ATTR: self._current_advice()[1],
             "outdoor_temp": t_outdoor,
             "return_temp": t_return,
             "flow_lph": flow_lph,

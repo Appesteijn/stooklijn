@@ -351,3 +351,137 @@ class TestPeriodTransition:
             _run(sw._async_do_compensation())
 
         mock_apply.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Geen warmtevraag ≠ uitval van de MPC-sensor
+# ---------------------------------------------------------------------------
+
+class TestGeenWarmtevraag:
+    """Kamer op setpoint: de MPC geeft bewust geen advies.
+
+    Tot en met v0.10.5 telde dat als uitval, en na tien minuten zette de
+    watchdog het geluidsniveau op het maximum — juist op het moment dat er de
+    minste warmte nodig was. Gemeten op een echt huis: 2,6% van de draaiuren,
+    ~1x per dag, bij zacht weer.
+    """
+
+    T0 = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+
+    def _tick(self, sw, reading, minutes, supply=35.0):
+        def floats(hass, entity):
+            if entity == sw._flow_entity:
+                return MIN_FLOW_LPH + 500.0
+            if entity == sw._supply_entity:
+                return supply
+            return None  # geen ketel
+
+        with patch("custom_components.quatt_stooklijn.switch.get_float_state", side_effect=floats), \
+             patch.object(sw, "_mpc_reading", return_value=reading), \
+             patch.object(sw, "_is_night", return_value=False), \
+             patch("custom_components.quatt_stooklijn.switch.datetime") as mock_dt:
+            mock_dt.now.return_value = self.T0 + timedelta(minutes=minutes)
+            _run(sw._async_do_compensation())
+
+    def _start(self, level_idx):
+        sw = _make_switch()
+        sw._current_level_idx = level_idx
+        sw._last_is_night = False
+        # Laatste bruikbare advies vlak voor T0, zoals na een normale cyclus.
+        self._tick(sw, (35.0, "advies"), 0)
+        sw.hass.services.async_call.reset_mock()
+        return sw
+
+    def test_stapt_omlaag(self):
+        sw = self._start(level_idx=2)  # library
+        self._tick(sw, (None, "geen_vraag"), 5)
+        assert sw._current_level_idx == 1
+        sw.hass.services.async_call.assert_called()
+
+    def test_geen_reset_naar_max_na_tien_minuten(self):
+        """De kern van de bug: een uur lang geen vraag mag niet op 'normal' eindigen."""
+        sw = self._start(level_idx=2)
+        for minuten in range(5, 65, 5):
+            self._tick(sw, (None, "geen_vraag"), minuten)
+        assert sw._current_level_idx == 0
+        # De nacht-select gaat bij elke apply bewust naar zijn max (inactieve
+        # periode); de actieve dag-select mag dat nooit.
+        dag = [
+            c.args[2]["option"]
+            for c in sw.hass.services.async_call.call_args_list
+            if c.args[2]["entity_id"] == _DAY_SOUND_ENTITY
+        ]
+        assert dag == ["silent", "building87"]
+
+    def test_op_laagste_niveau_geen_schrijfactie(self):
+        """Elke vijf minuten dezelfde waarde naar de CiC sturen is zinloos verkeer."""
+        sw = self._start(level_idx=0)
+        self._tick(sw, (None, "geen_vraag"), 5)
+        self._tick(sw, (None, "geen_vraag"), 20)
+        assert sw._current_level_idx == 0
+        sw.hass.services.async_call.assert_not_called()
+
+    def test_ontbrekende_invoer_blijft_watchdog(self):
+        """De watchdog zelf blijft: zonder metingen weet de compensatie niets."""
+        sw = self._start(level_idx=0)
+        self._tick(sw, (None, "geen_invoer"), 5)
+        assert sw._current_level_idx == 0
+        self._tick(sw, (None, "geen_invoer"), 15)
+        assert sw._current_level_idx == _SOUND_LEVELS.index("normal")
+
+    def test_onbekende_status_blijft_watchdog(self):
+        """Sensor weg of unavailable: geen status, dus als uitval behandelen."""
+        sw = self._start(level_idx=0)
+        self._tick(sw, (None, None), 15)
+        assert sw._current_level_idx == _SOUND_LEVELS.index("normal")
+
+    def test_advies_terug_na_geen_vraag_werkt_normaal(self):
+        sw = self._start(level_idx=2)
+        self._tick(sw, (None, "geen_vraag"), 5)
+        # Aanvoer 5 K onder advies → weer omhoog.
+        self._tick(sw, (40.0, "advies"), 10, supply=35.0)
+        assert sw._current_level_idx == 2
+
+
+class TestMpcReading:
+    """Waarde en reden komen uit dezelfde state."""
+
+    def _sw_met_state(self, state):
+        sw = _make_switch()
+        sw.hass.states.get = lambda entity_id: state
+        return sw
+
+    def _lees(self, sw):
+        with patch(
+            "custom_components.quatt_stooklijn.switch.resolve_own_entity_id",
+            return_value="sensor.mpc",
+        ), patch(
+            "custom_components.quatt_stooklijn.switch.get_float_state",
+            side_effect=lambda hass, eid: (
+                float(sw.hass.states.get(eid).state)
+                if sw.hass.states.get(eid).state not in ("unknown", "unavailable")
+                else None
+            ),
+        ):
+            return sw._mpc_reading()
+
+    def test_geen_vraag(self):
+        state = MagicMock(state="unknown", attributes={"advies_status": "geen_vraag"})
+        assert self._lees(self._sw_met_state(state)) == (None, "geen_vraag")
+
+    def test_advies(self):
+        state = MagicMock(state="34.0", attributes={"advies_status": "advies"})
+        assert self._lees(self._sw_met_state(state)) == (34.0, "advies")
+
+    def test_unavailable_negeert_oud_attribuut(self):
+        """Een unavailable sensor zegt niets over de vraag, ook al hangt er nog een attribuut."""
+        state = MagicMock(state="unavailable", attributes={"advies_status": "geen_vraag"})
+        assert self._lees(self._sw_met_state(state)) == (None, None)
+
+    def test_sensor_bestaat_niet(self):
+        sw = _make_switch()
+        with patch(
+            "custom_components.quatt_stooklijn.switch.resolve_own_entity_id",
+            return_value=None,
+        ):
+            assert sw._mpc_reading() == (None, None)

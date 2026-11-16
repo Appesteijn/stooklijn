@@ -47,6 +47,8 @@ from .const import (
     DEFAULT_SOUND_NIGHT_END_HOUR,
     DOMAIN,
     MIN_FLOW_LPH,
+    MPC_ADVICE_NO_DEMAND,
+    MPC_ADVICE_STATUS_ATTR,
     OTGW_CYCLE_SECONDS,
     OTGW_UNAVAILABLE_TIMEOUT,
     SIGNAL_SOUND_LEVEL,
@@ -308,11 +310,16 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             return
 
         # 3. MPC feedback
-        mpc_advised = self._mpc_advised()
+        mpc_advised, mpc_status = self._mpc_reading()
         actual_supply = get_float_state(self.hass, self._supply_entity)
+        # Geen advies omdat het huis warm genoeg is, is geen storing maar een
+        # antwoord: de aanvoer is dan hoger dan nodig. Dat telde t/m v0.10.5 als
+        # uitval, en na tien minuten zette de watchdog het niveau dan op het
+        # maximum — vrij spel precies wanneer er de minste warmte nodig is.
+        no_demand = mpc_advised is None and mpc_status == MPC_ADVICE_NO_DEMAND
 
         # Watchdog: reset als MPC te lang unavailable
-        if mpc_advised is not None:
+        if mpc_advised is not None or no_demand:
             self._last_mpc_available = datetime.now(timezone.utc)
         elif self._last_mpc_available is not None:
             elapsed = (
@@ -325,6 +332,19 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
                 )
                 await self._async_reset_level()
                 return
+
+        if no_demand:
+            # Zelfde richting als "aanvoer te hoog". Bij een kleine positieve
+            # vraag geeft de MPC de ondergrens van 20 °C en stapt de compensatie
+            # al omlaag; nul vraag hoort daar niet het omgekeerde van te doen.
+            if self._current_level_idx > 0:
+                self._current_level_idx -= 1
+                _LOGGER.info(
+                    "Geen warmtevraag (kamer op setpoint) → geluidsniveau omlaag naar '%s'",
+                    _SOUND_LEVELS[self._current_level_idx],
+                )
+                await self._async_apply_level()
+            return
 
         if mpc_advised is None or actual_supply is None:
             return
@@ -423,21 +443,27 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         except Exception:
             _LOGGER.warning("Kon geluidsniveau niet resetten")
 
-    def _mpc_advised(self) -> float | None:
-        """Het MPC-aanvoeradvies van onze eigen sensor.
+    def _mpc_reading(self) -> tuple[float | None, str | None]:
+        """Het MPC-advies plus de reden als het er niet is (``advies_status``).
 
         De entity-ID wordt per aanroep via de entity registry opgezocht op
         unique_id, zodat een hernoemde sensor of een tweede config-entry blijft
-        werken. Geeft None zolang die sensor er (nog) niet is.
+        werken. Geeft (None, None) zolang die sensor er (nog) niet is.
         """
         if self.hass is None:
-            return None
+            return None, None
         entity_id = resolve_own_entity_id(
             self.hass, "sensor", self._entry.entry_id, _MPC_UNIQUE_SUFFIX
         )
         if not isinstance(entity_id, str):
-            return None
-        return get_float_state(self.hass, entity_id)
+            return None, None
+        state = self.hass.states.get(entity_id)
+        status = None
+        if state is not None and state.state != "unavailable":
+            attrs = getattr(state, "attributes", None)
+            if isinstance(attrs, dict):
+                status = attrs.get(MPC_ADVICE_STATUS_ATTR)
+        return get_float_state(self.hass, entity_id), status
 
     @callback
     def async_write_ha_state(self) -> None:
@@ -458,7 +484,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        mpc_advised = self._mpc_advised() if self.hass else None
+        mpc_advised, mpc_status = self._mpc_reading() if self.hass else (None, None)
         actual_supply = get_float_state(self.hass, self._supply_entity) if self.hass else None
         flow = get_float_state(self.hass, self._flow_entity) if self.hass else None
         boiler_heat = get_float_state(self.hass, self._boiler_heat_entity) if self.hass else None
@@ -477,6 +503,9 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             "effective_day": _SOUND_LEVELS[min(self._current_level_idx, self._max_day_idx)],
             "effective_night": _SOUND_LEVELS[min(self._current_level_idx, self._max_night_idx)],
             "mpc_advised": mpc_advised,
+            # Waarom mpc_advised leeg is: "geen_vraag" stuurt omlaag, de rest
+            # telt voor de watchdog als uitval.
+            "mpc_advies_status": mpc_status,
             "actual_supply": actual_supply,
             "mpc_error": (
                 round(mpc_advised - actual_supply, 1)

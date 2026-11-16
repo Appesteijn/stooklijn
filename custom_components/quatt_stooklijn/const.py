@@ -162,6 +162,16 @@ MPC_SUPPLY_TEMP_MIN = 20.0       # °C — warmtepompen werken niet effectief on
 MPC_SUPPLY_TEMP_COOL_MIN = 15.0  # °C — ondergrens voor koeling (LTV convectoren ~15°C)
 MPC_SUPPLY_TEMP_MAX = 55.0       # °C
 
+# Waarom de MPC-sensor wel of geen advies geeft, als attribuut naast de waarde.
+# "Geen waarde" betekent twee dingen die je niet hetzelfde wilt behandelen: het
+# huis heeft geen warmte nodig (het advies blijft bewust leeg, een ondergrens
+# van 20 °C zou de foutsensoren vervuilen) of er ontbreekt invoer. Alleen de
+# sensor zelf weet welke van de twee het is.
+MPC_ADVICE_STATUS_ATTR = "advies_status"
+MPC_ADVICE_OK = "advies"
+MPC_ADVICE_NO_DEMAND = "geen_vraag"
+MPC_ADVICE_NO_INPUT = "geen_invoer"
+
 # Hoeveel forecast-uren de MPC-sensor vooruit simuleert en publiceert.
 #
 # Twaalf uur, gelijkgetrokken met COAST_MAX_HOURS: de uitlooptijd en deze
