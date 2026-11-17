@@ -136,7 +136,7 @@ from .discovery import (
     ROLE_TOTAL_POWER,
 )
 from .coordinator import QuattStooklijnCoordinator, QuattStooklijnData
-from .helpers import get_device_info, get_effective_flow, get_float_state
+from .helpers import FlowSmoother, get_device_info, get_effective_flow, get_float_state
 from .heat_demand import (
     HEARTBEAT_INTERVAL_SECONDS,
     OPENQUATT_CACHE_SECONDS,
@@ -629,6 +629,29 @@ class QuattEstimatedCopSensor(
         }
 
 
+def _effective_flow(coordinator, flow_lph: float | None) -> float:
+    """Debiet voor een aanvoeradvies: gladgestreken via de gedeelde FlowSmoother.
+
+    Zonder smoother (een coordinator uit een test of van vóór deze versie)
+    het momentane debiet, zoals voorheen.
+    """
+    smoother = getattr(coordinator, "flow_smoother", None)
+    if isinstance(smoother, FlowSmoother):
+        return smoother.effective(flow_lph)
+    return get_effective_flow(flow_lph)
+
+
+def _feed_flow(coordinator, flow_lph: float | None) -> None:
+    """Geef een debietmeting door aan de gedeelde FlowSmoother.
+
+    Beide adviessensoren roepen dit aan bij elke inputwijziging; dezelfde meting
+    twee keer op hetzelfde moment verandert niets.
+    """
+    smoother = getattr(coordinator, "flow_smoother", None)
+    if isinstance(smoother, FlowSmoother):
+        smoother.update(flow_lph, dt_util.utcnow())
+
+
 class QuattSupplyTempSensor(
     CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity
 ):
@@ -700,6 +723,7 @@ class QuattSupplyTempSensor(
 
     async def _handle_state_change(self, event) -> None:
         """Recompute when any input sensor changes."""
+        _feed_flow(self.coordinator, get_float_state(self.hass, self._flow_entity))
         self.async_write_ha_state()
 
     @property
@@ -720,7 +744,7 @@ class QuattSupplyTempSensor(
             return None
 
         from .analysis.utils import calc_heat_demand
-        effective_flow = get_effective_flow(flow_lph)
+        effective_flow = _effective_flow(self.coordinator, flow_lph)
         heat_demand_w = calc_heat_demand(heat_loss.slope, heat_loss.intercept, t_outdoor)
         if heat_demand_w <= 0:
             # Boven het balanspunt valt er niets te adviseren. Teruggeven van de
@@ -952,6 +976,25 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             self.hass, self._entry.entry_id, ROLE_ROOM_SETPOINT,
             config=cfg, conf_key=CONF_ROOM_SETPOINT_ENTITY,
         )
+
+    def _capacity_w(self, t_outdoor: float) -> float | None:
+        """Wat de warmtepomp bij deze buitentemperatuur kan leveren, of None.
+
+        De vriescurve uit de analyse (zelfde lijn als de Power House-kalibratie
+        gebruikt). Alleen met een stijgende lijn: een capaciteit die bij kouder
+        weer toeneemt is een fit op te weinig data, en dan liever geen plafond
+        dan een verkeerd.
+        """
+        data = getattr(self.coordinator, "data", None)
+        stooklijn = getattr(data, "stooklijn", None)
+        slope = getattr(stooklijn, "slope_local", None)
+        intercept = getattr(stooklijn, "intercept_local", None)
+        if not isinstance(slope, (int, float)) or not isinstance(intercept, (int, float)):
+            return None
+        if slope <= 0:
+            return None
+        capacity = slope * t_outdoor + intercept
+        return capacity if capacity > 0 else None
 
     def _resolve_room_setpoint(self) -> tuple[float, str]:
         """Het kamerdoel waar het advies op rekent, en waar het vandaan komt.
@@ -1236,6 +1279,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 _LOGGER.warning("Meetlogboek opslaan mislukt", exc_info=True)
 
     async def _handle_state_change(self, event) -> None:
+        _feed_flow(self.coordinator, get_float_state(self.hass, self._flow_entity))
         self.async_write_ha_state()
 
     async def _async_load_thermal_model(self) -> None:
@@ -1537,7 +1581,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         if t_outdoor is None or t_return is None:
             return None, MPC_ADVICE_NO_INPUT
 
-        effective_flow = get_effective_flow(flow_lph)
+        effective_flow = _effective_flow(self.coordinator, flow_lph)
 
         # Online RC model: use learned parameters when converged
         model = self._thermal_store.model
@@ -1557,6 +1601,13 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                     # Kamer op of boven setpoint: geen vraag, geen advies. De
                     # ondergrens hieronder zou anders 20 °C tonen bij nul vraag.
                     return None, MPC_ADVICE_NO_DEMAND
+                # Het model wil een tekort binnen een uur inhalen. Bij een zwaar
+                # huis (grote C) kan dat meer vragen dan de warmtepomp kan
+                # leveren, en een aanvoeradvies voor vermogen dat er niet is
+                # zegt niets. Begrensd op de gemeten capaciteit.
+                capacity = self._capacity_w(t_outdoor)
+                if capacity is not None:
+                    q_needed = min(q_needed, capacity)
                 t_supply = t_return + q_needed / (1.16 * effective_flow)
                 # Heating branch: floor at MPC_SUPPLY_TEMP_MIN (HP is inefficient
                 # below ~20°C aanvoer). COOL_MIN (15°C) is reserved for the future
@@ -1599,7 +1650,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         t_outdoor = get_float_state(self.hass, self._outdoor_entity)
         t_return = get_float_state(self.hass, self._return_temp_entity)
         flow_lph = get_float_state(self.hass, self._flow_entity)
-        effective_flow = get_effective_flow(flow_lph)
+        effective_flow = _effective_flow(self.coordinator, flow_lph)
         room_setpoint, room_setpoint_source = self._resolve_room_setpoint()
 
         # Thermal model parameters
@@ -1675,6 +1726,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 else None
             )
 
+        capacity_w = self._capacity_w(t_outdoor) if t_outdoor is not None else None
+
         # Current demand (from whichever model is active)
         raw_demand = None
         net_demand = None
@@ -1704,6 +1757,15 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             "outdoor_temp": t_outdoor,
             "return_temp": t_return,
             "flow_lph": flow_lph,
+            # Het debiet waar het advies mee rekent; zie FlowSmoother.
+            "flow_effectief_lph": round(effective_flow),
+            # Wat de warmtepomp bij deze buitentemperatuur kan leveren (vriescurve),
+            # en of de vraag daarop is afgekapt.
+            "capaciteit_w": round(capacity_w) if capacity_w is not None else None,
+            "advies_begrensd": bool(
+                capacity_w is not None and net_demand is not None
+                and model.is_converged and net_demand > capacity_w
+            ),
             "solar_gain_w": round(solar_gain_w),
             # Welke factor die winst opleverde — anders is niet te zien of je
             # naar het geleerde of het hardgecodeerde getal kijkt.

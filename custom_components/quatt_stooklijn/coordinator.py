@@ -28,6 +28,7 @@ from .analysis.stooklijn import (
     extract_knee_points_from_recorder,
 )
 from .cache import KneeDataStore
+from .helpers import FlowSmoother
 from .const import (
     CONF_BOILER_EFFICIENCY,
     CONF_BOILER_HEAT_ENTITY,
@@ -98,6 +99,8 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
         self.config = config
         self._knee_store = KneeDataStore(hass)
         self.data = QuattStooklijnData()
+        # Gedeeld door het stooklijn- en het MPC-advies; zie FlowSmoother.
+        self.flow_smoother = FlowSmoother()
 
     async def _async_update_data(self) -> QuattStooklijnData:
         """Run the full analysis pipeline."""

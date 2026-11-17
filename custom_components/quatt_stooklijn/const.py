@@ -44,6 +44,12 @@ MIN_FLOW_LPH = 30   # l/h — below this the pump is not actively circulating
 # werkelijke waarde af — maar die wordt gewoon gemeten zodra de pomp loopt, en
 # deze constante geldt uitsluitend voor de momenten dat hij stilstaat.
 NOMINAL_FLOW_LPH = 800
+# Tijdconstante van het gladgestreken debiet waarmee de aanvoeradviezen rekenen.
+# Bij het opstarten loopt het debiet een paar minuten op vanaf ~200 l/h; de
+# adviezen delen de warmtevraag door het debiet, dus rekenen met dat momentane
+# getal gaf pieken tot 46 °C. Nagespeeld op 14 dagen (nov 2026): elke
+# debietcorrectie haalt die pieken weg zonder dat de nauwkeurigheid verandert.
+FLOW_SMOOTHING_TAU_MIN = 30.0
 # W — hieronder levert de installatie geen warmte aan het huis. Debiet alleen is
 # geen bewijs van stoken: buiten het seizoen circuleert de pomp zonder productie,
 # en een advies daartegen afzetten levert een fout die nergens over gaat.

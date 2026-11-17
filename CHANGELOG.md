@@ -3,6 +3,30 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.6-beta.3 — 2026-11-17
+
+Betaversie tegen de pieken van 40 °C en meer in het MPC-advies.
+
+- **Gladgestreken debiet in de adviezen.** Het aanvoeradvies deelt de
+  warmtevraag door het debiet. Na een pompstart loopt dat een paar minuten op
+  vanaf ~200 l/h, en met dat momentane getal schoot het advies naar 42–46 °C.
+  Nu rekent het advies met het hoogste van het momentane debiet en een
+  gemiddelde over ~30 minuten draaien; stilstand telt niet mee. Nagespeeld op
+  14 dagen: de pieken verdwijnen (hoogste advies 46,9 → 35,5 °C), de mediane
+  afwijking ten opzichte van de werkelijke aanvoer blijft 0,62 K. Geldt voor
+  het MPC-advies, de vooruitblik en het stooklijnadvies.
+- Staat de pomp stil, dan rekent het advies met het normale debiet van jouw
+  installatie in plaats van een vaste 800 l/h. Na een herstart van HA wordt
+  dat gemiddelde opnieuw opgebouwd.
+- **Capaciteitsplafond op het live MPC-advies.** De warmtevraag wordt begrensd
+  op wat de warmtepomp bij de huidige buitentemperatuur kan leveren (de
+  vriescurve uit de analyse). Een vangrail voor zware huizen met een groot
+  tekort; de vooruitblik is niet begrensd.
+- Nieuwe attributen op de MPC-sensor: `flow_effectief_lph`, `capaciteit_w` en
+  `advies_begrensd`.
+- De inhaalhorizon blijft één uur: een langere horizon voorspelde in het
+  naspelen slechter.
+
 ## v0.10.6-beta.2 — 2026-11-17
 
 Betaversie waarin je de instellingen van je Quatt CiC zelf kunt invullen.
