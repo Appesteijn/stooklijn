@@ -71,6 +71,8 @@
           "control_setpoint_entity": "Thermostaat setpoint sensor (°C) — leeg laten voor auto-detectie",
           "room_setpoint_entity": "Kamer setpoint sensor (°C) — leeg laten voor auto-detectie",
           "room_setpoint_fallback": "Terugval kamersetpoint (°C) — alleen gebruikt als de thermostaat er geen levert",
+          "cic_zero_power_temp": "Stookgrens zoals ingesteld in je Quatt (°C) — optioneel, alleen voor de CiC; vraag na bij installateur of Quatt-support",
+          "cic_rated_power": "Nominaal vermogen bij -10 °C zoals ingesteld in je Quatt (W) — optioneel, alleen voor de CiC",
           "cop_entity": "COP sensor — leeg laten voor auto-detectie",
           "compressor_entity": "Compressorfrequentie sensor WP1 (Hz) — hieruit worden de starts geteld; leeg laten voor auto-detectie",
           "compressor_2_entity": "Compressorfrequentie sensor WP2 (Hz) — alleen bij een Duo; laat leeg op een Solo",

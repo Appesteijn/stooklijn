@@ -147,6 +147,17 @@ DEFAULT_WEATHER_ENTITY = "weather.home"
 # vastzitten. Deze constante is daarmee alleen nog de waarde waarop het veld
 # begint, niet de waarde waar iemand mee moet leven.
 CONF_ROOM_SETPOINT_FALLBACK = "room_setpoint_fallback"
+
+# Stookgrens en nominaal vermogen zoals de installateur ze in de CiC zette. De
+# CiC geeft ze niet door aan HA en de Quatt-app toont ze niet, dus alleen de
+# gebruiker kan ze invullen (navragen bij installateur of Quatt-support). Leeg =
+# onbekend. Bij OpenQuatt wordt de stookgrens zelf uitgelezen en gaat die voor.
+CONF_CIC_ZERO_POWER_TEMP = "cic_zero_power_temp"   # °C
+CONF_CIC_RATED_POWER = "cic_rated_power"           # W bij -10 °C
+CIC_ZERO_POWER_TEMP_MIN = 5.0
+CIC_ZERO_POWER_TEMP_MAX = 25.0
+CIC_RATED_POWER_MIN = 1000
+CIC_RATED_POWER_MAX = 30000
 DEFAULT_ROOM_SETPOINT = 20.0  # °C
 
 # Geldigheidsband voor een gelezen setpoint. Gelijk aan het bereik dat de

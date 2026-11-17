@@ -433,23 +433,23 @@ as soon as the room is above setpoint.
 
 The `sensor.quatt_warmteanalyse_quatt_advies_parameters` sensor analyzes your heat pump data and tells you what to change. For a Quatt CiC the stookgrens and rated power are installation settings: they are not in the Quatt app, but your installer or Quatt support can check and change them, so you need to tell them what to ask for. The maximum water temperature is the one setting you can change yourself in the app.
 
-The integration can only compare against a setting it can actually read. A Quatt CiC does not expose its stookgrens or rated power to Home Assistant, so for Quatt users the sensor gives the recommended values and leaves the comparison to your installer or Quatt support. With OpenQuatt the stookgrens (`Maximum heating outdoor temperature`) is read, and a difference counts as an adjustment. It uses the same rule as the [Power House calibration](#driving-power-house-with-the-measured-house-model), so the two never disagree.
+The integration can only compare against a setting it knows. A Quatt CiC does not expose its stookgrens or rated power to Home Assistant, so by default the sensor gives the recommended values only. If you know what is set (ask your installer or Quatt support), enter it under **Settings → Integrations → Quatt Stooklijn → Configure** (*Stookgrens zoals ingesteld in je Quatt* and *Nominaal vermogen bij -10 °C zoals ingesteld*). The advice then becomes "raise/lower from X to Y", and the dashboard marks the value as *handmatig ingevuld*: it is what you typed, so update it when your installer changes something. Leave a field empty to go back to "unknown". With OpenQuatt the stookgrens (`Maximum heating outdoor temperature`) is read, and a difference counts as an adjustment. It uses the same rule as the [Power House calibration](#driving-power-house-with-the-measured-house-model), so the two never disagree.
 
 The sensor state is one of:
 
-- `N aanpassing(en) aanbevolen` — a setting that was read differs from the recommendation: the stookgrens (OpenQuatt) or a maximum water temperature below what the house needs at -10°C
-- `Geen afwijking gevonden` — the stookgrens was read and is fine (OpenQuatt)
-- `Aanbevolen instellingen beschikbaar` — nothing could be read; the attributes hold the recommended values
+- `N aanpassing(en) aanbevolen` — a known setting differs from the recommendation: the stookgrens (read from OpenQuatt or entered for a CiC), the rated power (entered for a CiC), or a maximum water temperature below what the house needs at -10°C
+- `Geen afwijking gevonden` — the stookgrens was read and is fine (OpenQuatt), or both CiC values were entered and are fine
+- `Aanbevolen instellingen beschikbaar` — not enough is known; the attributes hold the recommended values
 
 | Attribute | Description |
 |-----------|-------------|
-| `stookgrens_huidig` | Stookgrens as set in OpenQuatt (°C); `null` for Quatt CiC |
+| `stookgrens_huidig` | Stookgrens as set (°C): read from OpenQuatt, or entered in the options for a CiC; otherwise `null` |
 | `stookgrens_optimaal` | Recommended stookgrens: the measured balance point of your home |
-| `stookgrens_bron` | `openquatt` when the current value was read, otherwise `onbekend` |
+| `stookgrens_bron` | `openquatt` (read), `handmatig` (entered in the options, CiC only) or `onbekend` |
 | `stookgrens_advies` | Human-readable advice text |
-| `nominaal_vermogen_huidig_w` | Always `null`: no controller exposes it. Kept for existing dashboards |
+| `nominaal_vermogen_huidig_w` | Rated power as entered in the options (CiC only); `null` when not entered. No controller exposes it |
 | `nominaal_vermogen_optimaal_w` | Recommended rated power at -10°C, from the measured heat loss |
-| `nominaal_vermogen_bron` | `openquatt` (see the Power House calibration instead) or `onbekend` |
+| `nominaal_vermogen_bron` | `openquatt` (see the Power House calibration instead), `handmatig` (entered) or `onbekend` |
 | `nominaal_vermogen_advies` | Human-readable advice text |
 | `max_water_huidig` | Maximum water temperature as currently set (°C), or `null` if it cannot be read |
 | `max_water_nodig_bij_min10` | Supply temperature the house needs at -10°C, from the measured heat loss |
@@ -459,7 +459,7 @@ The sensor state is one of:
 | `stooklijn_advies` | Only with OpenQuatt (Heating Curve mode): the points for its six `Curve Tsupply` numbers (-20°C to +15°C). `null` for a Quatt CiC, which does not run on a heating curve |
 | `aantal_aanpassingen` | Number of verified differences |
 
-> **Why no "current" value for Quatt?** Up to v0.10.4 the current stookgrens and rated power were estimated from a regression on daily averages. That fit only covers a narrow band of cold days and had to be extrapolated far to reach its zero point, and daily heat mostly reflects what the house asks for (the room thermostat corrects), not how the heating curve is set. One user got "raise from 13 to 16" while Quatt confirmed the setting was already 16.
+> **Why no "current" value for Quatt?** Up to v0.10.4 the current stookgrens and rated power were estimated from a regression on daily averages. That fit only covers a narrow band of cold days and had to be extrapolated far to reach its zero point, and daily heat mostly reflects what the house asks for (the room thermostat corrects), not how the heating curve is set. One user got "raise from 13 to 16" while Quatt confirmed the setting was already 16. Since v0.10.6 you can enter the real values yourself instead; they are never guessed. The rated power counts as off when it differs by 250 W or more, the same threshold the Power House calibration uses.
 
 ## Geluidsniveaucompensatie
 

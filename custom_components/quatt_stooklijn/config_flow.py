@@ -62,6 +62,12 @@ from .const import (
     CONF_RETURN_TEMP_ENTITY,
     CONF_ROOM_SETPOINT_ENTITY,
     CONF_ROOM_SETPOINT_FALLBACK,
+    CONF_CIC_RATED_POWER,
+    CONF_CIC_ZERO_POWER_TEMP,
+    CIC_RATED_POWER_MAX,
+    CIC_RATED_POWER_MIN,
+    CIC_ZERO_POWER_TEMP_MAX,
+    CIC_ZERO_POWER_TEMP_MIN,
     CONF_SUPPLY_TEMP_ENTITY,
     CONF_TEMP_ENTITIES,
     CONF_WEATHER_ENTITY,
@@ -487,6 +493,24 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     ): vol.All(
                         vol.Coerce(float),
                         vol.Range(min=ROOM_SETPOINT_MIN, max=ROOM_SETPOINT_MAX),
+                    ),
+                    # Wat de installateur in de CiC zette. Niet uit te lezen,
+                    # dus alleen in te vullen; leeg = onbekend en dan toont het
+                    # advies alleen de aanbevolen waarde. Geen default: een
+                    # verzonnen "huidige" waarde is precies wat v0.10.4 eruit haalde.
+                    _prefill(
+                        CONF_CIC_ZERO_POWER_TEMP, data.get(CONF_CIC_ZERO_POWER_TEMP)
+                    ): vol.All(
+                        vol.Coerce(float),
+                        vol.Range(
+                            min=CIC_ZERO_POWER_TEMP_MIN, max=CIC_ZERO_POWER_TEMP_MAX
+                        ),
+                    ),
+                    _prefill(
+                        CONF_CIC_RATED_POWER, data.get(CONF_CIC_RATED_POWER)
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(min=CIC_RATED_POWER_MIN, max=CIC_RATED_POWER_MAX),
                     ),
                     _prefill(
                         CONF_COP_ENTITY, _current(CONF_COP_ENTITY, ROLE_COP)

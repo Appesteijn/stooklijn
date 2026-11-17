@@ -19,6 +19,8 @@ from custom_components.quatt_stooklijn.config_flow import (
 )
 from custom_components.quatt_stooklijn.sources import ROLE_CONF_KEYS
 from custom_components.quatt_stooklijn.const import (
+    CONF_CIC_RATED_POWER,
+    CONF_CIC_ZERO_POWER_TEMP,
     CONF_BOILER_HEAT_ENTITY,
     CONF_CH_MAX_WATER_ENTITY,
     CONF_FLOW_ENTITY,
@@ -402,3 +404,23 @@ class TestGeenOnbekendeEntiteitenInHetFormulier:
         gezien = self._voorstellen(
             monkeypatch, {CONF_SUPPLY_TEMP_ENTITY: "sensor.cic_total_power"})
         assert gezien[CONF_SUPPLY_TEMP_ENTITY] == "sensor.cic_total_power"
+
+
+
+class TestHandmatigeCicInstellingen:
+    """Stookgrens en vermogen van de CiC: optioneel in te vullen.
+
+    De voluptuous-stub in conftest gooit default, description en Range weg;
+    hier is dus alleen te toetsen dát de velden er zijn en bewaard worden.
+    """
+
+    @pytest.mark.parametrize("key", [CONF_CIC_ZERO_POWER_TEMP, CONF_CIC_RATED_POWER])
+    def test_veld_staat_in_het_optiescherm(self, key):
+        assert key in _run(TestOptiescherm()._options().async_step_init())["data_schema"]
+
+    def test_ingevulde_waarden_worden_bewaard(self):
+        result = _run(TestOptiescherm()._options().async_step_init(
+            {CONF_CIC_ZERO_POWER_TEMP: 16.5, CONF_CIC_RATED_POWER: 7020}
+        ))
+        assert result["data"][CONF_CIC_ZERO_POWER_TEMP] == 16.5
+        assert result["data"][CONF_CIC_RATED_POWER] == 7020

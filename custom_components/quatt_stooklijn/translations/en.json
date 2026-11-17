@@ -71,6 +71,8 @@
           "control_setpoint_entity": "Thermostat control setpoint sensor (°C) — leave empty for auto-detection",
           "room_setpoint_entity": "Thermostat room setpoint sensor (°C) — leave empty for auto-detection",
           "room_setpoint_fallback": "Fallback room setpoint (°C) — used only when the thermostat provides none",
+          "cic_zero_power_temp": "Heating limit as set in your Quatt (°C) — optional, CiC only; ask your installer or Quatt support",
+          "cic_rated_power": "Nominal power at -10 °C as set in your Quatt (W) — optional, CiC only",
           "cop_entity": "COP sensor — leave empty for auto-detection",
           "compressor_entity": "Compressor frequency sensor HP1 (Hz) — used to count compressor starts; leave empty for auto-detection",
           "compressor_2_entity": "Compressor frequency sensor HP2 (Hz) — Duo only; leave empty on a Solo",

@@ -71,6 +71,8 @@
           "control_setpoint_entity": "Capteur de consigne du thermostat (°C) — laisser vide pour la détection auto",
           "room_setpoint_entity": "Capteur de consigne d'ambiance (°C) — laisser vide pour la détection auto",
           "room_setpoint_fallback": "Consigne d'ambiance de repli (°C) — utilisée seulement si le thermostat n'en fournit pas",
+          "cic_zero_power_temp": "Seuil de chauffage tel que réglé dans votre Quatt (°C) — facultatif, CiC uniquement ; à demander à votre installateur ou au support Quatt",
+          "cic_rated_power": "Puissance nominale à -10 °C telle que réglée dans votre Quatt (W) — facultatif, CiC uniquement",
           "cop_entity": "Capteur COP — laisser vide pour la détection auto",
           "compressor_entity": "Capteur de fréquence du compresseur PAC1 (Hz) — sert à compter les démarrages ; vide = détection automatique",
           "compressor_2_entity": "Capteur de fréquence du compresseur PAC2 (Hz) — Duo uniquement ; laisser vide sur un Solo",

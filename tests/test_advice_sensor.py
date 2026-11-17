@@ -11,6 +11,7 @@ from custom_components.quatt_stooklijn.sensor import (
     _calc_heating_curve_breakpoints,
     ADVICE_BREAKPOINT_TEMPS,
     ADVICE_NOMINAL_RETURN_TEMP,
+    ADVICE_SOURCE_MANUAL,
     ADVICE_SOURCE_OPENQUATT,
     ADVICE_SOURCE_UNKNOWN,
     OPENQUATT_BREAKPOINT_TEMPS,
@@ -19,6 +20,8 @@ from custom_components.quatt_stooklijn.sensor import (
 )
 from custom_components.quatt_stooklijn.power_house import calc_power_house_calibration
 from custom_components.quatt_stooklijn.const import (
+    CONF_CIC_RATED_POWER,
+    CONF_CIC_ZERO_POWER_TEMP,
     MPC_SUPPLY_TEMP_MIN,
     MPC_SUPPLY_TEMP_MAX,
     NOMINAL_FLOW_LPH,
@@ -247,9 +250,10 @@ class TestMaxWaterAdvice:
 class TestQuattAdviceSensorState:
     """De state moet zeggen of er iets geverifieerd is."""
 
-    def _sensor(self, data, openquatt, setting):
+    def _sensor(self, data, openquatt, setting, options=None):
         sensor = QuattAdviceSensor.__new__(QuattAdviceSensor)
         sensor.coordinator = type("C", (), {"data": data})()
+        sensor._entry = type("E", (), {"data": {}, "options": options or {}})()
         sensor._openquatt_stookgrens = lambda: (openquatt, setting)
         sensor._max_water = lambda: (None, False)
         return sensor
@@ -276,6 +280,116 @@ class TestQuattAdviceSensorState:
         sensor = self._sensor(None, False, None)
         assert sensor.native_value is None
         assert sensor.extra_state_attributes is None
+
+    def test_cic_beide_ingevuld_en_goed(self):
+        sensor = self._sensor(self._data(), False, None, {
+            CONF_CIC_ZERO_POWER_TEMP: 16.0,
+            CONF_CIC_RATED_POWER: round(-209.2 * -10 + 3368.0),
+        })
+        assert sensor.native_value == "Geen afwijking gevonden"
+
+    def test_cic_een_ingevuld_zegt_nog_niets_over_de_ander(self):
+        sensor = self._sensor(self._data(), False, None, {CONF_CIC_ZERO_POWER_TEMP: 16.0})
+        assert sensor.native_value == "Aanbevolen instellingen beschikbaar"
+
+    def test_cic_afwijking_telt(self):
+        sensor = self._sensor(self._data(balance_opt=16.66), False, None, {
+            CONF_CIC_ZERO_POWER_TEMP: 13.0,
+            CONF_CIC_RATED_POWER: 8000,
+        })
+        assert sensor.native_value == "2 aanpassingen aanbevolen"
+
+    def test_leeg_veld_is_onbekend(self):
+        """Een leeggemaakt optieveld kan als lege string blijven staan."""
+        sensor = self._sensor(self._data(), False, None, {
+            CONF_CIC_ZERO_POWER_TEMP: "", CONF_CIC_RATED_POWER: None,
+        })
+        attrs = sensor.extra_state_attributes
+        assert attrs["stookgrens_bron"] == ADVICE_SOURCE_UNKNOWN
+        assert attrs["nominaal_vermogen_bron"] == ADVICE_SOURCE_UNKNOWN
+
+
+class TestHandmatigIngevuldeCicWaarden:
+    """De CiC geeft stookgrens en vermogen niet door; de gebruiker kan ze invullen.
+
+    Dan wordt "van X naar Y" geadviseerd, met dezelfde drempels als voor
+    OpenQuatt en de Power House-kalibratie, en staat de herkomst erbij.
+    """
+
+    HL_SLOPE, HL_INTERCEPT = -209.2, 3368.0
+    VERMOGEN_OPT = round(-209.2 * -10 + 3368.0)  # 5460 W
+
+    def _data(self, balance_opt=16.1):
+        return QuattStooklijnData(
+            stooklijn=StooklijnResult(balance_temp_optimal=balance_opt),
+            heat_loss_hp=HeatLossResult(slope=self.HL_SLOPE, intercept=self.HL_INTERCEPT),
+        )
+
+    def test_stookgrens_goed(self):
+        attrs = _calc_quatt_advice(self._data(), None, False, manual_stookgrens=16.0)
+        assert attrs["stookgrens_huidig"] == 16.0
+        assert attrs["stookgrens_bron"] == ADVICE_SOURCE_MANUAL
+        assert attrs["stookgrens_advies"] == "Stookgrens is goed ingesteld"
+        assert attrs["aantal_aanpassingen"] == 0
+
+    def test_stookgrens_wijkt_af_en_noemt_wie_het_kan_aanpassen(self):
+        attrs = _calc_quatt_advice(self._data(16.66), None, False, manual_stookgrens=13.0)
+        assert attrs["stookgrens_advies"].startswith("Verhoog stookgrens van 13.0 naar 16.5°C")
+        assert "installateur" in attrs["stookgrens_advies"]
+        assert attrs["aantal_aanpassingen"] == 1
+
+    def test_vermogen_binnen_drempel_is_goed(self):
+        attrs = _calc_quatt_advice(
+            self._data(), None, False, manual_vermogen=self.VERMOGEN_OPT + 200
+        )
+        assert attrs["nominaal_vermogen_huidig_w"] == self.VERMOGEN_OPT + 200
+        assert attrs["nominaal_vermogen_bron"] == ADVICE_SOURCE_MANUAL
+        assert attrs["nominaal_vermogen_advies"] == "Nominaal vermogen is goed ingesteld"
+        assert attrs["aantal_aanpassingen"] == 0
+
+    def test_vermogen_te_hoog(self):
+        attrs = _calc_quatt_advice(self._data(), None, False, manual_vermogen=7020)
+        assert attrs["nominaal_vermogen_advies"].startswith(
+            f"Verlaag nominaal vermogen van 7020 naar {self.VERMOGEN_OPT} W bij -10°C"
+        )
+        assert attrs["aantal_aanpassingen"] == 1
+
+    def test_vermogen_te_laag(self):
+        attrs = _calc_quatt_advice(self._data(), None, False, manual_vermogen=4000)
+        assert attrs["nominaal_vermogen_advies"].startswith("Verhoog nominaal vermogen")
+
+    def test_zelfde_drempel_als_power_house(self):
+        from custom_components.quatt_stooklijn.power_house import RATED_POWER_THRESHOLD
+        net_binnen = self.VERMOGEN_OPT - RATED_POWER_THRESHOLD + 1
+        net_buiten = self.VERMOGEN_OPT - RATED_POWER_THRESHOLD
+        assert _calc_quatt_advice(
+            self._data(), None, False, manual_vermogen=net_binnen
+        )["aantal_aanpassingen"] == 0
+        assert _calc_quatt_advice(
+            self._data(), None, False, manual_vermogen=net_buiten
+        )["aantal_aanpassingen"] == 1
+
+    def test_niets_ingevuld_gedraagt_zich_als_voorheen(self):
+        attrs = _calc_quatt_advice(self._data(), None, False)
+        assert attrs["stookgrens_bron"] == ADVICE_SOURCE_UNKNOWN
+        assert attrs["nominaal_vermogen_huidig_w"] is None
+        assert attrs["nominaal_vermogen_bron"] == ADVICE_SOURCE_UNKNOWN
+        assert attrs["nominaal_vermogen_advies"].startswith("Aanbevolen nominaal vermogen")
+
+    def test_openquatt_negeert_handmatige_velden(self):
+        """Uitgelezen gaat voor; de velden zijn voor de CiC."""
+        attrs = _calc_quatt_advice(
+            self._data(), 16.0, True, manual_stookgrens=12.0, manual_vermogen=9000
+        )
+        assert attrs["stookgrens_huidig"] == 16.0
+        assert attrs["stookgrens_bron"] == ADVICE_SOURCE_OPENQUATT
+        assert attrs["nominaal_vermogen_huidig_w"] is None
+        assert attrs["aantal_aanpassingen"] == 0
+
+    def test_openquatt_zonder_uitlezing_gebruikt_handmatig_niet(self):
+        attrs = _calc_quatt_advice(self._data(), None, True, manual_stookgrens=12.0)
+        assert attrs["stookgrens_huidig"] is None
+        assert attrs["stookgrens_bron"] == ADVICE_SOURCE_UNKNOWN
 
 
 class TestOpenQuattBreakpointGrid:

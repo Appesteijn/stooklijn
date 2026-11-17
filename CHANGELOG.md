@@ -3,6 +3,27 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.6-beta.2 — 2026-11-17
+
+Betaversie waarin je de instellingen van je Quatt CiC zelf kunt invullen.
+
+- **Stookgrens en nominaal vermogen zoals ingesteld, in te vullen in de
+  integratie-opties.** De CiC geeft ze niet door en de Quatt-app toont ze
+  niet; navragen bij installateur of Quatt-support. Ingevuld wordt het advies
+  "verhoog/verlaag van X naar Y" en telt een afwijking mee als aanpassing.
+  Leeg laten betekent onbekend, zoals voorheen. Er wordt nooit een waarde
+  geschat.
+- Zelfde drempels als de Power House-kalibratie: de stookgrens via dezelfde
+  regel, het vermogen vanaf 250 W verschil.
+- Alleen voor de CiC: bij OpenQuatt wordt de stookgrens uitgelezen en gaat die
+  voor.
+- Dashboard: de regel "Ingesteld" toont de ingevulde waarde met *(handmatig
+  ingevuld)*, of verwijst naar de opties. De samenvattingen hebben een
+  ✅-variant voor ingevulde waarden die kloppen.
+- Nieuwe bronwaarde `handmatig` in `stookgrens_bron` en
+  `nominaal_vermogen_bron`; `nominaal_vermogen_huidig_w` is niet meer altijd
+  leeg.
+
 ## v0.10.6-beta.1 — 2026-11-16
 
 Betaversie met een fix in de geluidsniveau-compensatie.

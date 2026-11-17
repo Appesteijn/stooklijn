@@ -182,6 +182,17 @@ views:
 
               {% if mw %}• {{ mw }}{% endif %}
 
+              {% elif bron == 'handmatig' %}
+
+              ✅ **Wat je hebt ingevuld wijkt niet af van de meting**
+
+
+              {% if sg %}• {{ sg }}{% endif %}
+
+              {% if vg %}• {{ vg }}{% endif %}
+
+              {% if mw %}• {{ mw }}{% endif %}
+
               {% else %}
 
               ℹ️ **Aanbevolen Quatt-instellingen**
@@ -705,6 +716,10 @@ views:
 
               ✅ De stookgrens staat goed.
 
+              {% elif bron == 'handmatig' %}
+
+              ✅ Wat je in de opties hebt ingevuld wijkt niet af van de meting.
+
               {% else %}
 
               Stookgrens en vermogen zet je installateur; de maximale
@@ -745,6 +760,10 @@ views:
               state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
               'stookgrens_huidig') %}
 
+              {% set bron =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'stookgrens_bron') %}
+
               {% set opt =
               state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
               'stookgrens_optimaal') %}
@@ -757,8 +776,10 @@ views:
 
               |:--|--:|
 
-              | Ingesteld | {% if cur is not none %}**{{ cur }}°C**{% else
-              %}*niet uit te lezen*{% endif %} |
+              | Ingesteld | {% if cur is not none %}**{{ cur }}°C**{% if bron
+              == 'handmatig' %} *(handmatig ingevuld)*{% endif %}{% elif bron
+              == 'openquatt' %}*niet uit te lezen*{% else %}*onbekend — vul in
+              bij de integratie-opties*{% endif %} |
 
               | Aanbevolen (gemeten balanspunt) | {% if opt %}**{{ opt }}°C**{%
               else %}*onbekend*{% endif %} |
@@ -790,6 +811,14 @@ views:
               state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
               'nominaal_vermogen_optimaal_w') %}
 
+              {% set cur =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'nominaal_vermogen_huidig_w') %}
+
+              {% set bron =
+              state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
+              'nominaal_vermogen_bron') %}
+
               {% set txt =
               state_attr('sensor.quatt_warmteanalyse_quatt_advies_parameters',
               'nominaal_vermogen_advies') %}
@@ -798,7 +827,9 @@ views:
 
               |:--|--:|
 
-              | Ingesteld | *niet uit te lezen* |
+              | Ingesteld | {% if cur is not none %}**{{ cur }} W** *(handmatig
+              ingevuld)*{% elif bron == 'openquatt' %}*niet van toepassing*{% else
+              %}*onbekend — vul in bij de integratie-opties*{% endif %} |
 
               | Aanbevolen (warmteverlies huis) | {% if opt %}**{{ opt }} W**{%
               else %}*onbekend*{% endif %} |

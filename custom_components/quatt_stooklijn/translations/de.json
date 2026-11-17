@@ -71,6 +71,8 @@
           "control_setpoint_entity": "Thermostat-Sollwert-Sensor (°C) — leer lassen für Auto-Erkennung",
           "room_setpoint_entity": "Raum-Sollwert-Sensor (°C) — leer lassen für Auto-Erkennung",
           "room_setpoint_fallback": "Ersatz-Raumsollwert (°C) — nur genutzt, wenn der Thermostat keinen liefert",
+          "cic_zero_power_temp": "Heizgrenze wie in deinem Quatt eingestellt (°C) — optional, nur für die CiC; beim Installateur oder Quatt-Support erfragen",
+          "cic_rated_power": "Nennleistung bei -10 °C wie in deinem Quatt eingestellt (W) — optional, nur für die CiC",
           "cop_entity": "COP-Sensor — leer lassen für Auto-Erkennung",
           "compressor_entity": "Verdichterfrequenz-Sensor WP1 (Hz) — daraus werden die Starts gezählt; leer lassen für automatische Erkennung",
           "compressor_2_entity": "Verdichterfrequenz-Sensor WP2 (Hz) — nur beim Duo; bei einem Solo leer lassen",

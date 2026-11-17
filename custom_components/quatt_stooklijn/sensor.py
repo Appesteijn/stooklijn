@@ -78,6 +78,8 @@ from .const import (
     PRICE_SHIFT_STORAGE_VERSION,
     CONF_CH_MAX_WATER_ENABLED,
     CONF_CH_MAX_WATER_ENTITY,
+    CONF_CIC_RATED_POWER,
+    CONF_CIC_ZERO_POWER_TEMP,
     CONF_COMFORT_FLOOR_TEMP,
     CONF_COMPRESSOR_2_ENTITY,
     CONF_COMPRESSOR_ENTITY,
@@ -2429,6 +2431,19 @@ class QuattCopPerformanceSensor(
 # punten heeft de CiC niet, die regelt op het warmteverliesmodel.
 ADVICE_SOURCE_OPENQUATT = "openquatt"
 ADVICE_SOURCE_UNKNOWN = "onbekend"
+# Door de gebruiker in de opties ingevuld: bekend, maar niet uitgelezen. Kan dus
+# verouderen als de installateur iets aanpast — daarom staat de herkomst erbij.
+ADVICE_SOURCE_MANUAL = "handmatig"
+
+
+def _optional_float(value) -> float | None:
+    """Een optioneel optieveld als getal; leeg of onleesbaar is ``None``."""
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _calc_quatt_advice(
@@ -2437,6 +2452,8 @@ def _calc_quatt_advice(
     openquatt: bool,
     max_water_setting: float | None = None,
     max_water_auto: bool = False,
+    manual_stookgrens: float | None = None,
+    manual_vermogen: float | None = None,
 ) -> dict[str, Any]:
     """Advies-attributen voor stookgrens, nominaal vermogen en stooklijnpunten.
 
@@ -2450,10 +2467,23 @@ def _calc_quatt_advice(
     de stooklijn staat. Voor het nominaal vermogen gold hetzelfde.
 
     Wat wél uit de meting volgt is het aanbevolen getal zelf. Dat wordt altijd
-    getoond; alleen een verschil met een uitgelezen instelling telt als aanpassing.
+    getoond; alleen een verschil met een bekende instelling telt als aanpassing.
+
+    Bekend is: uitgelezen uit OpenQuatt, of door de gebruiker van een CiC zelf
+    ingevuld in de opties (``manual_*``). Een uitgelezen waarde gaat voor; bij
+    OpenQuatt worden de handmatige velden genegeerd, die zijn voor de CiC.
     """
     from .analysis.utils import calc_heat_demand
-    from .power_house import advise_zero_power_temp
+    from .power_house import RATED_POWER_THRESHOLD, advise_zero_power_temp
+
+    stookgrens_bron = ADVICE_SOURCE_UNKNOWN
+    if stookgrens_setting is not None:
+        stookgrens_bron = ADVICE_SOURCE_OPENQUATT
+    elif not openquatt and manual_stookgrens is not None:
+        stookgrens_setting = manual_stookgrens
+        stookgrens_bron = ADVICE_SOURCE_MANUAL
+    if openquatt:
+        manual_vermogen = None
 
     attrs: dict[str, Any] = {}
     changes = 0
@@ -2470,11 +2500,7 @@ def _calc_quatt_advice(
     opt = data.stooklijn.balance_temp_optimal
     attrs["stookgrens_huidig"] = stookgrens_setting
     attrs["stookgrens_optimaal"] = round(opt, 1) if opt is not None else None
-    attrs["stookgrens_bron"] = (
-        ADVICE_SOURCE_OPENQUATT
-        if stookgrens_setting is not None
-        else ADVICE_SOURCE_UNKNOWN
-    )
+    attrs["stookgrens_bron"] = stookgrens_bron
     if opt is None:
         attrs["stookgrens_advies"] = None
     elif stookgrens_setting is not None:
@@ -2487,6 +2513,8 @@ def _calc_quatt_advice(
             attrs["stookgrens_advies"] = (
                 f"{verb} stookgrens van {stookgrens_setting:.1f} "
                 f"naar {target:.1f}°C"
+                # Bij de CiC kan de gebruiker dit niet zelf; zeg bij wie het kan.
+                + (f". {ask}" if stookgrens_bron == ADVICE_SOURCE_MANUAL else "")
             )
     else:
         attrs["stookgrens_advies"] = (
@@ -2500,11 +2528,17 @@ def _calc_quatt_advice(
     vermogen_opt = None
     if hl.slope is not None and hl.intercept is not None:
         vermogen_opt = round(calc_heat_demand(hl.slope, hl.intercept, -10))
-    # Nooit uit te lezen; het attribuut blijft voor bestaande dashboards.
-    attrs["nominaal_vermogen_huidig_w"] = None
+    # Nooit uit te lezen; alleen bekend als de gebruiker hem zelf invulde.
+    attrs["nominaal_vermogen_huidig_w"] = (
+        round(manual_vermogen) if manual_vermogen is not None else None
+    )
     attrs["nominaal_vermogen_optimaal_w"] = vermogen_opt
     attrs["nominaal_vermogen_bron"] = (
-        ADVICE_SOURCE_OPENQUATT if openquatt else ADVICE_SOURCE_UNKNOWN
+        ADVICE_SOURCE_OPENQUATT
+        if openquatt
+        else ADVICE_SOURCE_MANUAL
+        if manual_vermogen is not None
+        else ADVICE_SOURCE_UNKNOWN
     )
     if openquatt:
         # Power House heeft geen vermogen bij -10°C maar Tc en Pr, en die
@@ -2513,6 +2547,18 @@ def _calc_quatt_advice(
             "OpenQuatt kent geen nominaal vermogen bij -10°C; "
             "zie de Power House-kalibratie"
         )
+    elif vermogen_opt is not None and manual_vermogen is not None:
+        # Zelfde drempel als de Power House-kalibratie voor Pr, zodat beide
+        # kaarten het over "wijkt genoeg af" niet oneens zijn.
+        if abs(vermogen_opt - manual_vermogen) < RATED_POWER_THRESHOLD:
+            attrs["nominaal_vermogen_advies"] = "Nominaal vermogen is goed ingesteld"
+        else:
+            changes += 1
+            verb = "Verhoog" if vermogen_opt > manual_vermogen else "Verlaag"
+            attrs["nominaal_vermogen_advies"] = (
+                f"{verb} nominaal vermogen van {manual_vermogen:.0f} naar "
+                f"{vermogen_opt} W bij -10°C. {ask}"
+            )
     elif vermogen_opt is not None:
         attrs["nominaal_vermogen_advies"] = (
             f"Aanbevolen nominaal vermogen: {vermogen_opt} W bij -10°C. {ask}"
@@ -2649,7 +2695,12 @@ class QuattAdviceSensor(
             return None
         openquatt, setting = self._openquatt_stookgrens()
         max_water, auto = self._max_water()
-        return _calc_quatt_advice(data, setting, openquatt, max_water, auto)
+        cfg = {**self._entry.data, **self._entry.options}
+        return _calc_quatt_advice(
+            data, setting, openquatt, max_water, auto,
+            manual_stookgrens=_optional_float(cfg.get(CONF_CIC_ZERO_POWER_TEMP)),
+            manual_vermogen=_optional_float(cfg.get(CONF_CIC_RATED_POWER)),
+        )
 
     @property
     def native_value(self) -> str | None:
@@ -2660,6 +2711,13 @@ class QuattAdviceSensor(
         if changes:
             return f"{changes} aanpassing{'en' if changes != 1 else ''} aanbevolen"
         if advice["stookgrens_bron"] == ADVICE_SOURCE_OPENQUATT:
+            return "Geen afwijking gevonden"
+        # CiC: pas "geen afwijking" als beide instellingen bekend zijn. Met één
+        # ingevuld is over de andere nog niets gezegd.
+        if (
+            advice["stookgrens_bron"] == ADVICE_SOURCE_MANUAL
+            and advice["nominaal_vermogen_bron"] == ADVICE_SOURCE_MANUAL
+        ):
             return "Geen afwijking gevonden"
         return "Aanbevolen instellingen beschikbaar"
 
