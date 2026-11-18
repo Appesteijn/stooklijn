@@ -31,6 +31,7 @@ from homeassistant.helpers.event import (
     async_track_time_change,
     async_track_time_interval,
 )
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
@@ -3976,8 +3977,17 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
         return attrs
 
 
-class QuattChMaxWaterSensor(SensorEntity):
-    """Diagnostische sensor: laatste waarde + tijdstip van chMaxWaterTemperatuur schrijfactie."""
+class QuattChMaxWaterSensor(SensorEntity, RestoreEntity):
+    """Diagnostische sensor: laatste waarde + tijdstip van chMaxWaterTemperatuur schrijfactie.
+
+    De controller begint na elke herstart of reload met een lege geschiedenis
+    en schrijft pas bij de eerste tick, tot een interval later. Tot die tijd
+    toont de sensor de vorige waarde uit de restore-state in plaats van
+    Unknown. Unknown verborg de dashboardkaart, terwijl de regelaar al die tijd
+    gewoon op die vorige waarde stond. De controller zelf krijgt de herstelde
+    waarde bewust níét: na een reload kunnen bron of marge gewijzigd zijn, en
+    dan hoort de eerste tick onvoorwaardelijk te schrijven.
+    """
 
     _attr_has_entity_name = True
     _attr_translation_key = "ch_max_water_setting"
@@ -3996,6 +4006,20 @@ class QuattChMaxWaterSensor(SensorEntity):
             "quatt_warmteanalyse_max_aanvoertemperatuur_instelling",
             hass=hass,
         )
+        self._restored_value: float | None = None
+        self._restored_at: str | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Haal de laatst geschreven waarde terug van vóór de herstart."""
+        last_state = await self.async_get_last_state()
+        if last_state is None:
+            return
+        try:
+            self._restored_value = float(last_state.state)
+        except (TypeError, ValueError):
+            # unknown/unavailable: niets om terug te zetten.
+            return
+        self._restored_at = (last_state.attributes or {}).get("last_written_at")
 
     @property
     def _controller(self):
@@ -4005,7 +4029,9 @@ class QuattChMaxWaterSensor(SensorEntity):
     @property
     def native_value(self) -> float | None:
         ctrl = self._controller
-        return ctrl.last_written if ctrl else None
+        if ctrl is not None and ctrl.last_written is not None:
+            return ctrl.last_written
+        return self._restored_value
 
     @property
     def extra_state_attributes(self) -> dict | None:
@@ -4015,8 +4041,16 @@ class QuattChMaxWaterSensor(SensorEntity):
         # Vóór de eerste schrijfactie is ``target_entity`` nog leeg; dan alsnog
         # resolven, zodat de kaart meteen na inschakelen iets te tonen heeft.
         limit_entity = ctrl.target_entity or ctrl._resolve_number_entity()
+        written_now = ctrl.last_written is not None
         return {
-            "last_written_at": ctrl.last_written_at.isoformat() if ctrl.last_written_at else None,
+            "last_written_at": (
+                ctrl.last_written_at.isoformat()
+                if written_now and ctrl.last_written_at
+                else self._restored_at
+            ),
+            # True zolang de waarde van vóór de herstart komt en de controller
+            # in deze sessie nog niets geschreven heeft.
+            "hersteld": not written_now and self._restored_value is not None,
             "source": ctrl._source,
             "source_entity": ctrl.source_entity,
             # Graden bovenop het advies. Zonder dit veld lijkt een limiet die

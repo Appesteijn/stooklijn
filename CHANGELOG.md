@@ -3,6 +3,20 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.6-beta.5 — 2026-11-18
+
+Betaversie met een kleine reparatie aan de aanvoertemperatuur-bijsturing.
+
+- **Geen "Unknown" meer na een herstart.** De sensor met de ingestelde
+  max-aanvoertemperatuur stond na een herstart of het herladen van de
+  integratie op Unknown, tot de bijsturing weer iets schreef (tot een
+  interval later). Daardoor verdween ook de dashboardkaart "Aanvoertemperatuur
+  begrenzing", terwijl de warmtepomp gewoon op de vorige waarde stond. Nu
+  toont de sensor in die tijd de vorige waarde. Het nieuwe attribuut
+  `hersteld` staat op `true` zolang dat zo is.
+- De bijsturing zelf schrijft na een herstart nog steeds meteen bij de eerste
+  controle, zodat een gewijzigde marge of bron direct doorkomt.
+
 ## v0.10.6-beta.4 — 2026-11-18
 
 Betaversie voor wie de integratie de max-aanvoertemperatuur laat bijsturen.

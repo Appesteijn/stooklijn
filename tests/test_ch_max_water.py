@@ -393,3 +393,70 @@ class TestMarge:
         await ctrl._async_tick(None)
         assert hass.services.async_call.call_count == 2
         assert self._geschreven(hass) == 35.0
+
+
+class TestInstellingSensorNaHerstart:
+    """Na een herstart of reload toont de sensor de vorige waarde, niet Unknown.
+
+    De controller begint leeg en schrijft pas bij de eerste tick, tot een
+    interval later. Unknown verborg in die tijd de dashboardkaart, terwijl de
+    regelaar gewoon op de vorige waarde stond.
+    """
+
+    def _sensor(self, ctrl, last_state):
+        from custom_components.quatt_stooklijn.const import DOMAIN
+        from custom_components.quatt_stooklijn.sensor import QuattChMaxWaterSensor
+
+        hass = MagicMock()
+        hass.data = {DOMAIN: {"entry1_ch_max_water": ctrl}}
+        hass.states.get = lambda entity_id: _State("42")
+        entry = MagicMock()
+        entry.entry_id = "entry1"
+        sensor = QuattChMaxWaterSensor(hass, entry)
+        sensor.hass = hass
+        sensor.async_get_last_state = AsyncMock(return_value=last_state)
+        return sensor
+
+    def _ctrl(self, last_written=None, last_written_at=None):
+        ctrl = MagicMock()
+        ctrl.last_written = last_written
+        ctrl.last_written_at = last_written_at
+        ctrl.target_entity = CIC_NUMBER
+        ctrl.margin = 2.0
+        ctrl._interval.total_seconds.return_value = 1800
+        return ctrl
+
+    @pytest.mark.asyncio
+    async def test_toont_de_vorige_waarde_tot_de_eerste_schrijfactie(self):
+        vorige = _State("34.0", last_written_at="2026-11-18T08:00:00+01:00")
+        sensor = self._sensor(self._ctrl(), vorige)
+        await sensor.async_added_to_hass()
+        assert sensor.native_value == 34.0
+        attrs = sensor.extra_state_attributes
+        assert attrs["hersteld"] is True
+        assert attrs["last_written_at"] == "2026-11-18T08:00:00+01:00"
+
+    @pytest.mark.asyncio
+    async def test_nieuwe_schrijfactie_gaat_voor(self):
+        from datetime import datetime
+
+        nu = datetime(2026, 11, 18, 9, 0)
+        sensor = self._sensor(self._ctrl(36.0, nu), _State("34.0"))
+        await sensor.async_added_to_hass()
+        assert sensor.native_value == 36.0
+        attrs = sensor.extra_state_attributes
+        assert attrs["hersteld"] is False
+        assert attrs["last_written_at"] == nu.isoformat()
+
+    @pytest.mark.asyncio
+    async def test_vorige_unknown_blijft_unknown(self):
+        sensor = self._sensor(self._ctrl(), _State("unknown"))
+        await sensor.async_added_to_hass()
+        assert sensor.native_value is None
+        assert sensor.extra_state_attributes["hersteld"] is False
+
+    @pytest.mark.asyncio
+    async def test_zonder_vorige_state_unknown(self):
+        sensor = self._sensor(self._ctrl(), None)
+        await sensor.async_added_to_hass()
+        assert sensor.native_value is None
