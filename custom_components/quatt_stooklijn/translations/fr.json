@@ -43,6 +43,7 @@
           "ch_max_water_enabled": "Activer la limitation de température de départ (écrit la temp. max. de départ vers Quatt)",
           "ch_max_water_entity": "Entité température de départ max. Quatt",
           "ch_max_water_source": "Source de pilotage (courbe de chauffe ou MPC)",
+          "ch_max_water_margin": "Marge au-dessus de la recommandation (°C)",
           "ch_max_water_hysteresis": "Changement minimal avant écriture (°C)",
           "ch_max_water_interval": "Intervalle d'écriture (minutes)",
           "supply_temp_entity": "Capteur de température de départ (°C) — référence pour le conseil"
@@ -89,6 +90,7 @@
           "ch_max_water_enabled": "Activer la limitation de température de départ (écrit la temp. max. de départ vers Quatt)",
           "ch_max_water_entity": "Entité température de départ max. Quatt",
           "ch_max_water_source": "Source de pilotage (courbe de chauffe ou MPC)",
+          "ch_max_water_margin": "Marge au-dessus de la recommandation (°C)",
           "ch_max_water_hysteresis": "Changement minimal avant écriture (°C)",
           "ch_max_water_interval": "Intervalle d'écriture (minutes)",
           "comfort_floor_temp": "Plancher de confort (°C) — température intérieure minimale acceptable ; référence pour le temps d'inertie et la chaleur stockée, pas la consigne",

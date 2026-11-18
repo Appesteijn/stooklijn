@@ -3,6 +3,25 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.6-beta.4 — 2026-11-18
+
+Betaversie voor wie de integratie de max-aanvoertemperatuur laat bijsturen.
+
+- **Marge tussen advies en plafond.** De bijsturing schreef het advies precies
+  als maximale aanvoertemperatuur. Dat advies is wat het huis nodig heeft,
+  terwijl de warmtepomp al terugregelt vóórdat hij het plafond haalt. Het huis
+  kreeg zo structureel te weinig, en een tekort na een setpointverhoging werd
+  nooit ingehaald: de warmtepomp bleef op een paar honderd watt hangen. Nu
+  komt er een instelbare marge bovenop, standaard 2 °C (0–10). Wie de
+  bijsturing al gebruikt, krijgt die marge na de update automatisch; zet hem
+  op 0 voor het oude gedrag.
+- De marge staat als attribuut `margin_c` op
+  `sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling` en als regel
+  op de dashboardkaart "Aanvoertemperatuur begrenzing".
+- README: de bijsturing zet een plafond, geen doel. Alleen het MPC-advies
+  haalt een tekort in de kamer in; het stooklijnadvies kijkt alleen naar
+  buiten. Voor deze bijsturing is `mpc` dus de betere bron.
+
 ## v0.10.6-beta.3 — 2026-11-17
 
 Betaversie tegen de pieken van 40 °C en meer in het MPC-advies.

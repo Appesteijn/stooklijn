@@ -43,6 +43,7 @@
           "ch_max_water_enabled": "Vorlauftemperatur-Begrenzung aktivieren (schreibt max. Vorlauftemp. an Quatt)",
           "ch_max_water_entity": "Quatt max. Vorlauftemperatur Entität",
           "ch_max_water_source": "Steuerquelle (Heizkurve oder MPC)",
+          "ch_max_water_margin": "Aufschlag über der Empfehlung (°C)",
           "ch_max_water_hysteresis": "Minimale Änderung vor Schreibaktion (°C)",
           "ch_max_water_interval": "Schreibintervall (Minuten)",
           "supply_temp_entity": "Vorlauftemperatur-Sensor (°C) — Referenz für die Empfehlung"
@@ -89,6 +90,7 @@
           "ch_max_water_enabled": "Vorlauftemperatur-Begrenzung aktivieren (schreibt max. Vorlauftemp. an Quatt)",
           "ch_max_water_entity": "Quatt max. Vorlauftemperatur Entität",
           "ch_max_water_source": "Steuerquelle (Heizkurve oder MPC)",
+          "ch_max_water_margin": "Aufschlag über der Empfehlung (°C)",
           "ch_max_water_hysteresis": "Minimale Änderung vor Schreibaktion (°C)",
           "ch_max_water_interval": "Schreibintervall (Minuten)",
           "comfort_floor_temp": "Komfort-Untergrenze (°C) — niedrigste akzeptable Raumtemperatur; Bezugswert für Auslaufzeit und gespeicherte Wärme, nicht die Solltemperatur",

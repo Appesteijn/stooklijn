@@ -5,8 +5,12 @@ die op dat moment daadwerkelijk stuurt — de Quatt CiC, of OpenQuatt als die de
 buitenunits regelt. Welke dat is bepaalt `async_resolve_setting_entity`; zie
 daar waarom een schrijfactie naar de verkeerde van de twee stil verdampt.
 
-Schrijft alleen als de aanbevolen waarde meer dan `hysteresis` graden afwijkt
-van de laatst geschreven waarde.
+Geschreven wordt het advies plus `margin`. Het advies is de aanvoer die het huis
+nodig heeft; een plafond precies daarop laat de regelaar geen ruimte, want die
+moduleert al terug vóór het plafond, en een tekort inhalen kan dan niet.
+
+Schrijft alleen als het plafond meer dan `hysteresis` graden afwijkt van de
+laatst geschreven waarde.
 
 Bronentiteit (instelbaar via config):
 - "stooklijn" → sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
@@ -22,7 +26,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 import homeassistant.util.dt as dt_util
 
-from .const import CONF_CH_MAX_WATER_ENTITY, DEFAULT_CH_MAX_WATER_SOURCE
+from .const import (
+    CH_MAX_WATER_MARGIN_MAX,
+    CONF_CH_MAX_WATER_ENTITY,
+    DEFAULT_CH_MAX_WATER_MARGIN,
+    DEFAULT_CH_MAX_WATER_SOURCE,
+)
 from .discovery import (
     ROLE_CH_MAX_WATER,
     async_entity_has_value,
@@ -61,6 +70,7 @@ class ChMaxWaterController:
         source: str,
         hysteresis: float,
         interval_minutes: int,
+        margin: float = DEFAULT_CH_MAX_WATER_MARGIN,
     ) -> None:
         self._hass = hass
         # Wat de gebruiker heeft ingesteld — leeg is normaal en betekent
@@ -71,6 +81,9 @@ class ChMaxWaterController:
         self._source = source if source in _SOURCE_ENTITY else DEFAULT_CH_MAX_WATER_SOURCE
         self._hysteresis = hysteresis
         self._interval = timedelta(minutes=interval_minutes)
+        # Begrensd zoals in de opties: een negatieve marge zou het plafond
+        # onder het advies leggen, precies het probleem dat ze oplost.
+        self._margin = max(0.0, min(CH_MAX_WATER_MARGIN_MAX, float(margin)))
 
         self._last_written: float | None = None
         self._last_written_at: datetime | None = None
@@ -90,6 +103,11 @@ class ChMaxWaterController:
         return self._target_entity
 
     @property
+    def margin(self) -> float:
+        """Graden boven het advies waarop het plafond komt te liggen."""
+        return self._margin
+
+    @property
     def last_written(self) -> float | None:
         return self._last_written
 
@@ -103,9 +121,10 @@ class ChMaxWaterController:
         """Registreer de periodieke timer. Geeft de remove-callback terug."""
         _LOGGER.info(
             "ChMaxWaterController gestart: bron=%s, bestemming=%s, "
-            "hysteresis=%.1f°C, interval=%d min",
+            "marge=%.1f°C, hysteresis=%.1f°C, interval=%d min",
             self._source,
             self._configured_entity or "auto-detectie",
+            self._margin,
             self._hysteresis,
             self._interval.seconds // 60,
         )
@@ -147,13 +166,13 @@ class ChMaxWaterController:
             )
             return
 
-        clamped = self._clamp(recommended, entity_id)
+        clamped = self._clamp(recommended + self._margin, entity_id)
         if clamped is None:
             return
 
         if not self._should_write(clamped):
             _LOGGER.debug(
-                "ChMaxWater: geen schrijfactie (aanbevolen=%.1f, geschreven=%.1f, hysteresis=%.1f)",
+                "ChMaxWater: geen schrijfactie (plafond=%.1f, geschreven=%.1f, hysteresis=%.1f)",
                 clamped,
                 self._last_written if self._last_written is not None else float("nan"),
                 self._hysteresis,
@@ -267,10 +286,11 @@ class ChMaxWaterController:
             self._last_written = value
             self._last_written_at = dt_util.now()
             _LOGGER.info(
-                "ChMaxWater: %s ingesteld op %.1f°C (bron: %s)",
+                "ChMaxWater: %s ingesteld op %.1f°C (bron: %s, marge %.1f°C)",
                 entity_id,
                 value,
                 self._source,
+                self._margin,
             )
         except Exception as exc:
             _LOGGER.error("ChMaxWater: schrijfactie mislukt: %s", exc)

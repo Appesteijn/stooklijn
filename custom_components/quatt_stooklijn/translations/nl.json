@@ -43,6 +43,7 @@
           "ch_max_water_enabled": "Aanvoertemperatuur bijsturing inschakelen (schrijft max. aanvoertemp naar Quatt)",
           "ch_max_water_entity": "Quatt max. aanvoertemperatuur entiteit",
           "ch_max_water_source": "Stuuradvies bron (stooklijn of MPC)",
+          "ch_max_water_margin": "Marge boven het advies (°C)",
           "ch_max_water_hysteresis": "Minimale wijziging voor schrijfactie (°C)",
           "ch_max_water_interval": "Schrijfinterval (minuten)",
           "supply_temp_entity": "Aanvoertemperatuur sensor (°C) — vergelijkingsbasis voor het advies"
@@ -89,6 +90,7 @@
           "ch_max_water_enabled": "Aanvoertemperatuur bijsturing inschakelen (schrijft max. aanvoertemp naar Quatt)",
           "ch_max_water_entity": "Quatt max. aanvoertemperatuur entiteit",
           "ch_max_water_source": "Stuuradvies bron (stooklijn of MPC)",
+          "ch_max_water_margin": "Marge boven het advies (°C)",
           "ch_max_water_hysteresis": "Minimale wijziging voor schrijfactie (°C)",
           "ch_max_water_interval": "Schrijfinterval (minuten)",
           "comfort_floor_temp": "Comfort-ondergrens (°C) — laagste acceptabele binnentemperatuur; referentie voor uitlooptijd en opgeslagen warmte, niet de streeftemperatuur",

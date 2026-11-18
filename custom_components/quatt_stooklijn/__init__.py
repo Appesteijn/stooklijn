@@ -18,10 +18,12 @@ from .const import (
     CONF_CH_MAX_WATER_SOURCE,
     CONF_CH_MAX_WATER_HYSTERESIS,
     CONF_CH_MAX_WATER_INTERVAL,
+    CONF_CH_MAX_WATER_MARGIN,
     CONF_SOUND_LEVEL_ENABLED,
     DEFAULT_CH_MAX_WATER_SOURCE,
     DEFAULT_CH_MAX_WATER_HYSTERESIS,
     DEFAULT_CH_MAX_WATER_INTERVAL,
+    DEFAULT_CH_MAX_WATER_MARGIN,
     DOMAIN,
     SERVICE_CLEAR_DATA,
     SERVICE_RUN_ANALYSIS,
@@ -268,6 +270,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             source=merged_config.get(CONF_CH_MAX_WATER_SOURCE, DEFAULT_CH_MAX_WATER_SOURCE),
             hysteresis=merged_config.get(CONF_CH_MAX_WATER_HYSTERESIS, DEFAULT_CH_MAX_WATER_HYSTERESIS),
             interval_minutes=merged_config.get(CONF_CH_MAX_WATER_INTERVAL, DEFAULT_CH_MAX_WATER_INTERVAL),
+            margin=merged_config.get(CONF_CH_MAX_WATER_MARGIN, DEFAULT_CH_MAX_WATER_MARGIN),
         )
         hass.data[DOMAIN][f"{entry.entry_id}_ch_max_water"] = controller
         entry.async_on_unload(controller.async_setup())

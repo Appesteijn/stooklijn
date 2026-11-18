@@ -301,10 +301,19 @@ CONF_CH_MAX_WATER_ENTITY = "ch_max_water_entity"
 CONF_CH_MAX_WATER_SOURCE = "ch_max_water_source"
 CONF_CH_MAX_WATER_HYSTERESIS = "ch_max_water_hysteresis"
 CONF_CH_MAX_WATER_INTERVAL = "ch_max_water_interval"
+CONF_CH_MAX_WATER_MARGIN = "ch_max_water_margin"
 
 DEFAULT_CH_MAX_WATER_SOURCE = "stooklijn"   # "stooklijn" | "mpc"
 DEFAULT_CH_MAX_WATER_HYSTERESIS = 1.0       # °C
 DEFAULT_CH_MAX_WATER_INTERVAL = 30          # minuten
+# Ruimte tussen advies en plafond. Het advies is de aanvoer die het huis nodig
+# heeft, en de regelaar moduleert al terug vóórdat hij een plafond haalt. Een
+# plafond precies op het advies levert dus structureel te weinig, en laat geen
+# ruimte om een tekort in te halen (Tweakers, 18-11-2026: CiC pruttelde op
+# 400 W terwijl de kamer 0,4 K onder het setpoint zakte). Daarbij ligt het
+# stooklijnadvies op ons eigen huis gemiddeld 1,75 K onder de werkelijke aanvoer.
+DEFAULT_CH_MAX_WATER_MARGIN = 2.0           # °C
+CH_MAX_WATER_MARGIN_MAX = 10.0              # °C
 
 
 # --- Compressorstarts ------------------------------------------------------

@@ -519,10 +519,13 @@ Optional and off by default. When enabled, the integration periodically writes t
 | `ch_max_water_enabled` | `false` | Enable supply-temperature control |
 | `ch_max_water_entity` | empty | Target number entity; empty means auto-detection |
 | `ch_max_water_source` | `stooklijn` | Which advice to write: `stooklijn` or `mpc` |
+| `ch_max_water_margin` | `2.0` | Degrees °C added to the advice before it is written as the ceiling (0–10) |
 | `ch_max_water_hysteresis` | `1.0` | Only write when the advice differs this many °C from the last written value |
 | `ch_max_water_interval` | `30` | Minutes between checks |
 
-The last written value is shown by `sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling`.
+The setting is a ceiling, not a target. The advice is the supply temperature the house needs, and the heat pump already throttles before it reaches its ceiling. A ceiling right at the advice therefore delivers too little and leaves no room to catch up when the room is below its setpoint, hence the margin. Only the MPC advice accounts for the room being below its setpoint (it catches up within an hour); the `stooklijn` advice depends on the outdoor temperature alone, so `mpc` is the better source for this control.
+
+The last written value is shown by `sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling`, with the margin in its `margin_c` attribute.
 
 It stands down by itself while `sensor.quatt_warmteanalyse_warmtevraag` drives OpenQuatt's Power House, see [below](#driving-power-house-with-the-measured-house-model).
 

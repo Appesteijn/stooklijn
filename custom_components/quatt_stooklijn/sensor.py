@@ -4019,6 +4019,9 @@ class QuattChMaxWaterSensor(SensorEntity):
             "last_written_at": ctrl.last_written_at.isoformat() if ctrl.last_written_at else None,
             "source": ctrl._source,
             "source_entity": ctrl.source_entity,
+            # Graden bovenop het advies. Zonder dit veld lijkt een limiet die
+            # twee graden boven het advies staat een fout in de schrijfactie.
+            "margin_c": ctrl.margin,
             # Naar wélke knop geschreven is. Zonder dit is van buitenaf niet te
             # zien of de schrijfactie bij de regelaar landt die ook stuurt.
             "target_entity": ctrl.target_entity,

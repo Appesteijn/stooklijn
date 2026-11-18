@@ -32,6 +32,7 @@ from .const import (
     CONF_CH_MAX_WATER_SOURCE,
     CONF_CH_MAX_WATER_HYSTERESIS,
     CONF_CH_MAX_WATER_INTERVAL,
+    CONF_CH_MAX_WATER_MARGIN,
     CONF_COMFORT_FLOOR_TEMP,
     CONF_THROTTLE_ENTITY,
     CONF_PRICE_MODE,
@@ -75,6 +76,8 @@ from .const import (
     DEFAULT_CH_MAX_WATER_SOURCE,
     DEFAULT_CH_MAX_WATER_HYSTERESIS,
     DEFAULT_CH_MAX_WATER_INTERVAL,
+    DEFAULT_CH_MAX_WATER_MARGIN,
+    CH_MAX_WATER_MARGIN_MAX,
     DEFAULT_COMFORT_FLOOR_TEMP,
     DEFAULT_THROTTLE_ENTITY,
     DEFAULT_GAS_CALORIFIC_VALUE,
@@ -576,6 +579,13 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_CH_MAX_WATER_SOURCE,
                         default=data.get(CONF_CH_MAX_WATER_SOURCE, DEFAULT_CH_MAX_WATER_SOURCE),
                     ): vol.In(["stooklijn", "mpc"]),
+                    # Graden bovenop het advies. Het advies is wat het huis
+                    # nodig heeft; een plafond precies daarop knijpt de
+                    # regelaar, die al vóór het plafond terugmoduleert.
+                    vol.Optional(
+                        CONF_CH_MAX_WATER_MARGIN,
+                        default=data.get(CONF_CH_MAX_WATER_MARGIN, DEFAULT_CH_MAX_WATER_MARGIN),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=CH_MAX_WATER_MARGIN_MAX)),
                     vol.Optional(
                         CONF_CH_MAX_WATER_HYSTERESIS,
                         default=data.get(CONF_CH_MAX_WATER_HYSTERESIS, DEFAULT_CH_MAX_WATER_HYSTERESIS),

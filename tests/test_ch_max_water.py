@@ -303,3 +303,93 @@ class TestConfiguratiesZonderBeideIntegraties:
         hass.services.async_call.reset_mock()
         await ctrl._async_tick(None)
         hass.services.async_call.assert_not_called()
+
+
+class TestMarge:
+    """Het plafond ligt een marge boven het advies.
+
+    Het advies is de aanvoer die het huis nodig heeft. De regelaar moduleert
+    al terug vóórdat hij het plafond haalt, dus een plafond precies op het
+    advies levert te weinig en laat geen ruimte om een tekort in te halen.
+    """
+
+    def _hass(self, advies="32.0"):
+        states = {OQ_NUMBER: OQ_STATE, MPC_SOURCE: _State(advies)}
+        hass = MagicMock()
+        hass._test_entity_registry = er.FakeRegistry(_registry_entries())
+        hass.states.get = lambda entity_id: states.get(entity_id)
+        hass.services.async_call = AsyncMock()
+        return hass, states
+
+    def _ctrl(self, hass, margin):
+        return ChMaxWaterController(
+            hass=hass,
+            number_entity="",
+            source="mpc",
+            hysteresis=1.0,
+            interval_minutes=15,
+            margin=margin,
+        )
+
+    def _geschreven(self, hass):
+        return hass.services.async_call.call_args.args[2]["value"]
+
+    @pytest.mark.asyncio
+    async def test_schrijft_advies_plus_marge(self):
+        hass, _ = self._hass("32.0")
+        await self._ctrl(hass, 2.0)._async_tick(None)
+        assert self._geschreven(hass) == 34.0
+
+    @pytest.mark.asyncio
+    async def test_marge_nul_schrijft_het_kale_advies(self):
+        hass, _ = self._hass("32.0")
+        await self._ctrl(hass, 0.0)._async_tick(None)
+        assert self._geschreven(hass) == 32.0
+
+    @pytest.mark.asyncio
+    async def test_marge_telt_mee_voor_de_afronding_op_de_stap(self):
+        # 31,4 + 1,5 = 32,9, afgerond op de stap van 0,5 → 33,0. De knop
+        # krijgt nooit een waarde die niet op zijn stap ligt.
+        hass, _ = self._hass("31.4")
+        await self._ctrl(hass, 1.5)._async_tick(None)
+        assert self._geschreven(hass) == 33.0
+
+    @pytest.mark.asyncio
+    async def test_marge_wordt_begrensd_door_het_maximum_van_de_knop(self):
+        hass, _ = self._hass("72.0")
+        await self._ctrl(hass, 5.0)._async_tick(None)
+        assert self._geschreven(hass) == 75.0
+
+    def test_negatieve_marge_wordt_nul(self):
+        hass, _ = self._hass()
+        assert self._ctrl(hass, -3.0).margin == 0.0
+
+    def test_te_grote_marge_wordt_afgekapt(self):
+        hass, _ = self._hass()
+        assert self._ctrl(hass, 25.0).margin == 10.0
+
+    def test_default_marge_is_niet_nul(self):
+        # Zonder expliciete marge (oude configuratie) hoort het plafond niet
+        # meer op het kale advies te liggen.
+        hass, _ = self._hass()
+        ctrl = ChMaxWaterController(
+            hass=hass, number_entity="", source="mpc",
+            hysteresis=1.0, interval_minutes=15,
+        )
+        assert ctrl.margin > 0
+
+    @pytest.mark.asyncio
+    async def test_hysterese_vergelijkt_het_plafond_niet_het_advies(self):
+        hass, states = self._hass("32.0")
+        ctrl = self._ctrl(hass, 2.0)
+        await ctrl._async_tick(None)
+        assert ctrl.last_written == 34.0
+        # Advies 0,5 hoger: plafond 34,5, binnen de hysterese van 1,0.
+        states[MPC_SOURCE] = _State("32.5")
+        await ctrl._async_tick(None)
+        assert hass.services.async_call.call_count == 1
+        # Advies 1,0 hoger: plafond 35,0, wél schrijven.
+        states[MPC_SOURCE] = _State("33.0")
+        await ctrl._async_tick(None)
+        assert hass.services.async_call.call_count == 2
+        assert self._geschreven(hass) == 35.0
