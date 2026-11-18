@@ -3,6 +3,35 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.6-beta.6 — 2026-11-18
+
+Betaversie met een rustiger aanvoeradvies en een controle op de aanvoersensor.
+
+- **Een tekort wordt niet meer binnen één uur ingehaald.** Stond de kamer onder
+  het setpoint, dan wilde het MPC-advies dat binnen een uur goedmaken. Hoeveel
+  vermogen dat vroeg, hing af van de warmteopslag van het huis: bij een zware
+  vloer gaf 0,3 °C tekort al meer dan 6 kW extra, en bleef het advies
+  urenlang op het maximum hangen. Nu is het extra vermogen 10 × het
+  warmteverlies per graad × het tekort. Bij een huis dat 230 W per graad
+  verliest is 0,3 °C tekort ~690 W extra, ongeveer 0,7 °C meer aanvoer. Een
+  kamer boven het setpoint verlaagt het advies op dezelfde manier.
+- **Het basisdeel van het advies komt uit de warmteverliesanalyse.** Het
+  zelflerende model kwam de afgelopen weken 300–400 W te laag uit; de
+  warmteverliesanalyse klopte op het gemiddelde tot op 1%. Nagerekend over
+  10 dagen: het advies ligt gemiddeld binnen 0,1 °C van de werkelijke
+  aanvoer (was +0,4 °C), 's nachts, overdag en met zon, en schiet nog maar
+  0,4% van de tijd meer dan 2 °C te hoog (was 2,5%). Het zelflerende model
+  blijft de vooruitblik, de uitlooptijd en de opgeslagen warmte voeden.
+- Nieuwe attributen op de MPC-sensor: `heat_demand_w` (warmteverlies),
+  `inhaal_w`, `inhaalfactor`, `net_demand_w` (de som) en `advies_basis`.
+- **Melding als de aanvoersensor afwijkt.** De integratie vergelijkt op
+  stabiele stookmomenten de aanvoertemperatuur met de wateruitgang van de
+  warmtepomp. Ligt die er over minstens 12 uur stoken 0,3 °C of meer naast,
+  dan verschijnt er een melding onder Reparaties. Aanleiding: een
+  niet-gekalibreerde OpenQuatt-aanvoersensor las 0,7 °C te hoog, waardoor elk
+  advies te laag leek. Wie OpenQuatt gebruikt, lost dat op met de kalibratie
+  van de watersensoren; de melding verdwijnt daarna vanzelf.
+
 ## v0.10.6-beta.5 — 2026-11-18
 
 Betaversie met een kleine reparatie aan de aanvoertemperatuur-bijsturing.

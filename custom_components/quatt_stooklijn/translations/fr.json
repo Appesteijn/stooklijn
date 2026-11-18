@@ -296,6 +296,10 @@
     "dashboard_create_failed": {
       "title": "Le tableau de bord Quatt Warmteanalyse n'a pas pu être créé",
       "description": "L'intégration n'a pas pu créer son tableau de bord automatiquement sur cette version de Home Assistant.\n\nCréez-le vous-même : **Paramètres → Tableaux de bord → Ajouter un tableau de bord**, choisissez **Nouveau tableau de bord à partir de zéro** et définissez l'URL sur `{url_path}` (le titre est libre). Laissez-le vide. Au prochain redémarrage, ou en rechargeant l'intégration, il sera rempli puis tenu à jour automatiquement."
+    },
+    "supply_sensor_offset": {
+      "title": "Le capteur de température de départ dérive",
+      "description": "La température de départ ({supply_entity}) s'écarte de {offset} K de la sortie d'eau de la pompe à chaleur ({reference_entity}), mesuré sur {hours} heures de chauffage stable. Entre ces deux points, la température de l'eau ne change presque pas : le capteur dérive donc. Le conseil de température de départ et les capteurs d'erreur paraissent décalés d'autant.\n\nVous utilisez OpenQuatt ? Lancez la calibration des capteurs d'eau et vérifiez **Water Supply Temperature Calibration Status**. Sans OpenQuatt : vérifiez le montage du capteur de départ.\n\nCet avis disparaît de lui-même dès que l'écart passe sous {clear} K."
     }
   }
 }

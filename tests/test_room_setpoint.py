@@ -13,6 +13,7 @@ gedetecteerd en gespiegeld; hij werd alleen nooit gebruikt.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from custom_components.quatt_stooklijn.analysis.thermal_model import OnlineRCModel
@@ -89,8 +90,25 @@ def _mpc_sensor(options: dict | None = None, **states) -> QuattMpcSensor:
     sensor._thermal_loaded = True
     sensor._solar_radiation = []
     sensor._forecast = []
-    sensor.coordinator = MagicMock(data=None)
+    sensor.coordinator = MagicMock(data=_analysis())
     return sensor
+
+
+def _analysis(u_wk: float = 250.0, balance_point: float = 16.5):
+    """Analysedata met alleen wat het aanvoeradvies leest: de warmteverliesfit.
+
+    Geen vriescurve (``stooklijn``), dus geen capaciteitsgrens — tests die die
+    willen zetten hem zelf.
+    """
+    return SimpleNamespace(
+        heat_loss_hp=SimpleNamespace(
+            slope=-u_wk,
+            intercept=u_wk * balance_point,
+            balance_point=balance_point,
+            heat_loss_coefficient=u_wk,
+        ),
+        stooklijn=None,
+    )
 
 
 class TestResolveRoomSetpoint:

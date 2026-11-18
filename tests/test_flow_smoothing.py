@@ -10,6 +10,7 @@ mediane afwijking ten opzichte van de werkelijke aanvoer gelijk blijft (0,62 K).
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -110,7 +111,6 @@ class TestGebruikInDeAdviezen:
         states = {OUTDOOR: 3.0, RETURN: 28.0, FLOW: flow, INDOOR: 19.9, SETPOINT: 20.0}
         sensor = _mpc_sensor(**states)
         if smoother is not None:
-            sensor.coordinator = MagicMock(data=None)
             sensor.coordinator.flow_smoother = smoother
         with _sources():
             return sensor.native_value
@@ -129,9 +129,9 @@ class TestCapaciteitsplafond:
 
     def _sensor(self, slope=367.0, intercept=6821.3, **states):
         sensor = _mpc_sensor(**states)
-        sensor.coordinator = MagicMock()
-        sensor.coordinator.data.stooklijn.slope_local = slope
-        sensor.coordinator.data.stooklijn.intercept_local = intercept
+        sensor.coordinator.data.stooklijn = SimpleNamespace(
+            slope_local=slope, intercept_local=intercept
+        )
         sensor.coordinator.flow_smoother = FlowSmoother()
         return sensor
 

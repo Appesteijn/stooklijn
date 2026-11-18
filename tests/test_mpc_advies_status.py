@@ -10,10 +10,13 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from custom_components.quatt_stooklijn.const import (
     MPC_ADVICE_NO_DEMAND,
     MPC_ADVICE_NO_INPUT,
     MPC_ADVICE_OK,
+    MPC_CATCHUP_FACTOR,
 )
 from custom_components.quatt_stooklijn.sensor import QuattMpcSensor
 
@@ -32,7 +35,7 @@ from tests.test_room_setpoint import (
 KOUD = {OUTDOOR: 2.0, RETURN: 28.0, FLOW: 800, INDOOR: 19.5, SETPOINT: 20.0}
 
 
-class TestOnlineModel:
+class TestAdvies:
 
     def test_advies(self):
         sensor = _mpc_sensor(**KOUD)
@@ -61,12 +64,17 @@ class TestOnlineModel:
 
 
 def _batch_sensor(balance_point=16.5, slope=-250.0, intercept=4125.0, **states):
-    """Sensor op de terugval: model niet geconvergeerd, batchregressie wel."""
+    """Sensor met een online model dat (nog) niet geconvergeerd is.
+
+    Tot v0.10.6 was dit een aparte terugvaltak. Het advies rekent nu altijd op
+    de warmteverliesregressie, dus deze tests bewaken alleen dat de toestand van
+    het online model er niets meer aan verandert.
+    """
     sensor = QuattMpcSensor.__new__(QuattMpcSensor)
     sensor.hass = _hass(**states)
     sensor._entry = MagicMock(entry_id="e1", data={}, options={})
     sensor._thermal_store = MagicMock(model=_converged_model())
-    sensor._thermal_loaded = False  # forceert de batch-tak
+    sensor._thermal_loaded = False  # online model niet geladen
     sensor._solar_radiation = []
     sensor._forecast = []
     heat_loss = MagicMock(slope=slope, intercept=intercept, balance_point=balance_point)
@@ -75,7 +83,7 @@ def _batch_sensor(balance_point=16.5, slope=-250.0, intercept=4125.0, **states):
     return sensor
 
 
-class TestBatchTerugval:
+class TestZonderGeconvergeerdModel:
 
     def test_advies(self):
         sensor = _batch_sensor(**KOUD)
@@ -84,7 +92,12 @@ class TestBatchTerugval:
         assert status == MPC_ADVICE_OK
         assert waarde is not None
 
+    def test_zelfde_advies_als_met_geconvergeerd_model(self):
+        with _sources():
+            assert _batch_sensor(**KOUD).native_value == _mpc_sensor(**KOUD).native_value
+
     def test_warm_buiten_is_geen_vraag(self):
+        """Boven het balanspunt ook geen inhaalvraag, al staat de kamer eronder."""
         sensor = _batch_sensor(**{**KOUD, OUTDOOR: 20.0})
         with _sources():
             assert sensor._current_advice() == (None, MPC_ADVICE_NO_DEMAND)
@@ -99,3 +112,43 @@ class TestBatchTerugval:
         sensor = _batch_sensor(slope=None, **KOUD)
         with _sources():
             assert sensor._current_advice() == (None, MPC_ADVICE_NO_INPUT)
+
+
+class TestInhaalterm:
+    """Een kamertekort wordt ingehaald naar verhouding van U, niet van C.
+
+    Tot v0.10.6 vroeg het advies C · tekort extra: het 1R1C wilde een tekort
+    binnen één uur inhalen. Bij een zware vloer schoot het advies daardoor
+    meerdere graden omhoog voor een paar tienden tekort.
+    """
+
+    # U = 250 W/K en balanspunt 16,5 °C uit _analysis; debiet 800 l/h.
+    def _advies(self, indoor, outdoor=2.0, setpoint=20.0, model=None):
+        sensor = _mpc_sensor(**{OUTDOOR: outdoor, RETURN: 28.0, FLOW: 800,
+                                INDOOR: indoor, SETPOINT: setpoint})
+        if model is not None:
+            sensor._thermal_store = MagicMock(model=model)
+        with _sources():
+            return sensor.native_value
+
+    def test_rekenvoorbeeld(self):
+        # stationair 250 · 14,5 = 3625 W, inhaal 10 · 250 · 0,3 = 750 W
+        verwacht = 28.0 + (3625 + MPC_CATCHUP_FACTOR * 250 * 0.3) / (1.16 * 800)
+        assert self._advies(19.7) == pytest.approx(verwacht, abs=0.05)
+
+    def test_tekort_van_drie_tienden_is_minder_dan_een_graad(self):
+        assert self._advies(19.7) - self._advies(20.0) < 1.0
+
+    def test_c_van_het_online_model_telt_niet_mee(self):
+        licht, zwaar = _converged_model(), _converged_model()
+        zwaar._rls.initialise_from_physics(U=250.0, C=60000.0, g=5.0)
+        assert self._advies(19.7, model=licht) == self._advies(19.7, model=zwaar)
+
+    def test_kamer_boven_setpoint_verlaagt_het_advies(self):
+        assert self._advies(20.3) < self._advies(20.0)
+
+    def test_zonder_kamertemperatuur_alleen_het_warmteverlies(self):
+        sensor = _mpc_sensor(**{OUTDOOR: 2.0, RETURN: 28.0, FLOW: 800, SETPOINT: 20.0})
+        with _sources():
+            waarde = sensor.native_value
+        assert waarde == pytest.approx(28.0 + 3625 / (1.16 * 800), abs=0.05)

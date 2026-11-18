@@ -52,7 +52,7 @@ can tell you depends entirely on how much data it has seen.
 |------|-----------|
 | Immediately | Mirror sensors, data sources overview, live COP estimate |
 | First run | Heat loss regression and balance point, using Home Assistant's long-term statistics — these often go back months, so results can be meaningful straight away |
-| After ~2 days of heating | The online thermal model converges (48 hourly updates) and the MPC advice switches from the linear model to the learned model |
+| After ~2 days of heating | The online thermal model converges (48 hourly updates) and the look-ahead, coast time and stored heat start using it |
 | After the first cold period | Knee detection becomes reliable — it needs hours where the heat pump ran at full capacity below 10 °C |
 | Over the following winters | Knee detection and the Quatt advice keep sharpening as the knee data store fills |
 
@@ -258,7 +258,7 @@ Almost every Home Assistant installation has this: the built-in [Met.no integrat
 - **COP tracking** — Average coefficient of performance and per-temperature scatter data
 - **Knee temperature** — Detects the outdoor temperature where supplemental heating (boiler) kicks in
 - **Gas comparison** (optional) — Compare heat pump performance with historical gas consumption from before installation
-- **MPC shadow sensor** — Calculates a recommended supply temperature from the learned house model and current conditions, plus a 12-hour look-ahead based on the weather forecast, without touching your system
+- **MPC shadow sensor** — Calculates a recommended supply temperature from the measured heat loss and the room temperature, plus a 12-hour look-ahead with the learned house model and the weather forecast, without touching your system
 - **Online thermisch model** — Learns your home's thermal characteristics (heat loss W/K, thermal mass Wh/K, solar gain, constant heat gain) in real-time using Recursive Least Squares; improves MPC accuracy continuously
 - **Model comparison** — Scores a two-node (2R2C) house model against the running model on held-out data, once a day. It only measures; the 2R2C model drives nothing
 - **Quatt advies** — Shows exactly which parameters to ask Quatt to adjust (stookgrens, nominaal vermogen, stooklijn breakpoints)
@@ -315,7 +315,7 @@ Each carries `source_entity`, `source_integration`, `candidates` and `switched_a
 |--------|------|-------------|
 | `geschatte_actuele_cop` | — | Interpolated COP at current outdoor temperature |
 | `aanbevolen_aanvoertemperatuur` | °C | Recommended supply temperature (stooklijn-based) |
-| `mpc_aanbevolen_aanvoertemperatuur` | °C | MPC recommended supply temperature (current conditions + solar + RC model) |
+| `mpc_aanbevolen_aanvoertemperatuur` | °C | MPC recommended supply temperature (heat loss + catch-up for a room below setpoint) |
 | `stooklijn_fout_aanvoertemperatuur` | °C | Error: stooklijn advice − actual supply |
 | `mpc_fout_aanvoertemperatuur` | °C | Error: MPC advice − actual supply |
 | `veilige_uitlooptijd` | min | How long the house can coast with the heat pump off before hitting the comfort floor; attribute `recovery_on_min_minutes` is how long getting back to the room setpoint takes with the heat pump at its minimum output |
@@ -365,9 +365,11 @@ The sensor produces two things, from different inputs.
 **The advice** (the sensor's value) uses current conditions only:
 
 1. Reads the current outdoor, room and return temperature, the flow and the room setpoint
-2. Takes the solar radiation for the current hour from [Open-Meteo](https://open-meteo.com/)
-3. Calculates with the learned RC model how much power is needed to reach the room setpoint within one hour. Until that model has converged it uses the linear heat-loss model instead
-4. Converts that power to a supply temperature, limited to 20–55 °C. With the learned model, a room already at its setpoint means no demand and no value
+2. Takes the heat loss of the house at the current outdoor temperature from the heat-loss regression: `U × (balance point − outdoor)`. The balance point is fitted on daily averages, so the average solar gain is already in it
+3. Adds a catch-up term for a room below its setpoint: `10 × U × (setpoint − room)`. A room above its setpoint lowers the advice the same way. Above the balance point there is no catch-up demand
+4. Limits that power to what the heat pump can deliver at this outdoor temperature, and converts it to a supply temperature, limited to 20–55 °C. No demand means no value
+
+The catch-up term is proportional to the heat loss on purpose. Until v0.10.6 the advice tried to make up a shortfall within one hour, which scales with the thermal mass of the house: on a heavy floor a few tenths of a degree pushed the advice up by several degrees. With `10 × U`, a shortfall of 0.3 °C asks for 3 × U extra: about 850 W for a house that loses 285 W/K.
 
 **The look-ahead** (the 12-hour table on the MPC tab) simulates the house forward with the outdoor temperature forecast from your weather entity and the radiation forecast from Open-Meteo.
 

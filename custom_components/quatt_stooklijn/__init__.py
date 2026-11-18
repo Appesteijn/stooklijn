@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 
 from .ch_max_water import ChMaxWaterController
+from .supply_check import SupplySensorCheck
 from .dashboard import DashboardManager
 from .sources import ENTITY_PREFIX, MIRROR_SPECS, OVERVIEW_SLUG, SourceRegistry
 from .const import (
@@ -195,6 +196,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][f"{entry.entry_id}_sources"] = source_registry
     entry.async_on_unload(source_registry.async_setup())
 
+    # Altijd aan: meldt via Repairs een aanvoersensor die structureel naast de
+    # wateruitgang van de warmtepomp ligt (zie supply_check.py).
+    supply_check = SupplySensorCheck(hass, entry.entry_id, merged_config)
+    await supply_check.async_load()
+    hass.data[DOMAIN][f"{entry.entry_id}_supply_check"] = supply_check
+    entry.async_on_unload(supply_check.async_setup())
+
     # Moet vóór het laden van de platforms: staat er nog een spiegelsensor met
     # een area-prefix in het register, dan pakt HA díé entity-id op basis van de
     # unique_id en negeert de vastgepinde id in de entiteit zelf.
@@ -341,6 +349,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
         hass.data[DOMAIN].pop(f"{entry.entry_id}_sources", None)
+        hass.data[DOMAIN].pop(f"{entry.entry_id}_supply_check", None)
 
     # Remove service if no entries left
     if not hass.data[DOMAIN]:

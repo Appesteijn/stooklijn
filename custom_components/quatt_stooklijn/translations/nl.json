@@ -296,6 +296,10 @@
     "dashboard_create_failed": {
       "title": "Quatt Warmteanalyse-dashboard kon niet worden aangemaakt",
       "description": "De integratie kon het dashboard op deze versie van Home Assistant niet zelf aanmaken.\n\nMaak het zelf aan: ga naar **Instellingen → Dashboards → Dashboard toevoegen**, kies **Nieuw dashboard vanaf nul** en zet de URL op `{url_path}` (de titel mag je zelf kiezen). Laat het leeg. Bij de volgende herstart, of als je de integratie herlaadt, vult de integratie het dashboard en houdt het daarna zelf bij."
+    },
+    "supply_sensor_offset": {
+      "title": "Aanvoertemperatuursensor wijkt af",
+      "description": "De aanvoertemperatuur ({supply_entity}) ligt {offset} K naast de wateruitgang van de warmtepomp ({reference_entity}), gemeten over {hours} uur stabiel stoken. Tussen die twee punten verandert de watertemperatuur nauwelijks, dus de sensor wijkt af. Het aanvoeradvies en de foutsensoren lijken daardoor even ver verschoven.\n\nGebruik je OpenQuatt? Voer de kalibratie van de watersensoren uit en kijk bij **Water Supply Temperature Calibration Status**. Zonder OpenQuatt: controleer hoe de aanvoersensor gemonteerd is.\n\nDeze melding verdwijnt vanzelf zodra het verschil onder {clear} K komt."
     }
   }
 }

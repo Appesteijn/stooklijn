@@ -116,6 +116,7 @@ from .const import (
     MPC_ADVICE_NO_INPUT,
     MPC_ADVICE_OK,
     MPC_ADVICE_STATUS_ATTR,
+    MPC_CATCHUP_FACTOR,
     MPC_SUPPLY_TEMP_MAX,
     MPC_SUPPLY_TEMP_MIN,
     OPEN_METEO_FORECAST_URL,
@@ -828,31 +829,19 @@ def _calc_heating_curve_breakpoints(
     return breakpoints
 
 
-def _calc_mpc_supply_temp(
-    heat_loss_slope: float,
-    heat_loss_intercept: float,
-    balance_point: float,
-    t_outdoor: float,
-    t_return: float,
-    flow_lph: float,
-    solar_gain_w: float,
-) -> float | None:
-    """Bereken MPC aanvoertemperatuur.
+@dataclass(frozen=True)
+class AdviceDemand:
+    """Het vermogen achter het aanvoeradvies, uitgesplitst (zie ``_advice_demand``)."""
 
-    warmtevraag = UA × max(0, T_balance - T_buiten) − Q_zon
-    T_aanvoer   = T_retour + max(0, warmtevraag) / (1.16 × debiet)
-    """
-    if flow_lph < MIN_FLOW_LPH:
-        return None
-    raw_demand = heat_loss_slope * t_outdoor + heat_loss_intercept
-    net_demand = max(0.0, raw_demand - solar_gain_w)
-    if net_demand <= 0:
-        # Geen warmtevraag, dus geen aanvoeradvies. Zonder deze afslag zou de
-        # ondergrens hieronder een advies van 20 °C tonen terwijl er niets te
-        # adviseren valt — precies zoals de foutsensoren zwijgen bij stilstand.
-        return None
-    t_supply = t_return + net_demand / (1.16 * flow_lph)
-    return max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, t_supply))
+    stationary_w: float
+    catchup_w: float
+    total_w: float
+    capped_w: float
+    capacity_w: float | None
+
+    @property
+    def capped(self) -> bool:
+        return self.capacity_w is not None and self.total_w > self.capacity_w
 
 
 class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity):
@@ -1583,67 +1572,81 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             return None, MPC_ADVICE_NO_INPUT
 
         effective_flow = _effective_flow(self.coordinator, flow_lph)
-
-        # Online RC model: use learned parameters when converged
-        model = self._thermal_store.model
-        if self._thermal_loaded and model.is_converged:
-            t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
-            if t_indoor is not None:
-                # Voor een advies moet er een getal staan. Onbekend telt hier als
-                # geen zon: dat vraagt eerder te veel warmte dan te weinig, en dat
-                # is de goede kant om op te falen. Leren gebeurt hier niet — daar
-                # wordt een onbekende straling wél overgeslagen.
-                q_solar_wm2 = self._get_current_solar_radiation_wm2() or 0.0
-                t_setpoint, _ = self._resolve_room_setpoint()
-                q_needed = model.calc_required_power(
-                    t_indoor, t_outdoor, q_solar_wm2, t_setpoint=t_setpoint,
-                )
-                if q_needed <= 0:
-                    # Kamer op of boven setpoint: geen vraag, geen advies. De
-                    # ondergrens hieronder zou anders 20 °C tonen bij nul vraag.
-                    return None, MPC_ADVICE_NO_DEMAND
-                # Het model wil een tekort binnen een uur inhalen. Bij een zwaar
-                # huis (grote C) kan dat meer vragen dan de warmtepomp kan
-                # leveren, en een aanvoeradvies voor vermogen dat er niet is
-                # zegt niets. Begrensd op de gemeten capaciteit.
-                capacity = self._capacity_w(t_outdoor)
-                if capacity is not None:
-                    q_needed = min(q_needed, capacity)
-                t_supply = t_return + q_needed / (1.16 * effective_flow)
-                # Heating branch: floor at MPC_SUPPLY_TEMP_MIN (HP is inefficient
-                # below ~20°C aanvoer). COOL_MIN (15°C) is reserved for the future
-                # cooling branch where aanvoer < retour.
-                return round(
-                    max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, t_supply)),
-                    1,
-                ), MPC_ADVICE_OK
-
-        # Fallback: batch heat loss model
-        if self.coordinator.data is None:
-            return None, MPC_ADVICE_NO_INPUT
-        heat_loss = self.coordinator.data.heat_loss_hp
-        if heat_loss.slope is None or heat_loss.intercept is None or heat_loss.balance_point is None:
-            return None, MPC_ADVICE_NO_INPUT
-
-        solar_gain_w = (self._get_current_solar_radiation_wm2() or 0.0) * SOLAR_RADIATION_DEFAULT_FACTOR
-        value = _calc_mpc_supply_temp(
-            heat_loss.slope,
-            heat_loss.intercept,
-            heat_loss.balance_point,
-            t_outdoor,
-            t_return,
-            effective_flow,
-            solar_gain_w,
-        )
-        if value is not None:
-            return value, MPC_ADVICE_OK
-        # _calc_mpc_supply_temp zwijgt om precies twee redenen: te weinig debiet
-        # of geen netto vraag. effective_flow valt bij een stilstaande pomp al
-        # terug op het nominale debiet, dus de eerste komt hier in de praktijk
-        # niet voor — maar mocht dat ooit veranderen, dan is het geen "warm genoeg".
         if effective_flow < MIN_FLOW_LPH:
+            # effective_flow valt bij een stilstaande pomp al terug op het
+            # nominale debiet, dus dit komt in de praktijk niet voor — maar
+            # mocht dat ooit veranderen, dan is het geen "warm genoeg".
             return None, MPC_ADVICE_NO_INPUT
-        return None, MPC_ADVICE_NO_DEMAND
+
+        demand = self._advice_demand(t_outdoor)
+        if demand is None:
+            return None, MPC_ADVICE_NO_INPUT
+        if demand.total_w <= 0:
+            # Kamer warm genoeg of buiten boven het balanspunt: geen vraag, geen
+            # advies. De ondergrens hieronder zou anders 20 °C tonen bij nul vraag.
+            return None, MPC_ADVICE_NO_DEMAND
+        t_supply = t_return + demand.capped_w / (1.16 * effective_flow)
+        # Heating branch: floor at MPC_SUPPLY_TEMP_MIN (HP is inefficient
+        # below ~20°C aanvoer). COOL_MIN (15°C) is reserved for the future
+        # cooling branch where aanvoer < retour.
+        return round(
+            max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, t_supply)),
+            1,
+        ), MPC_ADVICE_OK
+
+    def _advice_demand(self, t_outdoor: float) -> AdviceDemand | None:
+        """Het vermogen waar het aanvoeradvies op rekent, of None zonder huismodel.
+
+        Twee delen, en geen van beide komt uit het online 1R1C:
+
+        * **Stationair**: ``U · max(0, T_balans − T_buiten)`` uit de
+          warmteverliesregressie. Gemeten (8–18 nov 2026) klopte die op het
+          gemiddelde tot op 1% (3.264 W voorspeld, 3.287 W geleverd), terwijl
+          het 1R1C 300–400 W te laag uitkwam: zijn P_c is opgeslagen als P_c/C
+          en groeide mee toen C opliep. In de K/u-ruimte waarin het model leert
+          is dat 0,04 K/u, onder de uurruis van de kamertemperatuur — maar het
+          advies vermenigvuldigt met C.
+
+          Geen aparte zonterm: het balanspunt is op daggemiddelden gefit en
+          bevat de gemiddelde zon al. De geleerde zonfactor er nog eens van
+          aftrekken maakte de zonuren 300 W slechter. Op een zonnige voorjaarsdag
+          is dit nog niet getoetst.
+        * **Inhaal**: ``MPC_CATCHUP_FACTOR · U · (setpoint − kamer)``. Zie de
+          toelichting bij die constante. Nul zonder kamertemperatuur, en nul
+          boven het balanspunt.
+
+        Begrensd op de gemeten capaciteit: een advies voor vermogen dat er niet
+        is zegt niets.
+        """
+        data = getattr(self.coordinator, "data", None)
+        heat_loss = getattr(data, "heat_loss_hp", None)
+        slope = getattr(heat_loss, "slope", None)
+        balance_point = getattr(heat_loss, "balance_point", None)
+        if not isinstance(slope, (int, float)) or not isinstance(balance_point, (int, float)):
+            return None
+        u_wk = -float(slope)
+        if u_wk <= 0:
+            return None
+
+        stationary = u_wk * max(0.0, float(balance_point) - t_outdoor)
+        catchup = 0.0
+        t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
+        # Boven het balanspunt geen inhaalvraag: daar stookt de regelaar niet, en
+        # een kamer die er onder het setpoint zit is geen stookvraag maar een
+        # zomerdag of een open raam.
+        if t_indoor is not None and stationary > 0:
+            t_setpoint, _ = self._resolve_room_setpoint()
+            catchup = MPC_CATCHUP_FACTOR * u_wk * (t_setpoint - t_indoor)
+        total = stationary + catchup
+        capacity = self._capacity_w(t_outdoor)
+        capped = min(total, capacity) if capacity is not None else total
+        return AdviceDemand(
+            stationary_w=stationary,
+            catchup_w=catchup,
+            total_w=total,
+            capped_w=capped,
+            capacity_w=capacity,
+        )
 
     @property
     def extra_state_attributes(self) -> dict | None:
@@ -1729,28 +1732,10 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
 
         capacity_w = self._capacity_w(t_outdoor) if t_outdoor is not None else None
 
-        # Current demand (from whichever model is active)
-        raw_demand = None
-        net_demand = None
+        # Het vermogen waar het advies van nu op rekent. Bewust dezelfde
+        # berekening als de state, zodat de attributen er niet naast kunnen zitten.
         current_rad_wm2 = self._get_current_solar_radiation_wm2()
-        if model.is_converged and t_outdoor is not None:
-            t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
-            if t_indoor is not None:
-                raw_demand = model.calc_required_power(
-                    t_indoor, t_outdoor, 0.0, t_setpoint=room_setpoint,
-                )
-                net_demand = model.calc_required_power(
-                    t_indoor, t_outdoor, current_rad_wm2 or 0.0,
-                    t_setpoint=room_setpoint,
-                )
-        elif self.coordinator.data is not None:
-            heat_loss = self.coordinator.data.heat_loss_hp
-            if heat_loss.slope is not None and t_outdoor is not None:
-                from .analysis.utils import calc_heat_demand
-                raw_demand = calc_heat_demand(
-                    heat_loss.slope, heat_loss.intercept, t_outdoor,
-                )
-                net_demand = max(0.0, raw_demand - solar_gain_w)
+        demand = self._advice_demand(t_outdoor) if t_outdoor is not None else None
 
         return {
             # Waarom de state er wel of niet staat; zie MPC_ADVICE_STATUS_ATTR.
@@ -1763,16 +1748,19 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             # Wat de warmtepomp bij deze buitentemperatuur kan leveren (vriescurve),
             # en of de vraag daarop is afgekapt.
             "capaciteit_w": round(capacity_w) if capacity_w is not None else None,
-            "advies_begrensd": bool(
-                capacity_w is not None and net_demand is not None
-                and model.is_converged and net_demand > capacity_w
-            ),
+            "advies_begrensd": bool(demand is not None and demand.capped),
             "solar_gain_w": round(solar_gain_w),
             # Welke factor die winst opleverde — anders is niet te zien of je
             # naar het geleerde of het hardgecodeerde getal kijkt.
             "solar_factor_w_per_wm2": round(solar_factor, 3),
-            "heat_demand_w": round(raw_demand) if raw_demand is not None else None,
-            "net_demand_w": round(net_demand) if net_demand is not None else None,
+            # Waar het advies uit bestaat: warmteverlies bij deze buitentemperatuur
+            # (heat_demand_w) plus het inhalen van een kamertekort (inhaal_w).
+            # net_demand_w is de som, vóór de capaciteitsgrens. Zie _advice_demand.
+            "advies_basis": "warmteverlies + inhaalterm",
+            "heat_demand_w": round(demand.stationary_w) if demand is not None else None,
+            "inhaal_w": round(demand.catchup_w) if demand is not None else None,
+            "inhaalfactor": MPC_CATCHUP_FACTOR,
+            "net_demand_w": round(demand.total_w) if demand is not None else None,
             # None als de reeks ontbreekt of verouderd is — een nul zou hier
             # niet te onderscheiden zijn van een echte nacht.
             "solar_radiation_wm2": (

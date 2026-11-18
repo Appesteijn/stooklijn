@@ -179,6 +179,22 @@ MPC_SUPPLY_TEMP_MIN = 20.0       # °C — warmtepompen werken niet effectief on
 MPC_SUPPLY_TEMP_COOL_MIN = 15.0  # °C — ondergrens voor koeling (LTV convectoren ~15°C)
 MPC_SUPPLY_TEMP_MAX = 55.0       # °C
 
+# Hoe hard het aanvoeradvies een kamertekort inhaalt, als veelvoud van het
+# warmteverlies: P_inhaal = MPC_CATCHUP_FACTOR · U · (setpoint − kamer).
+#
+# Tot v0.10.6 stond hier impliciet C · tekort: het 1R1C wilde een tekort binnen
+# één uur inhalen. Bij een huis met C ≈ 10.600 Wh/K is dat ~3 kW voor 0,3 K
+# tekort, en bij een zware vloer een veelvoud — het advies schoot dan meerdere
+# graden omhoog voor een tekort dat geen haast heeft. Uitgedrukt in U valt C
+# eruit, en daarmee ook de parameter die het online model het slechtst kent.
+#
+# Waarom 10: nagerekend op 10 dagen stookdata (8–18 nov 2026, radiatoren) tegen
+# de werkelijke aanvoer. N=10 gaf de kleinste afwijking (gem. −0,03 K, MAE 0,31)
+# en was gelijk over nacht, avond en zonuren; N=5 lag 0,16 K te laag, N=20
+# 0,26 K te hoog. Een tekort van 0,3 K vraagt zo 3·U extra, bij dat huis ~850 W.
+# Nog niet getoetst op een zware vloer.
+MPC_CATCHUP_FACTOR = 10.0
+
 # Waarom de MPC-sensor wel of geen advies geeft, als attribuut naast de waarde.
 # "Geen waarde" betekent twee dingen die je niet hetzelfde wilt behandelen: het
 # huis heeft geen warmte nodig (het advies blijft bewust leeg, een ondergrens

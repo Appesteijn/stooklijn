@@ -296,6 +296,10 @@
     "dashboard_create_failed": {
       "title": "Quatt-Warmteanalyse-Dashboard konnte nicht erstellt werden",
       "description": "Die Integration konnte ihr Dashboard in dieser Home-Assistant-Version nicht automatisch erstellen.\n\nErstelle es selbst: **Einstellungen → Dashboards → Dashboard hinzufügen**, wähle **Neues Dashboard von Grund auf** und setze die URL auf `{url_path}` (der Titel ist frei wählbar). Lass es leer. Beim nächsten Neustart oder beim Neuladen der Integration wird das Dashboard gefüllt und danach aktuell gehalten."
+    },
+    "supply_sensor_offset": {
+      "title": "Vorlauftemperatursensor weicht ab",
+      "description": "Die Vorlauftemperatur ({supply_entity}) liegt {offset} K neben dem Wasserausgang der Wärmepumpe ({reference_entity}), gemessen über {hours} Stunden stabilen Heizbetriebs. Zwischen diesen beiden Punkten ändert sich die Wassertemperatur kaum, der Sensor weicht also ab. Die Vorlaufempfehlung und die Fehlersensoren erscheinen dadurch um denselben Betrag verschoben.\n\nNutzt du OpenQuatt? Führe die Kalibrierung der Wassersensoren aus und prüfe **Water Supply Temperature Calibration Status**. Ohne OpenQuatt: prüfe die Montage des Vorlaufsensors.\n\nDiese Meldung verschwindet von selbst, sobald die Abweichung unter {clear} K liegt."
     }
   }
 }
