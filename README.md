@@ -260,7 +260,7 @@ Almost every Home Assistant installation has this: the built-in [Met.no integrat
 - **Knee temperature** — Detects the outdoor temperature where supplemental heating (boiler) kicks in
 - **Gas comparison** (optional) — Compare heat pump performance with historical gas consumption from before installation
 - **MPC shadow sensor** — Calculates a recommended supply temperature from the measured heat loss and the room temperature, plus a 12-hour look-ahead with the learned house model and the weather forecast, without touching your system
-- **Online thermisch model** — Learns your home's thermal characteristics (heat loss W/K, thermal mass Wh/K, solar gain, constant heat gain) in real-time using Recursive Least Squares; improves MPC accuracy continuously
+- **Online thermisch model** — Learns how fast your house warms up and cools down (thermal mass Wh/K, solar gain) every hour, with heat loss and constant heat gain held at the heat-loss regression. It feeds the look-ahead, coast time, stored heat and price shift; see [Which model is used where](#which-model-is-used-where)
 - **Model comparison** — Scores a two-node (2R2C) house model against the running model on held-out data, once a day. It only measures; the 2R2C model drives nothing
 - **Quatt advies** — Shows exactly which parameters to ask Quatt to adjust (stookgrens, nominaal vermogen, stooklijn breakpoints)
 - **Geluidsniveaucompensatie** (optional) — Automatically adjusts the compressor sound level based on MPC error and boiler activity, with separate day/night limits
@@ -679,9 +679,42 @@ The integration combines five data sources for the best balance of coverage, acc
 
 ## Prediction models
 
-The integration uses three models that build on each other. A fourth, the [2R2C model](#2r2c-model-measured-only), is only measured and drives nothing.
+The integration uses four house models and two helper curves. **Everything that influences the heat pump runs on the heat-loss regression.** The two thermal models (1R1C and 2R2C) describe how fast the room warms up and cools down; they feed forecasts and estimates, but control nothing.
 
-### Linear model (heat loss regression)
+### Which model is used where
+
+| Model | What it is | What it learns from |
+|---|---|---|
+| **Heat-loss regression** | A straight line: heat demand = U × (balance point − outdoor) | Daily averages over a season |
+| **Stooklijn / freeze curve** | The heating curve, the knee, and what the heat pump can deliver per outdoor temperature | Minute data of the heat pump |
+| **1R1C** (online) | One thermal mass: U, C, solar factor, constant heat gain | One reading per hour (RLS); U and the constant heat gain are held at the heat-loss regression |
+| **2R2C** | Air and building mass as two separate nodes | A nightly fit on the 5-minute log |
+
+Helper curves: the **COP curve** (efficiency per outdoor temperature) and the **minimum output** of the heat pump (learned from the log).
+
+| Output | Model |
+|---|---|
+| Stooklijn advice (supply temperature) | Heat-loss regression, without a room term |
+| **MPC advice** | Heat-loss regression + catch-up term (10 × U × shortfall), capped by the freeze curve |
+| Heat demand (Power House input) | Heat-loss regression |
+| Quatt advies / Power House calibration | Heat-loss regression |
+| Supply-temperature control | Stooklijn advice or MPC advice (your choice) |
+| Sound level compensation | MPC advice |
+| Look-ahead: power and supply temperature per hour | The same formula as the MPC advice |
+| Look-ahead: room temperature and buffer | **1R1C** |
+| Look-ahead: room temperature (2R2C) | **2R2C**, shown only |
+| Safe coast time, recovery at minimum output | **1R1C** + minimum output |
+| Stored heat | **1R1C** (its C) |
+| Price shift: baseline and drift limit | **1R1C** + COP curve |
+| Price shift: room temperature chart | **2R2C** |
+| Model comparison | 2R2C (horizontal sun and window sun) against 1R1C against "doing nothing" |
+| Chart "Huis thermisch profiel" | Heat-loss regression + stooklijn + freeze curve |
+
+Because the 1R1C takes U and its constant heat gain from the heat-loss regression, its steady state is the same line: U × (room − outdoor) − U × (room − balance point) = U × (balance point − outdoor). What it adds is the dynamics: how much heat the house stores (C) and how strongly it reacts to the sun.
+
+The sun enters each model differently: implicitly in the balance point of the heat-loss regression (the average sun), as a learned factor on horizontal radiation in the 1R1C, and horizontally or on the windows (with a sun sensor) in the 2R2C. See [Solar gain correction](#solar-gain-correction).
+
+### Heat-loss regression
 
 The basis of the whole integration. It fits a straight line through your historical daily data:
 
@@ -690,43 +723,26 @@ heat demand (W) = slope × T_outdoor + intercept
 ```
 
 - **Input:** daily data from the HA statistics, supplemented by the Quatt API when enabled (average outdoor temperature vs. total power)
-- **Output:** heat loss coefficient (W/K), balance point (°C), rated power at any temperature
-- **Used by:** MPC sensor, Quatt advies sensor, stooklijn breakpoints, OpenQuatt sensors
+- **Output:** heat loss coefficient U (W/K), balance point (°C), rated power at any temperature
 - **Method:** two-pass linear regression with outlier filtering (residuals above 2.5σ are removed)
-- **Limitation:** assumes the relation between temperature and heat demand is a straight line, and ignores wind, sun and thermal mass
+- **Limitation:** assumes the relation between temperature and heat demand is a straight line; wind and thermal mass are not in it, and the sun only as an average
 
 ### Online thermal model (1R1C with RLS)
 
-The primary model for the MPC. It updates the thermal properties of your home every hour using Recursive Least Squares:
+Describes how fast the room temperature changes. It updates every hour using Recursive Least Squares:
 
 ```
 C × dT_indoor/dt = Q_hp − U × (T_indoor − T_outdoor) + g × radiation + P_c
 ```
 
-- **Parameters it learns:** heat loss U (W/K), thermal mass C (Wh/K), solar gain g (W per W/m²), constant heat gain P_c (W)
-- **Why P_c:** the balance point lies a few degrees below room temperature, so heat comes in that the other terms do not explain. Without this term that error ends up in C
-- **Input:** hourly readings of indoor temperature, outdoor temperature, heat pump power and Open-Meteo solar radiation
-- **Convergence:** after ~48 hours of active heating the parameters are reliable; the dashboard shows the progress
-- **Fallback:** until the model has converged, the MPC uses the batch linear model
+- **What it learns itself:** thermal mass C (Wh/K) and solar gain g (W per W/m²)
+- **What it takes from the heat-loss regression:** U, and the constant heat gain P_c = U × (room temperature − balance point). Learned freely, P_c grew along with C (1,406 W against ~970 W from the balance point on the measured house), and the model predicted the room 0.7 °C too warm after 12 hours. Held at the regression, C stays stable and the 12-hour error dropped from 0.66 to 0.41 K
+- **Input:** one reading per hour of indoor temperature, outdoor temperature, heat pump power and solar radiation
+- **Convergence:** after ~48 hours of active heating the parameters are usable; the dashboard shows the progress. Until then the look-ahead falls back on the heat-loss regression
 
-### MPC forecast (physics-based)
+### MPC advice and look-ahead
 
-Builds on the RC model and calculates the recommended supply temperature:
-
-```
-T_supply = T_return + max(0, heat demand − solar heat) / (1.16 × flow)
-```
-
-- **Input for the advice:** live sensor data (return temperature, flow, outdoor and room temperature, setpoint) + solar radiation for the current hour (Open-Meteo)
-- **Input for the look-ahead:** weather forecast (12 hours) + forecast solar radiation (Open-Meteo)
-- **Output:** recommended supply temperature now, plus a 12-hour look-ahead. The forecast does not change the current advice
-
-| | Linear model | RC model (online) | MPC forecast |
-|---|---|---|---|
-| **Data source** | Historical daily data | Hourly readings (continuous) | Live sensors, plus the weather forecast for the look-ahead |
-| **Sun/wind** | No | Sun yes | Sun yes |
-| **Update frequency** | On analysis (startup) | Every hour | Every sensor update |
-| **Purpose** | Thermal characteristics (basis) | Refined U/C/g/P_c parameters | Real-time supply temperature advice |
+See [MPC shadow sensor](#mpc-shadow-sensor) for the advice. In short: heat loss from the regression plus a catch-up term for a room below its setpoint, capped at what the heat pump can deliver, converted to a supply temperature with the measured return temperature and flow. The 12-hour look-ahead applies the same formula per hour, with the room temperature the 1R1C predicts for that hour.
 
 ### 2R2C model (measured only)
 
@@ -735,6 +751,7 @@ The 1R1C model treats the house as one whole with one speed of response. The 2R2
 - **Input:** the integration's own log, with readings every 5 minutes
 - **Fitting and testing:** fitted on 5-minute data over 6 hours ahead, tested per hour over 12 hours ahead. Calendar weeks alternate between training and testing, so the test data is not part of the fit
 - **Gate:** at least 336 hours of training data (a weekly block only counts from 72 hours), and an RMSE at least 5% below both the 1R1C model and "doing nothing"
+- **With a sun sensor:** a second fit uses the sun as it comes through the windows, measured with the PV installation. On the measured house that was 14 % better than horizontal radiation
 - **When:** 10 minutes after a (re)start and every 24 hours after that. The result is not stored, so after a restart it briefly shows `nog niet gemeten`
 - **Sensor states:** `nog niet gemeten` (not measured yet), `te weinig data` (too little data), `fit mislukt` (fit failed), `niet beter` (not better) or `beter` (better)
 
@@ -745,23 +762,19 @@ The 1R1C model treats the house as one whole with one speed of response. The 2R2
 XGBoost models were trained in Jupyter notebooks during research. Those files are not in the repository and are **not integrated** into the Home Assistant component.
 
 - **What it does:** predicts heat demand with more features than the linear model (wind, sun, time, thermal mass)
-- **Potential benefit:** more accurate predictions in changing weather; could replace the linear model in the MPC
 - **Status:** research stage, not connected to the integration
 
 ### How the models work together
 
 ```
-Historical data → [Linear model] → slope, intercept, balance point
-                                          ↓
-Hourly readings → [RC model (RLS)] → U, C, g, P_c (online learning)
-                                          ↓
-Live sensors + weather → [MPC forecast] → recommended supply temperature
-                                          ↓
-                          ┌───────────────┼─────────────────────┐
-                          ↓               ↓                     ↓
-                    Quatt advies    Sound level             OpenQuatt
-                     (static)       compensation          (output sensors)
-                                  (compressor control)
+Daily history ──→ [Heat-loss regression] ──→ U, balance point ──┬──→ MPC advice ──→ supply-temperature control,
+                                                                 │                   sound level, look-ahead power
+Minute data ───→ [Stooklijn / freeze curve] ──→ capacity cap ────┤
+                                                                 ├──→ Quatt advies, Power House heat demand
+Hourly readings → [1R1C] ← U and P_c from the regression ────────┘
+                     └──→ C, solar factor ──→ look-ahead room temperature, coast time,
+                                              stored heat, price shift
+5-minute log ───→ [2R2C] (nightly fit) ──→ model comparison, 2R2C columns and charts (shown only)
 ```
 
 ## Short cycling
