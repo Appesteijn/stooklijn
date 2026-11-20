@@ -1451,7 +1451,7 @@ views:
 
               ### Komende {{ fc | length }} uur
 
-              {% set ns = namespace(tbl='| Uur | T buiten | T binnen | Buffer | HP | Vermogen | Aan | Aanvoer | Aanvoer (geen zon) |\n|:--|--:|--:|--:|:--:|--:|--:|--:|--:|\n') %}{% for h in fc %}{% set t_in = h.get('t_indoor_predicted') %}{% set buf = h.get('stored_heat_kwh') %}{% set ns_val = h.get('supply_temp_no_solar') %}{% set ns.tbl = ns.tbl + '| **+' + h.hour|string + '** | ' + (h.temp_forecast|round(1))|string + '°C | ' + (t_in|string + '°C' if t_in is not none else '-') + ' | ' + (buf|string + ' kWh' if buf is not none else '-') + ' | ' + ('🔥' if h.get('hp_needed') else '⏸️') + ' | ' + (h.get('q_hp_needed_w')|string + ' W' if h.get('q_hp_needed_w') is not none else '-') + ' | ' + (h.get('aan_pct')|string + '%' if h.get('aan_pct') is not none and h.get('hp_needed') else '-') + ' | ' + (h.supply_temp|string + '°C' if h.supply_temp is not none else '-') + ' | ' + (ns_val|string + '°C' if ns_val is not none else '-') + ' |\n' %}{% endfor %}
+              {% set ns = namespace(tbl='| Uur | T buiten | T binnen | T binnen (2R2C) | Buffer | HP | Vermogen | Aan | Aanvoer | Aanvoer (geen zon) |\n|:--|--:|--:|--:|--:|:--:|--:|--:|--:|--:|\n') %}{% for h in fc %}{% set t_in = h.get('t_indoor_predicted') %}{% set t_2r = h.get('t_indoor_2r2c') %}{% set buf = h.get('stored_heat_kwh') %}{% set ns_val = h.get('supply_temp_no_solar') %}{% set ns.tbl = ns.tbl + '| **+' + h.hour|string + '** | ' + (h.temp_forecast|round(1))|string + '°C | ' + (t_in|string + '°C' if t_in is not none else '-') + ' | ' + (t_2r|string + '°C' if t_2r is not none else '-') + ' | ' + (buf|string + ' kWh' if buf is not none else '-') + ' | ' + ('🔥' if h.get('hp_needed') else '⏸️') + ' | ' + (h.get('q_hp_needed_w')|string + ' W' if h.get('q_hp_needed_w') is not none else '-') + ' | ' + (h.get('aan_pct')|string + '%' if h.get('aan_pct') is not none and h.get('hp_needed') else '-') + ' | ' + (h.supply_temp|string + '°C' if h.supply_temp is not none else '-') + ' | ' + (ns_val|string + '°C' if ns_val is not none else '-') + ' |\n' %}{% endfor %}
 
               {{ ns.tbl }}
 
@@ -1464,6 +1464,15 @@ views:
               minimum, daarna uit.{% else %}**Aan:** verschijnt zodra het
               minimumvermogen van de warmtepomp uit genoeg stabiele runs geleerd
               is.{% endif %}
+
+
+              {% set k2 = state_attr(mpc, 'kamer_2r2c') %}
+
+              **T binnen (2R2C):** wat het vermogen uit de tabel met de kamer
+              doet volgens het 2R2C-model, dat de kamer beter voorspelt maar het
+              vermogen niet stuurt.{% if k2 and k2.fout_12u_k is not none %}
+              Gemeten fout twaalf uur vooruit: {{ k2.fout_12u_k }} K.{% elif k2
+              and k2.reden %} Nu leeg: {{ k2.reden }}.{% endif %}
 
 
               *Bron: {{ src | default('batch') }}*

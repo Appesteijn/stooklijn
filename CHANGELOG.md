@@ -3,6 +3,19 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.6-beta.9 — 2026-11-20
+
+Betaversie met de kamer volgens het 2R2C in de vooruitblik.
+
+- **De vooruitblik toont ook de kamer volgens het 2R2C.** Nieuwe kolom
+  "T binnen (2R2C)": wat het vermogen uit de tabel met de kamer doet volgens
+  het 2R2C-model. Dat voorspelt de kamer beter (twaalf uur vooruit 0,27 K, 46%
+  beter dan het 1R1C), en laat bij een huis met een zware vloer zien dat de
+  lucht eerst sneller opwarmt en daarna afvlakt. Het vermogen in de tabel komt
+  nog steeds uit het 1R1C: het 2R2C rekent alleen mee. De kolom blijft leeg
+  zolang de modelvergelijking het 2R2C niet heeft goedgekeurd; de reden staat
+  onder de tabel.
+
 ## v0.10.6-beta.8 — 2026-11-20
 
 Betaversie waarin de vooruitblik rekent zoals het advies.

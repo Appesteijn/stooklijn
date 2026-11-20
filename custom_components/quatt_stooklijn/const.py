@@ -195,6 +195,12 @@ MPC_SUPPLY_TEMP_MAX = 55.0       # °C
 # Nog niet getoetst op een zware vloer.
 MPC_CATCHUP_FACTOR = 10.0
 
+# Hoe lang de begintoestand van het 2R2C (kamer + gereconstrueerde massa) voor
+# de vooruitblik bewaard blijft. Het logboek krijgt elke vijf minuten een
+# monster, en de massa beweegt in die tijd nauwelijks; de attributen worden
+# intussen bij elke statuswijziging opnieuw opgebouwd.
+MPC_2R2C_START_TTL_S = 300
+
 # Waarom de MPC-sensor wel of geen advies geeft, als attribuut naast de waarde.
 # "Geen waarde" betekent twee dingen die je niet hetzelfde wilt behandelen: het
 # huis heeft geen warmte nodig (het advies blijft bewust leeg, een ondergrens

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from time import monotonic
 import logging
 import math
+import time
 from typing import Any
 from urllib.parse import quote
 
@@ -120,6 +121,7 @@ from .const import (
     MPC_ADVICE_NO_INPUT,
     MPC_ADVICE_OK,
     MPC_ADVICE_STATUS_ATTR,
+    MPC_2R2C_START_TTL_S,
     MPC_CATCHUP_FACTOR,
     MPC_SUPPLY_TEMP_MAX,
     MPC_SUPPLY_TEMP_MIN,
@@ -445,6 +447,7 @@ async def async_setup_entry(
     # Deelt hetzelfde model en meetlogboek; scoort alleen, stuurt niets aan.
     benchmark_sensor = QuattModelBenchmarkSensor(coordinator, entry, mpc_sensor)
     entities.append(benchmark_sensor)
+    mpc_sensor.benchmark = benchmark_sensor
 
     # Geen entity-ID's meer meegeven: die werden hier één keer bij het opstarten
     # bepaald en daarna nooit meer. De sensor zoekt ze nu zelf op via de
@@ -891,6 +894,11 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         self._min_power: MinPowerCurve = MinPowerCurve()
         self._min_power_at: datetime | None = None
         self._thermal_loaded = False
+        # De modelvergelijking, voor de 2R2C-kolom in de vooruitblik. Wordt na
+        # het aanmaken gezet: die sensor krijgt deze als argument, niet andersom.
+        self.benchmark: QuattModelBenchmarkSensor | None = None
+        # (monotone tijd, parameters, begintoestand); zie _room_2r2c.
+        self._start_2r2c: tuple[float, tuple, Any] | None = None
 
     # ------------------------------------------------------------------ helpers
 
@@ -1736,6 +1744,15 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 else None
             )
 
+        # De kamer volgens het 2R2C bij hetzelfde vermogen per uur. Alleen
+        # meerekenen: het vermogen blijft uit de 1R1C-kamer komen. Zie _room_2r2c.
+        kamer_2r2c, reden_2r2c = self._room_2r2c(forecast_out, fc_solar_wm2)
+        for i, entry in enumerate(forecast_out):
+            entry["t_indoor_2r2c"] = (
+                round(kamer_2r2c[i], 1) if kamer_2r2c is not None else None
+            )
+        bench_result = self.benchmark.result if self.benchmark is not None else None
+
         capacity_w = self._capacity_w(t_outdoor) if t_outdoor is not None else None
 
         # Het vermogen waar het advies van nu op rekent. Bewust dezelfde
@@ -1791,8 +1808,77 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             # opnieuw op de sleutelnaam hoeft te vertrouwen als hij weer wijzigt.
             "forecast": forecast_out,
             "forecast_uren": len(forecast_out),
+            # De kolom t_indoor_2r2c: waarom hij leeg is, en hoe goed het model
+            # twaalf uur vooruit voorspelt (de vooruitblik is twaalf uur lang).
+            "kamer_2r2c": {
+                "reden": reden_2r2c,
+                "fout_12u_k": (
+                    bench_result.rmse_k
+                    if bench_result is not None and reden_2r2c is None
+                    else None
+                ),
+            },
             "minimumvermogen": min_curve.as_attribute() if min_curve.bins else None,
         }
+
+    def _room_2r2c(
+        self, forecast: list[dict], solar_wm2: list[float]
+    ) -> tuple[list[float] | None, str | None]:
+        """Kamertemperatuur aan het eind van elk vooruitblik-uur volgens het 2R2C.
+
+        Het 2R2C voorspelt de kamer beter dan het 1R1C (twaalf uur vooruit 0,27
+        K, 46% beter, november 2026), maar wordt hier alleen gebruikt om te
+        laten zien wat het vermogen uit de tabel met de kamer doet. Het vermogen
+        zelf erop laten rekenen leunt op wat het 2R2C het slechtst kent, de
+        stationaire balans; zie ``analysis/shift_room_temp.py``.
+
+        Alleen met een fit die de poort van de modelvergelijking haalde. De
+        begintoestand (massatemperatuur uit vier dagen logboek) wordt
+        ``MPC_2R2C_START_TTL_S`` bewaard: de attributen worden bij elke
+        statuswijziging opgebouwd.
+        """
+        from .analysis.shift_room_temp import room_after_each_step, start_state
+        from .analysis.thermal_model_2r2c import TwoStateParams
+
+        if not forecast:
+            return None, "geen vooruitblik"
+        result = self.benchmark.result if self.benchmark is not None else None
+        if result is None:
+            return None, "modelvergelijking nog niet gemeten"
+        if not result.accepted or not result.params:
+            return None, "2R2C voorspelt nog niet beter dan het huidige model"
+        try:
+            params = TwoStateParams.from_dict(result.params)
+            key = tuple(sorted(result.params.items()))
+            now = time.monotonic()
+            cached = self._start_2r2c
+            if (
+                cached is None
+                or cached[1] != key
+                or now - cached[0] > MPC_2R2C_START_TTL_S
+            ):
+                start = start_state(
+                    params, self.highres_samples, dt_util.utcnow().timestamp()
+                )
+                self._start_2r2c = (now, key, start)
+            else:
+                start = cached[2]
+            if start.reason is not None:
+                return None, start.reason
+            n = len(forecast)
+            return room_after_each_step(
+                params,
+                start,
+                [float(h["temp_forecast"]) for h in forecast],
+                [float(v) for v in solar_wm2[:n]] + [0.0] * (n - len(solar_wm2)),
+                [float(h.get("q_hp_needed_w") or 0.0) for h in forecast],
+                1.0,
+            ), None
+        except (KeyError, IndexError, TypeError, ValueError, ArithmeticError):
+            # Niet als warning: de attributen worden vaak opgebouwd, en de reden
+            # staat al in kamer_2r2c.
+            _LOGGER.debug("2R2C-kamer doorrekenen mislukt", exc_info=True)
+            return None, "doorrekenen mislukt"
 
     def _build_batch_forecast(
         self,
