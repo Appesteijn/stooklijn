@@ -711,7 +711,10 @@ class AdviceDemand:
 
     @property
     def capped(self) -> bool:
-        return self.capacity_w is not None and self.total_w > self.capacity_w
+        # bool(): de capaciteit komt uit een numpy-fit, en dan is de vergelijking
+        # een numpy.bool, die Home Assistant niet naar JSON krijgt (beta.8/9:
+        # de hele MPC-sensor gaf 500).
+        return bool(self.capacity_w is not None and self.total_w > self.capacity_w)
 
 
 def advice_demand(
@@ -835,7 +838,7 @@ def simulate_advice_forward(
             "supply_temp": supply,
             "supply_temp_no_solar": supply_ns,
             "hp_needed": bool(q > 200),  # MIN_HEATING_WATTS
-            "begrensd": d.capped,
+            "begrensd": bool(d.capped),
             "stored_heat_kwh": stored_heat_kwh(c_whk, t_in_next, comfort_floor),
         })
         t_in = t_in_next

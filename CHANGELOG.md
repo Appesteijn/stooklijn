@@ -3,6 +3,15 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.6-beta.10 — 2026-11-20
+
+Herstelversie: de MPC-sensor is weer leesbaar.
+
+- **MPC-sensor weer leesbaar.** In beta.8 en beta.9 kon Home Assistant de
+  MPC-adviessensor niet naar JSON omzetten: het nieuwe veld `begrensd` in de
+  vooruitblik was een numpy-boolean. De API gaf een 500-fout en het dashboard
+  kreeg de sensor niet binnen. Nu een gewone `true`/`false`.
+
 ## v0.10.6-beta.9 — 2026-11-20
 
 Betaversie met de kamer volgens het 2R2C in de vooruitblik.

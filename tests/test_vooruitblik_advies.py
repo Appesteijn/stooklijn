@@ -159,3 +159,24 @@ class TestBuffer:
         verwacht = C * (uur["t_indoor_predicted"] - 20.05) / 1000
         assert uur["stored_heat_kwh"] == pytest.approx(verwacht, abs=1.1)
         assert uur["stored_heat_kwh"] > C * (19.7 - 20.05) / 1000
+
+
+class TestJson:
+    """Beta.8/9: numpy-capaciteit gaf numpy.bool in ``begrensd``, en HA kreeg
+    de hele MPC-sensor niet meer naar JSON (500 in de API)."""
+
+    def test_numpy_capaciteit_geeft_gewone_bool(self):
+        import json
+
+        import numpy as np
+
+        uren = _sim(temps=[7.0, -5.0, 3.0], capacity=lambda t: np.float64(4500.0))
+        assert all(type(u["begrensd"]) is bool for u in uren)
+        assert all(type(u["hp_needed"]) is bool for u in uren)
+        json.dumps(uren)
+
+    def test_advice_demand_capped_is_bool(self):
+        import numpy as np
+
+        d = advice_demand(U, T_BAL, -5.0, 19.7, SETPOINT, FACTOR, np.float64(4500.0))
+        assert type(d.capped) is bool
