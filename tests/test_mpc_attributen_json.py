@@ -134,3 +134,29 @@ class TestJsonEncoder:
         with pytest.raises(TypeError):
             json_bytes({"x": np.bool_(False)})
         json_bytes({"x": np.float64(1.5)})
+
+
+class TestPlusNulIsDeState:
+    """Tweakers 20-11: +0 in de vooruitblik (52,9 °C) week af van het advies
+    (36,8 °C). Op sensorniveau: dezelfde invoer, hetzelfde getal."""
+
+    @pytest.mark.parametrize("states", [
+        KOUD,
+        {**KOUD, INDOOR: 19.7, OUTDOOR: 7.0},
+        {**KOUD, OUTDOOR: -8.0},          # begrensd op de capaciteit
+        {**KOUD, INDOOR: 21.0, OUTDOOR: 10.0},  # kamer boven setpoint
+    ])
+    def test_plus_nul_gelijk_aan_advies(self, states):
+        sensor = _sensor(**states)
+        with _sources(), patch.object(
+            type(sensor), "build_forecast_arrays",
+            lambda self, t, n_hours=UREN: _arrays(t),
+        ), patch.object(
+            type(sensor), "min_power_curve",
+            property(lambda self: SimpleNamespace(bins={}, at=lambda t: None,
+                                                  for_temps=lambda t: None)),
+        ):
+            attrs = sensor.extra_state_attributes
+            advies = sensor.native_value
+        assert attrs["forecast"][0]["supply_temp"] == advies
+        assert attrs["forecast"][0]["temp_forecast"] == states[OUTDOOR]

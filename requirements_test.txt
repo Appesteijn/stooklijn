@@ -5,3 +5,4 @@ scipy>=1.12.0
 pandas>=2.1.0
 pyyaml>=6.0
 voluptuous>=0.13
+orjson>=3.9
