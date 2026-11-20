@@ -3,6 +3,18 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.6-beta.7 — 2026-11-20
+
+Betaversie die de dynamische prijzen van Zonneplan leest.
+
+- **Zonneplan-prijzen worden herkend.** De prijsverschuiving bleef op € 0 staan
+  en de grafieken van het komende etmaal bleven laden: de attributen van
+  Zonneplan (`start_date` met een geneste `price_tax_included: {amount: …}`)
+  werden niet gelezen. Nu wel, met de prijs inclusief belasting. Zonneplan
+  rekent in 10⁻⁷ euro; de reeks wordt op de toestand van de sensor gelijkgezet,
+  zodat de bedragen in euro's kloppen. Dat geldt ook voor de oudere Zonneplan
+  ONE-vorm (`datetime` + `electricity_price`).
+
 ## v0.10.6-beta.6 — 2026-11-18
 
 Betaversie met een rustiger aanvoeradvies en een controle op de aanvoersensor.

@@ -19,14 +19,32 @@ prijzen — testbaar is zonder draaiende HA.
 from __future__ import annotations
 
 from collections.abc import Mapping
+import math
+import statistics
 from datetime import datetime, timedelta, timezone, tzinfo
 
 # Tijd- en waardesleutels zoals de gangbare prijsintegraties ze gebruiken:
 # Nord Pool (HACS) ``raw_today``/``raw_tomorrow`` met start/value, ENTSO-e
 # ``prices`` met time/price, EnergyZero en afgeleiden met from/price, Tibber-
-# achtigen met startsAt/total. De eerste sleutel die in een punt voorkomt wint.
-_TIME_KEYS = ("start", "from", "time", "datetime", "startsAt", "start_time", "date")
-_VALUE_KEYS = ("value", "price", "total", "electricity_price", "price_eur_kwh")
+# achtigen met startsAt/total, Zonneplan met start_date en een geneste
+# ``price_tax_included: {amount: …}``. De eerste sleutel die in een punt
+# voorkomt wint, dus ``start_date`` vóór ``date`` en de prijs inclusief
+# belasting vóór alles wat ook een prijs exclusief zou kunnen zijn.
+_TIME_KEYS = (
+    "start", "from", "time", "datetime", "startsAt", "start_time", "start_date",
+    "date",
+)
+_VALUE_KEYS = (
+    "value", "price", "total", "electricity_price", "price_eur_kwh",
+    "price_tax_included",
+)
+# Sleutels binnen een geneste prijs ({amount: …} bij Zonneplan).
+_NESTED_VALUE_KEYS = ("amount", "value", "total", "price")
+
+# Boven deze mediaan (na de eenheidsomrekening) is een reeks geen €/kWh meer:
+# zelfs het day-ahead-plafond van 4.000 €/MWh is 4 €/kWh. Alleen dan wordt de
+# schaal op de sensortoestand afgeleid; zie ``_scale_to_state``.
+_IMPLAUSIBLE_EUR_KWH = 10.0
 
 # Minder uren dan dit met een bekende prijs, en het venster zegt niets meer over
 # de dagzwaai. Dan liever geen uitkomst dan een verschuiving binnen twee uur.
@@ -115,6 +133,48 @@ def _unit_factor(unit: str | None) -> float:
     return 1.0
 
 
+def _scalar(v):
+    """Pak een geneste prijs uit: ``{amount: 3923884}`` → ``3923884``."""
+    if isinstance(v, Mapping):
+        return next((v[k] for k in _NESTED_VALUE_KEYS if k in v), None)
+    return v
+
+
+def _scale_to_state(
+    points: list[tuple[datetime, float]],
+    current_price: float | None,
+    now: datetime,
+) -> float:
+    """Factor (macht van tien) die de reeks gelijkzet aan de sensorwaarde.
+
+    Zonneplan levert bedragen in 10⁻⁷ euro, terwijl de sensor zelf €/kWh
+    toont. De eenheid van de sensor zegt dan niets over de attributen. Het
+    punt dat nu loopt hoort bij de toestand van de sensor; ligt dat een
+    macht van tien ernaast, dan is dat de schaal. Binnen een factor twee,
+    zodat incl./excl. belasting of een net verstreken kwartier nog meetelt.
+
+    Alleen als de reeks onmogelijk €/kWh kan zijn (mediaan boven
+    ``_IMPLAUSIBLE_EUR_KWH``). Anders kan een gewone reeks die toevallig een
+    factor 5–20 van de toestand afligt — spotprijs rond nul, of een toestand
+    mét opslag naast attributen zonder — ten onrechte ×10 worden.
+    """
+    if current_price is None or current_price == 0 or not points:
+        return 1.0
+    if statistics.median(abs(v) for _, v in points) <= _IMPLAUSIBLE_EUR_KWH:
+        return 1.0
+    lopend = [(t, v) for t, v in points if t <= now and now - t < timedelta(hours=1)]
+    if not lopend:
+        return 1.0
+    _, v = max(lopend, key=lambda p: p[0])
+    if v == 0 or (v > 0) != (current_price > 0):
+        return 1.0
+    exponent = round(math.log10(current_price / v))
+    if exponent == 0:
+        return 1.0
+    rest = abs(math.log10(current_price / v) - exponent)
+    return 10.0**exponent if rest < math.log10(2) else 1.0
+
+
 def _points(attributes: Mapping) -> list[tuple[datetime | str, float]]:
     """Alle (tijd, waarde)-paren die in de attributen te vinden zijn."""
     found: list[tuple[datetime | str, float]] = []
@@ -124,7 +184,7 @@ def _points(attributes: Mapping) -> list[tuple[datetime | str, float]]:
                 if not isinstance(item, Mapping):
                     continue
                 t = next((item[k] for k in _TIME_KEYS if k in item), None)
-                v = next((item[k] for k in _VALUE_KEYS if k in item), None)
+                v = _scalar(next((item[k] for k in _VALUE_KEYS if k in item), None))
                 if t is None or v is None:
                     continue
                 try:
@@ -150,6 +210,8 @@ def prices_from_attributes(
     step_minutes: int = 60,
     unit: str | None = None,
     tz: tzinfo | None = None,
+    current_price: float | None = None,
+    now: datetime | None = None,
 ) -> list[float]:
     """Prijzen per stap vanaf ``start`` uit de attributen van een prijssensor.
 
@@ -163,14 +225,30 @@ def prices_from_attributes(
     opleveren. Wie een kortere reeks terugkrijgt dan gevraagd, kort het venster
     in; bij minder dan ``MIN_PRICED_HOURS`` uur is er niets zinvols te
     verschuiven en is de uitkomst leeg.
+
+    ``current_price`` is de toestand van de prijssensor (al in de eenheid
+    ``unit``). Staan de attributen in een andere schaal dan de toestand, zoals
+    Zonneplan in 10⁻⁷ euro, dan wordt de reeks daarop gelijkgezet; zie
+    ``_scale_to_state``.
     """
-    factor = _unit_factor(unit)
-    per_step: dict[datetime, list[float]] = {}
-    minutes_in_hour: dict[datetime, set[int]] = {}
+    parsed: list[tuple[datetime, float]] = []
     for t, v in _points(attributes):
         moment = _parse_time(t, tz)
-        if moment is None:
-            continue
+        if moment is not None:
+            parsed.append((moment, v))
+    if now is None:
+        now = datetime.now(timezone.utc)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=tz or timezone.utc)
+    unit_factor = _unit_factor(unit)
+    factor = unit_factor * _scale_to_state(
+        [(t, v * unit_factor) for t, v in parsed],
+        current_price * unit_factor if current_price is not None else None,
+        now.astimezone(timezone.utc),
+    )
+    per_step: dict[datetime, list[float]] = {}
+    minutes_in_hour: dict[datetime, set[int]] = {}
+    for moment, v in parsed:
         slot = moment.replace(
             minute=moment.minute - moment.minute % step_minutes,
             second=0,

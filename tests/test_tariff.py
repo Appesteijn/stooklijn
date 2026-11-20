@@ -213,3 +213,95 @@ class TestKwartierstap:
         ]
         out = prices_from_attributes(attrs, self.START, 8, step_minutes=15)
         assert len(out) == 24, "alleen hele uren voor het gat"
+
+
+def _zonneplan(start: datetime, incl: list[int], excl: list[int] | None = None):
+    """Zonneplan-kwartierprijzen zoals ze in de attributen staan (10⁻⁷ euro)."""
+    excl = excl or [round(v * 0.72) for v in incl]
+    return [
+        {
+            "start_date": (start + timedelta(minutes=15 * i)).isoformat(),
+            "end_date": (start + timedelta(minutes=15 * (i + 1))).isoformat(),
+            "price_tax_included": {"amount": a},
+            "price_tax_excluded": {"amount": b},
+            "sustainability_score": {"permille": 299},
+        }
+        for i, (a, b) in enumerate(zip(incl, excl))
+    ]
+
+
+class TestZonneplan:
+    """Forum 20-11-2026: Zonneplan-kwartierprijzen gaven een lege reeks."""
+
+    START = datetime(2026, 11, 19, 15, 0, tzinfo=AMS)
+    INCL = [3923884, 4002897, 4063518, 3950000] * 24
+
+    def _p(self, attrs, **kw):
+        return prices_from_attributes(
+            attrs, self.START, 24, step_minutes=15, tz=AMS,
+            unit="€/kWh", now=self.START + timedelta(minutes=5), **kw,
+        )
+
+    def test_kwartierprijzen_geschaald_op_de_sensortoestand(self):
+        attrs = {"forecast": _zonneplan(self.START, self.INCL)}
+        p = self._p(attrs, current_price=0.3923884)
+        assert len(p) == 96
+        assert p[:4] == pytest.approx([0.3923884, 0.4002897, 0.4063518, 0.395])
+
+    def test_inclusief_belasting_wint(self):
+        attrs = {"forecast": _zonneplan(self.START, self.INCL, [1] * 96)}
+        p = self._p(attrs, current_price=0.3923884)
+        assert p[1] == pytest.approx(0.4002897)
+
+    def test_toestand_exclusief_belasting_vindt_dezelfde_schaal(self):
+        attrs = {"forecast": _zonneplan(self.START, self.INCL)}
+        p = self._p(attrs, current_price=0.2815403)
+        assert p[0] == pytest.approx(0.3923884)
+
+    def test_zonder_toestand_blijft_de_verhouding_bruikbaar(self):
+        """Voor de weging telt alleen de verhouding tussen kwartieren."""
+        attrs = {"forecast": _zonneplan(self.START, self.INCL)}
+        p = self._p(attrs)
+        assert len(p) == 96
+        assert p[1] / p[0] == pytest.approx(4002897 / 3923884)
+
+    def test_oude_zonneplan_one_vorm(self):
+        attrs = {
+            "forecast": [
+                {
+                    "datetime": (self.START + timedelta(hours=i)).isoformat(),
+                    "electricity_price": 2500000 + 10000 * i,
+                    "tariff_group": "normal",
+                }
+                for i in range(24)
+            ]
+        }
+        p = self._p(attrs, current_price=0.25)
+        assert p[0] == pytest.approx(0.25)
+        assert p[4] == pytest.approx(0.251)
+
+    def test_reeks_al_in_euro_wordt_niet_geschaald(self):
+        attrs = {"raw_today": _nordpool(self.START, [0.2 + 0.01 * i for i in range(24)])}
+        p = self._p(attrs, current_price=0.21)
+        assert p[0] == pytest.approx(0.2)
+
+    @pytest.mark.parametrize(
+        "toestand, attribuut",
+        [(0.25, 0.02), (0.01, 0.002), (0.05, 0.004), (-0.01, -0.001)],
+    )
+    def test_gewone_reeks_ver_van_de_toestand_blijft_ongeschaald(
+        self, toestand, attribuut
+    ):
+        """Spotprijs rond nul of toestand mét opslag: geen ×10 (review 20-11)."""
+        attrs = {"raw_today": _nordpool(self.START, [attribuut] + [0.1] * 23)}
+        p = self._p(attrs, current_price=toestand)
+        assert p[0] == pytest.approx(attribuut)
+
+    def test_attributen_in_centen_naast_toestand_in_euro(self):
+        """25 kan geen €/kWh zijn; de toestand zegt dat het centen zijn."""
+        attrs = {"raw_today": _nordpool(self.START, [25.0] * 24)}
+        p = prices_from_attributes(
+            attrs, self.START, 24, tz=AMS, unit="€/kWh",
+            current_price=0.25, now=self.START + timedelta(minutes=5),
+        )
+        assert p[0] == pytest.approx(0.25)

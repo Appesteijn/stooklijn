@@ -3578,6 +3578,10 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             state = self.hass.states.get(entity_id) if entity_id else None
             if state is None:
                 return []
+            try:
+                current_price = float(state.state)
+            except (TypeError, ValueError):
+                current_price = None
             return prices_from_attributes(
                 state.attributes,
                 start,
@@ -3585,6 +3589,8 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
                 step_minutes=DEMAND_SHIFT_STEP_MINUTES,
                 unit=state.attributes.get("unit_of_measurement"),
                 tz=start.tzinfo,
+                current_price=current_price,
+                now=dt_util.utcnow(),
             )
         return []
 
