@@ -3,6 +3,27 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.2 — 2026-11-20
+
+Betaversie waarin het huismodel de kamer niet meer te warm voorspelt.
+
+- **Het huismodel (1R1C) voorspelt de kamer niet meer te warm.** De constante
+  warmtewinst (bewoners, apparaten) leerde het model zelf, en die groeide mee
+  met de warmtecapaciteit: op het gemeten huis 1.406 W, terwijl het balanspunt
+  van de warmteverliesanalyse ~970 W zegt. Het model voorspelde de kamer na
+  12 uur 0,7 °C te warm en scoorde in de modelvergelijking slechter dan "niets
+  doen". Nu staat de constante warmtewinst vast op U × (kamertemperatuur −
+  balanspunt) uit de warmteverliesanalyse, en volgt hij die analyse. Nagespeeld
+  op vier weken echte data: de warmtecapaciteit blijft stabiel rond 14.000
+  Wh/K en de voorspelfout op 12 uur daalt van 0,66 naar 0,41 K (niets doen:
+  0,46 K). Dit raakt de vooruitblik (T binnen, buffer), de veilige
+  uitlooptijd, de opgeslagen warmte en de basisreeks van de prijsverschuiving;
+  het MPC-advies niet. Een bestaand model schakelt bij de eerste analyse na de
+  update om en heeft een paar dagen nodig om C bij te stellen.
+- **Kaart "Thermisch model"** zegt waar de constante warmtewinst vandaan komt.
+- **Kaart "Modelvergelijking":** de zin over de geleerde richtingen staat
+  weer onder de tabel in plaats van erin, en de getallen breken niet meer af.
+
 ## v0.10.7-beta.1 — 2026-11-20
 
 Betaversie over de zon: het goede uur, een optionele zonnesensor, en een sensor die meet hoe goed de zonverwachting is.

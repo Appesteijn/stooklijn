@@ -1550,15 +1550,32 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         slope = heat_loss.slope
         if slope is not None:
             self._thermal_store.model.set_u_prior(-slope)
-            # Wél eenmalig, anders dan het anker: daarna leert RLS P_c zelf.
-            # Het kamerdoel staat voor de binnentemperatuur waarop de regressie
-            # rekende. Dat is een startwaarde; een nachtverlaging op het moment
-            # van zaaien kost alleen wat extra leertijd.
+            # P_c volgt de warmteverliesanalyse, net als U: P_c = U × (T_kamer −
+            # T_balans). Vrij geleerd liep hij weg (1.406 W tegen ~970 W uit het
+            # balanspunt) en voorspelde het 1R1C de kamer na 12 uur 0,7 °C te
+            # warm. Nagespeeld (23-10 t/m 20-11-2026): met anker C stabiel rond
+            # 14.000 Wh/K en testfout 0,409 K, zonder 0,662 K. Zie
+            # OnlineRCModel.set_p_c_anchor en CLAUDE.md.
             if heat_loss.balance_point is not None:
-                room_setpoint, _ = self._resolve_room_setpoint()
-                self._thermal_store.model.seed_constant_gain(
-                    -slope * (room_setpoint - heat_loss.balance_point)
+                self._thermal_store.model.set_p_c_anchor(
+                    -slope * (self._indoor_reference() - heat_loss.balance_point)
                 )
+
+    def _indoor_reference(self) -> float:
+        """Kamertemperatuur waarop de balans rekent: mediaan van 14 dagen logboek.
+
+        Niet het setpoint van dit moment: een nachtverlaging of een tijdelijk
+        hoger setpoint zou het anker voor P_c anders laten verspringen. Zonder
+        genoeg monsters het kamerdoel.
+        """
+        import numpy as np
+
+        if getattr(self, "_highres_loaded", False):
+            cutoff = dt_util.utcnow().timestamp() - 14 * 86400
+            temps = [r[1] for r in self._highres_store.log.to_dict()["samples"] if r[0] >= cutoff]
+            if len(temps) >= 288:      # minstens een etmaal aan vijfminutenmonsters
+                return float(np.median(temps))
+        return self._resolve_room_setpoint()[0]
 
     @callback
     def _handle_coordinator_update(self) -> None:

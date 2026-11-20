@@ -1056,7 +1056,12 @@ class TestMigratieNaarVierParameters:
 
 
 class TestZaaienVanuitDeSensor:
-    """De MPC-sensor zaait P_c uit de batchregressie: U × (kamer − balanspunt)."""
+    """De MPC-sensor zet P_c vast op de batchregressie: U × (kamer − balanspunt).
+
+    Tot v0.10.7-beta.2 was dat een eenmalige startwaarde en leerde RLS P_c
+    daarna zelf. Dat liep weg (zie TestPcAnker); nu volgt P_c de regressie,
+    net als het U-anker.
+    """
 
     @staticmethod
     def _sensor(balance_point=16.53, slope=-287.15):
@@ -1073,29 +1078,44 @@ class TestZaaienVanuitDeSensor:
         sensor._resolve_room_setpoint = lambda: (20.0, "thermostaat")
         return sensor
 
-    def test_startwaarde_uit_het_balanspunt(self):
+    def test_anker_uit_het_balanspunt(self):
         sensor = self._sensor()
         sensor._refresh_u_prior()
         model = sensor._thermal_store.model
-        assert model.params["constant_gain_seeded"] is True
+        assert model.params["constant_gain_source"] == "warmteverliesanalyse"
         assert model.raw_params["P_c"] == pytest.approx(287.15 * (20.0 - 16.53))
 
-    def test_zonder_balanspunt_geen_startwaarde(self):
+    def test_zonder_balanspunt_leert_hij_zelf(self):
         sensor = self._sensor(balance_point=None)
         sensor._refresh_u_prior()
-        assert sensor._thermal_store.model.params["constant_gain_seeded"] is False
+        assert sensor._thermal_store.model.params["constant_gain_source"] == "geleerd"
 
-    def test_volgende_uren_zaaien_niet_opnieuw(self):
-        """_refresh_u_prior draait elk uur; alleen het anker volgt de regressie."""
+    def test_anker_volgt_de_regressie(self):
+        """_refresh_u_prior draait bij elke analyse; P_c volgt mee, net als U."""
         sensor = self._sensor()
         sensor._refresh_u_prior()
-        sensor.coordinator.data.heat_loss_hp.balance_point = 10.0
+        sensor.coordinator.data.heat_loss_hp.balance_point = 17.0
         sensor._refresh_u_prior()
         assert sensor._thermal_store.model.raw_params["P_c"] == pytest.approx(
-            287.15 * (20.0 - 16.53))
+            287.15 * (20.0 - 17.0))
+
+    def test_kamertemperatuur_uit_het_logboek(self):
+        """Mediaan van 14 dagen, niet het setpoint van dit moment."""
+        from unittest.mock import MagicMock
+        import time
+
+        sensor = self._sensor()
+        sensor._highres_loaded = True
+        nu = time.time()
+        rijen = [[nu - 300 * i, 19.5 if i % 2 else 19.7, 5.0, 2000.0, 0.0, None] for i in range(400)]
+        sensor._highres_store = MagicMock()
+        sensor._highres_store.log.to_dict.return_value = {"samples": rijen}
+        sensor._refresh_u_prior()
+        assert sensor._thermal_store.model.raw_params["P_c"] == pytest.approx(
+            287.15 * (19.6 - 16.53))
 
     def test_zaait_zodra_de_analyse_binnenkomt(self):
-        """Laadt het model vóór de analyse, dan mag de startwaarde niet tot de
+        """Laadt het model vóór de analyse, dan mag het anker niet tot de
         eerste uurtik wachten."""
         from unittest.mock import patch
         from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -1104,9 +1124,84 @@ class TestZaaienVanuitDeSensor:
         data = sensor.coordinator.data
         sensor.coordinator.data = None
         sensor._refresh_u_prior()
-        assert sensor._thermal_store.model.params["constant_gain_seeded"] is False
+        assert sensor._thermal_store.model.params["constant_gain_source"] == "geleerd"
 
         sensor.coordinator.data = data
         with patch.object(CoordinatorEntity, "_handle_coordinator_update", create=True):
             sensor._handle_coordinator_update()
-        assert sensor._thermal_store.model.params["constant_gain_seeded"] is True
+        assert sensor._thermal_store.model.params["constant_gain_source"] == "warmteverliesanalyse"
+
+
+class TestPcAnker:
+    """P_c vastgezet op de warmteverliesanalyse (v0.10.7-beta.2).
+
+    Vrij geleerd liep P_c op tot 1.406 W tegen ~970 W uit het balanspunt, en
+    voorspelde het 1R1C de kamer na 12 uur 0,7 °C te warm. Nagespeeld op het
+    echte logboek: met anker C stabiel rond 14.000 Wh/K, testfout 0,409 K
+    tegen 0,662 K zonder.
+    """
+
+    def test_aanzetten_maakt_theta4_nul_zonder_kruiscovariantie(self):
+        m = OnlineRCModel()
+        m.seed_constant_gain(900.0)
+        m._rls.P[3, :] = 0.1
+        m._rls.P[:, 3] = 0.1
+        m.set_p_c_anchor(1000.0)
+        assert m._rls.theta[3] == 0.0
+        assert np.allclose(m._rls.P[3, :3], 0.0) and np.allclose(m._rls.P[:3, 3], 0.0)
+        assert m.raw_params["P_c"] == 1000.0
+
+    def test_voorspelling_gebruikt_het_anker(self):
+        m = OnlineRCModel()
+        m.set_p_c_anchor(1000.0)
+        C = m.raw_params["C"]
+        # Alleen P_c, geen verlies (binnen = buiten), geen zon, geen WP.
+        assert m.predict_t_indoor(20.0, 20.0, 0.0, 0.0) == pytest.approx(20.0 + 1000.0 / C)
+        assert m.calc_required_power(20.0, 20.0, 0.0, 20.0) == pytest.approx(0.0, abs=1e-6)
+
+    def test_onwaarschijnlijk_anker_genegeerd(self):
+        m = OnlineRCModel()
+        m.set_p_c_anchor(1e6)
+        assert m.params["constant_gain_source"] == "geleerd"
+
+    def test_uitzetten_geeft_theta4_de_laatste_waarde(self):
+        m = OnlineRCModel()
+        m.set_p_c_anchor(800.0)
+        m.set_p_c_anchor(None)
+        assert m.raw_params["P_c"] == pytest.approx(800.0)
+        assert m.params["constant_gain_source"] == "geleerd"
+
+    def test_bewaard_en_teruggelezen(self):
+        m = OnlineRCModel()
+        m.set_p_c_anchor(950.0)
+        terug = OnlineRCModel.from_dict(m.to_dict())
+        assert terug.raw_params["P_c"] == 950.0
+        assert terug.params["constant_gain_source"] == "warmteverliesanalyse"
+
+    def test_oud_opgeslagen_model_zonder_anker(self):
+        d = OnlineRCModel().to_dict()
+        d.pop("p_c_anchor")
+        assert OnlineRCModel.from_dict(d).params["constant_gain_source"] == "geleerd"
+
+    def test_c_stabiel_met_anker_op_een_huis_met_gratis_warmte(self):
+        """Synthetisch huis U 280, C 15.000, P 1.000 W. Met het juiste anker
+        komt C goed uit en blijft theta4 nul."""
+        rng = np.random.default_rng(7)
+        U, C, P = 280.0, 15000.0, 1000.0
+        m = OnlineRCModel()
+        m.set_u_prior(U)
+        m.set_p_c_anchor(P)
+        t_in, aan = 20.0, True
+        t0 = datetime(2026, 11, 1, tzinfo=timezone.utc)
+        for h in range(600):
+            t_out = 5.0 + 4.0 * np.sin(2 * np.pi * h / 24)
+            if t_in < 19.7:
+                aan = True
+            elif t_in > 20.3:
+                aan = False
+            q = (3500.0 + rng.normal(0, 150)) if aan else 0.0
+            m.update(t_in + rng.normal(0, 0.01), t_out, q, 0.0, t0 + timedelta(hours=h))
+            t_in = t_in + (U * (t_out - t_in) + q + P) / C
+        assert m._rls.theta[3] == 0.0
+        assert m.raw_params["C"] == pytest.approx(C, rel=0.15)
+        assert m.raw_params["U"] == pytest.approx(U, rel=0.1)

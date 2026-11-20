@@ -53,6 +53,19 @@ C staan en komt P_c zelf op ~1.050 W. Ook 's nachts, dus het is geen zon.
 - θ₄ niet bevriezen in uren zonder warmtevraag. Zijn regressor (dt) is nooit
   nul, en de blokupdate van `RLSEstimator` ontregelt P dan. Uitgeprobeerd: op
   het koude-starthuis liep C negatief.
+- **P_c staat vast op de warmteverliesanalyse** (sinds v0.10.7-beta.2):
+  P_c = U × (mediaan kamer 14 d − balanspunt), bijgewerkt bij elke analyse,
+  net als het U-anker. Vrij geleerd (θ₄ = P_c/C) groeide P_c in watt mee met
+  C: 1.406 W tegen ~970 W uit het balanspunt, en het 1R1C voorspelde de kamer
+  na 12 uur 0,7 °C te warm (slechter dan niets doen, 0,494 tegen 0,461 K).
+  Nagespeeld met de echte RLS-toestand en het logboek (23-10 t/m 20-11-2026):
+  met anker C stabiel 12.000–14.700 Wh/K, U 283–287, testfout 0,409 K;
+  zonder anker zwierf C van 6.600 tot 18.300 en U van 235 tot 377, testfout
+  0,662 K. Met anker telt P_c als bekende warmte in de regressor van θ₃ en
+  heeft θ₄ géén regressor (x[3] = 0, waarde 0, kruiscovarianties op nul). Dat
+  is iets anders dan het bevriezen hierboven: er is niets met een regressor
+  die nooit nul is. De startwaarde (`seed_constant_gain`) blijft alleen voor
+  installaties zonder balanspunt.
 
 ## Op vijfminutendata niet één stap vooruit fitten
 

@@ -246,6 +246,9 @@ class OnlineRCModel:
         # Of P_c al een startwaarde uit het balanspunt heeft gekregen. Tot dan
         # staat θ₄ op nul en gedraagt het model zich als het oude 1R1C.
         self._p_c_seeded: bool = False
+        # P_c in watt uit de warmteverliesanalyse, als die er is. Dan leert RLS
+        # P_c niet zelf; zie set_p_c_anchor.
+        self._p_c_anchor: float | None = None
         self._rls = RLSEstimator(n_params=N_PARAMS)
         # Initialise with reasonable defaults
         self._rls.initialise_from_physics(DEFAULT_U, DEFAULT_C, DEFAULT_G_SOLAR)
@@ -303,6 +306,48 @@ class OnlineRCModel:
         self._p_c_seeded = True
         _LOGGER.info("RC model: P_c gezaaid op %.0f W", p_c)
         return True
+
+    def set_p_c_anchor(self, p_c: float | None) -> None:
+        """Zet de constante warmtewinst vast op een waarde uit de warmteverliesanalyse.
+
+        Waarom (gemeten 20-11-2026): vrij geleerd staat P_c in de RLS als
+        θ₄ = P_c/C, en groeit hij in watt mee als C verschuift. Op het gemeten
+        huis liep P_c op naar 1.406 W, terwijl het balanspunt ~970 W zegt; het
+        1R1C voorspelde de kamer daardoor na 12 uur 0,7 °C te warm, en scoorde
+        slechter dan "niets doen" (0,494 tegen 0,461 K).
+
+        Met anker is P_c een bekende invoer: hij telt op bij het
+        warmtepompvermogen in de regressor van θ₃ = 1/C, en θ₄ staat vast op
+        nul zonder regressor. Daarmee is er niets te bevriezen met een
+        regressor die nooit nul is (zie CLAUDE.md, waarom dat misging), en
+        leert RLS alleen nog de dynamiek: U, g en C.
+
+        Bij het aanzetten wordt θ₄ nul en verliest hij zijn kruiscovarianties;
+        bij uitzetten neemt θ₄ de laatste ankerwaarde over en leert weer vrij.
+        """
+        if p_c is not None and not P_C_MIN <= p_c <= P_C_MAX:
+            _LOGGER.warning(
+                "RC model: onwaarschijnlijk anker P_c %.0f W genegeerd "
+                "(buiten %.0f–%.0f)", p_c, P_C_MIN, P_C_MAX,
+            )
+            return
+        was = getattr(self, "_p_c_anchor", None)
+        rls = self._rls
+        if p_c is not None and was is None:
+            rls.theta[_P_C] = 0.0
+            keep = rls.P[_P_C, _P_C]
+            rls.P[_P_C, :] = 0.0
+            rls.P[:, _P_C] = 0.0
+            rls.P[_P_C, _P_C] = keep
+            _LOGGER.info("RC model: P_c vastgezet op %.0f W (warmteverliesanalyse)", p_c)
+        elif p_c is None and was is not None:
+            rls.theta[_P_C] = was * rls.theta[2]
+        self._p_c_anchor = float(p_c) if p_c is not None else None
+
+    def _constant_gain_term(self, theta: np.ndarray) -> float:
+        """Bijdrage van P_c aan dT/dt (K/u): θ₃·anker, of θ₄ als hij vrij leert."""
+        anchor = getattr(self, "_p_c_anchor", None)
+        return theta[2] * anchor if anchor is not None else theta[_P_C]
 
     def update(
         self,
@@ -362,11 +407,13 @@ class OnlineRCModel:
         # Build observation using PREVIOUS conditions:
         # y = ΔT_indoor (what happened), x = Δt × [T_out-T_in, Q_solar, Q_hp, 1] (what caused it)
         delta_t = t_indoor - self._prev_t_indoor
+        anchor = getattr(self, "_p_c_anchor", None)
         x = np.array([
             dt_hours * (self._prev_t_outdoor - self._prev_t_indoor),  # θ₁ term
             dt_hours * self._prev_q_solar,                            # θ₂ term
-            dt_hours * self._prev_q_hp,                               # θ₃ term
-            dt_hours,                                                 # θ₄ term
+            # θ₃ term: met anker telt de bekende constante winst mee als warmte.
+            dt_hours * (self._prev_q_hp + (anchor or 0.0)),
+            dt_hours if anchor is None else 0.0,                      # θ₄ term
         ])
 
         # Zonder warmte-input is C net zo onidentificeerbaar als U: de
@@ -393,7 +440,11 @@ class OnlineRCModel:
         q_hp_used = self._prev_q_hp or 0.0
         low_heat = q_hp_used < ANCHOR_MAX_Q_HP_W
 
-        self._rls.update(x, delta_t, frozen=(2,) if low_heat else ())
+        frozen: tuple[int, ...] = (2,) if low_heat else ()
+        if anchor is not None:
+            # θ₄ staat vast op nul en heeft geen regressor: bevriezen kost niets.
+            frozen = frozen + (_P_C,)
+        self._rls.update(x, delta_t, frozen=frozen)
 
         # Hold U at the seasonal value when this sample could not have said
         # anything about it — de U/g-degeneratie mag U niet verplaatsen.
@@ -429,7 +480,7 @@ class OnlineRCModel:
             theta[0] * (t_outdoor - t_indoor)
             + theta[1] * q_solar_w
             + theta[2] * q_hp_w
-            + theta[_P_C]
+            + self._constant_gain_term(theta)
         )
         return t_indoor + delta_t
 
@@ -456,7 +507,7 @@ class OnlineRCModel:
             - t_indoor
             - dt_hours * theta[0] * (t_outdoor - t_indoor)
             - dt_hours * theta[1] * q_solar_w
-            - dt_hours * theta[_P_C]
+            - dt_hours * self._constant_gain_term(theta)
         )
         q_hp = numerator / (dt_hours * theta[2])
         return max(0.0, q_hp)
@@ -486,7 +537,9 @@ class OnlineRCModel:
         C = 1.0 / theta[2]
         U = theta[0] * C
         g = theta[1] * C
-        return {"U": U, "C": C, "g": g, "P_c": theta[_P_C] * C}
+        anchor = getattr(self, "_p_c_anchor", None)
+        p_c = anchor if anchor is not None else theta[_P_C] * C
+        return {"U": U, "C": C, "g": g, "P_c": p_c}
 
     @property
     def params(self) -> dict:
@@ -505,6 +558,12 @@ class OnlineRCModel:
             "g_solar": round(g, 3),
             "constant_gain_w": round(p["P_c"]),
             "constant_gain_seeded": self._p_c_seeded,
+            # "warmteverliesanalyse" = vastgezet (set_p_c_anchor), "geleerd" = RLS.
+            "constant_gain_source": (
+                "warmteverliesanalyse"
+                if getattr(self, "_p_c_anchor", None) is not None
+                else "geleerd"
+            ),
             "tau_hours": round(tau, 1) if tau else None,
             "n_updates": self._rls.n_updates,
             # Convergentie kijkt naar de traagste parameter; n_updates alleen
@@ -521,6 +580,7 @@ class OnlineRCModel:
             "rls": self._rls.to_dict(),
             "u_prior": self._u_prior,
             "p_c_seeded": self._p_c_seeded,
+            "p_c_anchor": getattr(self, "_p_c_anchor", None),
             "prev_t_indoor": self._prev_t_indoor,
             "prev_t_outdoor": self._prev_t_outdoor,
             "prev_q_hp": self._prev_q_hp,
@@ -539,6 +599,7 @@ class OnlineRCModel:
         model._rls = _with_constant_gain(RLSEstimator.from_dict(data["rls"]))
         model._u_prior = data.get("u_prior")
         model._p_c_seeded = bool(data.get("p_c_seeded", False))
+        model._p_c_anchor = data.get("p_c_anchor")
         # Niet gepersisteerd: dit beschrijft de laatste update, niet de staat.
         # Wel expliciet zetten — from_dict gebruikt cls.__new__ en slaat
         # __init__ dus over, waardoor elk veld dat hier ontbreekt later een

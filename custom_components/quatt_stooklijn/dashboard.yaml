@@ -1231,7 +1231,7 @@ views:
 
               | Zonnewinst | **{{ g }} W/(W/m²)** | Effectief raamoppervlak × glastransmissie |
 
-              | Constante warmtewinst | **{{ pc }} W** | Warmte die het model niet aan warmtepomp of zon kan toewijzen, zoals bewoners en apparaten |
+              | Constante warmtewinst | **{{ pc }} W** | Warmte die niet van warmtepomp of zon komt, zoals bewoners en apparaten{% if state_attr(mpc, 'model_constant_gain_source') == 'warmteverliesanalyse' %} — vast uit de warmteverliesanalyse (balanspunt){% else %} — door het model geleerd{% endif %} |
 
               | Updates | **{{ n }}** ({{ (n / 24) | round(0) | int }}
               dagen) | |
@@ -1320,13 +1320,14 @@ views:
 
               |:--|--:|
 
-              | Tweetoestand (2R2C) | **{{ rmse }} K** |
+              | Tweetoestand (2R2C) | **{{ rmse }}&nbsp;K** |
 
-              | Huidig model (1R1C) | {{ ref if ref is not none else '—' }} K |
+              | Huidig model (1R1C) | {{ ref if ref is not none else '—' }}&nbsp;K |
 
-              | Niets doen | {{ niets if niets is not none else '—' }} K |
+              | Niets doen | {{ niets if niets is not none else '—' }}&nbsp;K |
 
-              {% set gz = state_attr(s, 'gevelzon_rmse_k') %}{% if gz is not none %}| 2R2C met zon op de ramen (zonnesensor) | {{ gz }} K |{% endif %}
+              {% set gz = state_attr(s, 'gevelzon_rmse_k') %}{% if gz is not none %}| 2R2C, zon op de ramen | {{ gz }}&nbsp;K |{% endif %}
+
 
               {% set rr = state_attr(s, 'richting_ramen') %}{% if rr is not none %}Geleerd uit je data: ramen op **{{ rr | int }}°**{% set rp = state_attr(s, 'richting_panelen') %}{% if rp is not none %}, panelen op **{{ rp | int }}°**{% endif %} (90 oost · 180 zuid · 270 west). De raamrichting is alleen grof te leren: binnen ~45° voorspelt het model even goed.{% endif %}
 
