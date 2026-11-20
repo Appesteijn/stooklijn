@@ -226,6 +226,11 @@ def _stub_ha():
     # now() geeft in HA de lokale tijd; hier volstaat een tijdzone-bewuste waarde.
     dt_mod.now = lambda: datetime.now(timezone.utc).astimezone()
     dt_mod.parse_datetime = lambda s: datetime.fromisoformat(s)
+    # De tijdzone van de HA-installatie; tests die een andere willen zetten
+    # hem zelf met monkeypatch.
+    dt_mod.get_default_time_zone = lambda: timezone.utc
+    if not hasattr(dt_mod, "utc_from_timestamp"):
+        dt_mod.utc_from_timestamp = lambda ts: datetime.fromtimestamp(ts, timezone.utc)
 
     # voluptuous stub
     vol = sys.modules["voluptuous"]

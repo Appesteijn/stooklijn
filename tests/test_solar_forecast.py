@@ -19,6 +19,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
+import pytest
+
 from custom_components.quatt_stooklijn.const import SOLAR_FORECAST_MAX_AGE_SECONDS
 from custom_components.quatt_stooklijn.sensor import QuattMpcSensor
 
@@ -69,8 +71,9 @@ class TestOnbekendIsGeenNul:
         _patched_clock(monkeypatch)
         values = [float(i) for i in range(48)]
         s = _sensor(values=values, times=_times())
-        # 10:00 lokaal is index 10 in een reeks die om middernacht begint.
-        assert s._get_current_solar_radiation_wm2() == 10.0
+        # 10:30 valt in 10:00–11:00. Open-Meteo stempelt dat uur met zijn eind,
+        # 11:00, en dat is index 11 in een reeks die om middernacht begint.
+        assert s._get_current_solar_radiation_wm2() == 11.0
 
     def test_verouderde_reeks_geeft_none(self, monkeypatch):
         """Een reeks van gisteren met de klok van vandaag uitlezen is de bug."""
@@ -83,7 +86,7 @@ class TestOnbekendIsGeenNul:
         _patched_clock(monkeypatch)
         vers = NOW_UTC - timedelta(seconds=SOLAR_FORECAST_MAX_AGE_SECONDS - 60)
         s = _sensor(values=[float(i) for i in range(48)], times=_times(), fetched_at=vers)
-        assert s._get_current_solar_radiation_wm2() == 10.0
+        assert s._get_current_solar_radiation_wm2() == 11.0
 
     def test_zonder_ophaalmoment_geen_waarde(self, monkeypatch):
         """Een reeks zonder stempel is niet te beoordelen, dus telt hij niet."""
@@ -96,18 +99,18 @@ class TestOpTijdstempelNietOpIndex:
     """De reeks hoeft niet om middernacht te beginnen, en telt niet altijd 24 uur."""
 
     def test_reeks_die_later_begint(self, monkeypatch):
-        """Begint de reeks om 06:00, dan is 10:00 index 4 en niet index 10."""
+        """Begint de reeks om 06:00, dan is stempel 11:00 index 5 en niet index 11."""
         _patched_clock(monkeypatch)
         values = [float(i) for i in range(24)]
         s = _sensor(values=values, times=_times(start_hour=6, count=24))
-        assert s._get_current_solar_radiation_wm2() == 4.0
+        assert s._get_current_solar_radiation_wm2() == 5.0
 
     def test_uur_dat_ontbreekt_geeft_none(self, monkeypatch):
         """Het uur van de DST-sprong staat niet in de reeks: dan is er niets te melden."""
         _patched_clock(monkeypatch)
         times = _times()
         values = [float(i) for i in range(48)]
-        weg = times.index("2026-09-06T10:00")
+        weg = times.index("2026-09-06T11:00")
         del times[weg]
         del values[weg]
         s = _sensor(values=values, times=times)
@@ -116,7 +119,8 @@ class TestOpTijdstempelNietOpIndex:
     def test_toekomstig_uur_opzoeken(self, monkeypatch):
         _patched_clock(monkeypatch)
         s = _sensor(values=[float(i) for i in range(48)], times=_times())
-        assert s._solar_radiation_at(NOW_LOCAL + timedelta(hours=3)) == 13.0
+        # 13:30 valt in 13:00–14:00, gestempeld 14:00.
+        assert s._solar_radiation_at(NOW_LOCAL + timedelta(hours=3)) == 14.0
 
     def test_uur_voorbij_het_einde_geeft_none(self, monkeypatch):
         _patched_clock(monkeypatch)
@@ -291,8 +295,8 @@ class TestLerenZonderStraling:
         sensor = _learning_sensor(monkeypatch, solar_known=True)
         asyncio.run(sensor._async_hourly_update())
         sensor._thermal_store.model.update.assert_called_once()
-        # 10:00 lokaal → index 10 → 10.0 W/m² gaat het model in, niet nul.
-        assert sensor._thermal_store.model.update.call_args[0][3] == 10.0
+        # 10:30 lokaal → uur 10–11, stempel 11:00 → 11.0 W/m² gaat het model in, niet nul.
+        assert sensor._thermal_store.model.update.call_args[0][3] == 11.0
 
     def test_meetlogboek_wordt_per_uur_weggeschreven(self, monkeypatch):
         """Verzamelen gebeurt elke vijf minuten in geheugen, wegschrijven
@@ -311,3 +315,26 @@ class TestLerenZonderStraling:
         sensor = _learning_sensor(monkeypatch, solar_known=False)
         asyncio.run(sensor._async_hourly_update())
         sensor._async_refresh_solar_radiation.assert_awaited_once()
+
+
+class TestStempelIsEindVanHetUur:
+    """Open-Meteo: ``shortwave_radiation`` is het gemiddelde over het
+    voorafgaande uur. De waarde op 11:00 hoort bij 10:00–11:00.
+
+    Tot v0.10.6-beta.12 werd de stempel van het begin van het uur gebruikt, en
+    kwam de zon in elk model een uur te laat (gemeten tegen PV, sep–nov 2026).
+    """
+
+    @pytest.mark.parametrize("minuut", [0, 1, 30, 59])
+    def test_heel_het_uur_dezelfde_waarde(self, monkeypatch, minuut):
+        _patched_clock(monkeypatch)
+        s = _sensor(values=[float(i) for i in range(48)], times=_times())
+        moment = NOW_LOCAL.replace(minute=minuut)
+        assert s._solar_radiation_at(moment) == 11.0
+
+    def test_laatste_uur_van_de_dag_loopt_door_naar_middernacht(self, monkeypatch):
+        """23:00–24:00 is gestempeld met 00:00 van de volgende dag."""
+        _patched_clock(monkeypatch)
+        s = _sensor(values=[float(i) for i in range(48)], times=_times())
+        laat = NOW_LOCAL.replace(hour=23, minute=40)
+        assert s._solar_radiation_at(laat) == 24.0

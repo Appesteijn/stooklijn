@@ -445,3 +445,47 @@ def compare(
         fit_dt_hours=fit_dt_hours, test_dt_hours=dt_hours, max_iter=max_iter,
     )
     return _uitkomst(validation, ref)
+
+
+def compare_variant(
+    rows: list[list[float]],
+    horizon_hours: float = DEFAULT_HORIZON_HOURS,
+    dt_hours: float = DEFAULT_DT_HOURS,
+    min_coverage: float = MIN_BUCKET_COVERAGE,
+    max_iter: int = FIT_MAX_ITER,
+    fit_dt_hours: float = FIT_DT_HOURS,
+    reverse: bool = False,
+) -> dict:
+    """Het 2R2C op een andere invoer, gescoord precies zoals ``compare()``.
+
+    Met ``reverse`` wisselen train- en testweken van rol: een tweede, onafhankelijke
+    toets op dezelfde data, om tussen varianten te kiezen zonder op één
+    splitsing te leunen.
+
+    Zelfde weeksplitsing, zelfde leer- en toetsstap, zelfde horizon. Bedoeld
+    voor een variant van het logboek waarin één kolom anders is afgeleid — nu
+    de zon op de ramen in plaats van horizontale straling (ZONNEWARMTE_PLAN.md).
+    Geen poort: het is een vergelijking naast de hoofduitkomst, geen kandidaat
+    die iets aanstuurt.
+    """
+    horizon = steps_in(horizon_hours, dt_hours)
+    train_rows, test_rows = split_by_week(rows)
+    if reverse:
+        train_rows, test_rows = test_rows, train_rows
+    train = _long_enough(
+        resample(train_rows, fit_dt_hours, min_coverage, MAX_GAP_FILL_HOURS),
+        fit_dt_hours,
+    )
+    test = _long_enough(resample(test_rows, dt_hours, min_coverage), dt_hours)
+    v = fit_and_score(
+        train, test, horizon, fit_dt_hours=fit_dt_hours, test_dt_hours=dt_hours,
+        max_iter=max_iter,
+    )
+    return {
+        "rmse_k": round(v.rmse, 3) if v.rmse is not None else None,
+        "persistence_rmse_k": (
+            round(v.persistence_rmse, 3) if v.persistence_rmse is not None else None
+        ),
+        "params": v.params.to_dict() if v.params else None,
+        "reden": v.reason,
+    }

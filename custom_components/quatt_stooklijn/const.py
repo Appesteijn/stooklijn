@@ -262,6 +262,25 @@ SOLAR_RADIATION_DEFAULT_FACTOR = 8.0  # W per W/m²
 CONF_COMFORT_FLOOR_TEMP = "comfort_floor_temp"
 DEFAULT_COMFORT_FLOOR_TEMP = 19.0  # °C
 
+# Zon zoals de ramen hem zien (ZONNEWARMTE_PLAN.md, 20-11-2026).
+#
+# Optionele zonnesensor: het vermogen van een PV-installatie. Gemeten zon,
+# omgerekend naar het vlak van de ramen, bleek de beste zoninvoer voor het
+# 2R2C (14–20 % minder fout op 12 uur vooruit). Bewust een nieuwe sleutel: de
+# vervallen ``CONF_SOLAR_ENTITY`` kan in oude entries nog iets anders bevatten.
+CONF_PV_POWER_ENTITY = "pv_power_entity"
+# Richting van panelen en ramen worden geleerd, niet ingesteld (20-11-2026).
+# Panelen: uit een jaar PV-uurstatistiek (gemeten huis: 180°, gelijk aan de
+# omvormer). Ramen: alleen grof te leren — op het gemeten huis gaven 135–250°
+# dezelfde voorspelling, oost en west waren duidelijk slechter — dus vijf
+# kandidaten in de nachtelijke modelvergelijking.
+WINDOW_AZIMUTH_CANDIDATES = (90, 135, 180, 225, 270)
+DEFAULT_ORIENTATION_AZIMUTH = 180.0
+PV_ORIENTATION_HISTORY_DAYS = 365
+PV_ORIENTATION_REFRESH_HOURS = 24
+# Opslag van de zonverwachtingen per vooruitkijktijd (dertig dagen).
+SOLAR_FORECAST_LOG_STORAGE_KEY = "quatt_stooklijn.solar_forecast_log"
+
 # Hoe ver vooruit en met welke resolutie de afkoeling wordt gesimuleerd.
 COAST_MAX_HOURS = 12
 COAST_STEP_MINUTES = 15

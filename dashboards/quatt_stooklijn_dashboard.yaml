@@ -1326,6 +1326,10 @@ views:
 
               | Niets doen | {{ niets if niets is not none else '—' }} K |
 
+              {% set gz = state_attr(s, 'gevelzon_rmse_k') %}{% if gz is not none %}| 2R2C met zon op de ramen (zonnesensor) | {{ gz }} K |{% endif %}
+
+              {% set rr = state_attr(s, 'richting_ramen') %}{% if rr is not none %}Geleerd uit je data: ramen op **{{ rr | int }}°**{% set rp = state_attr(s, 'richting_panelen') %}{% if rp is not none %}, panelen op **{{ rp | int }}°**{% endif %} (90 oost · 180 zuid · 270 west). De raamrichting is alleen grof te leren: binnen ~45° voorspelt het model even goed.{% endif %}
+
               {% set winst = state_attr(s, 'verbetering_pct') %}
 
               {% if state_attr(s, 'accepted') %}
@@ -1387,6 +1391,160 @@ views:
               {% endif %}
 
               {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
+
+      # ── Zon: wat het huis leert en hoe goed de verwachting is (volle breedte) ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: markdown
+            title: Zonverwachting — hoe goed per vooruitkijktijd
+            content: >
+              {% set z = 'sensor.quatt_warmteanalyse_zonverwachting' %}
+
+              {% set per = state_attr(z, 'per_vooruitkijktijd') %}
+
+              {% if not state_attr(z, 'gemeten') or not per %}
+
+              *Nog niet gescoord. Bij elke ophaling wordt vastgelegd wat
+              Open-Meteo voor de komende twaalf uur verwacht; elk uur wordt dat
+              naast de werkelijkheid gezet. De eerste getallen verschijnen na een
+              paar uur daglicht.*
+
+              {% else %}
+
+              {% set ref = state_attr(z, 'referentie') %}
+
+              Verwachte zon (W/m², horizontaal) naast {% if ref == 'zonnesensor'
+              %}de **gemeten** zon (zonnesensor){% else %}de **laatste
+              verwachting** voor hetzelfde uur — zonder zonnesensor meet dit hoe
+              veel de verwachting nog verschuift, niet hoe goed hij is{% endif
+              %}. Alleen uren met daglicht.
+
+
+              {% set ns = namespace(tbl='| Vooruit | Uren | Gem. afwijking | Gem. fout | Helderheid aanhouden |\n|:--|--:|--:|--:|--:|\n') %}{% for lead in ['1', '2', '3', '6', '12'] %}{% set e = per[lead] %}{% set ns.tbl = ns.tbl ~ '| ' ~ lead ~ ' u | ' ~ e.n ~ ' | ' ~ (e.bias ~ ' W/m²' if e.bias is defined else '—') ~ ' | ' ~ (e.mae ~ ' W/m²' if e.mae is defined else '—') ~ ' | ' ~ (e.persistentie_mae ~ ' W/m² (verwachting ' ~ e.verwachting_mae_zelfde_uren ~ ')' if e.persistentie_mae is defined else '—') ~ ' |\n' %}{% endfor %}
+
+              {{ ns.tbl }}
+
+              {% set f = state_attr(z, 'correctiefactor') %}{% if f %}
+              **Correctiefactor** (gemeten / verwacht, 1–6 u vooruit, 14 dagen):
+              **{{ f }}**.{% endif %}
+              {% if state_attr(z, 'reden') %} {{ state_attr(z, 'reden') }}.{% endif %}
+
+              {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
+          - type: custom:apexcharts-card
+            header:
+              title: Zon vandaag — verwacht en gemeten
+              show: true
+            graph_span: 36h
+            span:
+              start: day
+            update_interval: 15min
+            yaxis:
+              - min: 0
+                decimals: 0
+                apex_config:
+                  title:
+                    text: W/m²
+            series:
+              - entity: sensor.quatt_warmteanalyse_zonverwachting
+                name: Gemeten
+                color: "#F9A825"
+                type: area
+                opacity: 0.3
+                stroke_width: 2
+                extend_to: false
+                show:
+                  legend_value: false
+                data_generator: >
+                  const a = entity.attributes.vandaag || [];
+                  return a.filter(p => p.gemeten != null).map(p => [new
+                  Date(p.tijd).getTime() + 1800000, p.gemeten]);
+              - entity: sensor.quatt_warmteanalyse_zonverwachting
+                name: Verwacht (1 u vooruit)
+                color: "#1E88E5"
+                type: line
+                stroke_width: 2
+                extend_to: false
+                show:
+                  legend_value: false
+                data_generator: >
+                  const a = entity.attributes.vandaag || [];
+                  return a.filter(p => p.verwacht_1u != null).map(p => [new
+                  Date(p.tijd).getTime() + 1800000, p.verwacht_1u]);
+              - entity: sensor.quatt_warmteanalyse_zonverwachting
+                name: Laatste verwachting
+                color: "#90A4AE"
+                type: line
+                stroke_width: 1
+                extend_to: false
+                show:
+                  legend_value: false
+                data_generator: >
+                  const a = entity.attributes.vandaag || [];
+                  return a.filter(p => p.verwacht_laatste != null).map(p => [new
+                  Date(p.tijd).getTime() + 1800000, p.verwacht_laatste]);
+            grid_options:
+              columns: full
+              rows: auto
+          - type: custom:apexcharts-card
+            header:
+              title: Leren over de zon — per meting
+              show: true
+            graph_span: 30d
+            update_interval: 1h
+            yaxis:
+              - id: g
+                min: 0
+                decimals: 1
+                apex_config:
+                  title:
+                    text: Zonfactor (m²)
+              - id: fout
+                opposite: true
+                min: 0
+                decimals: 0
+                apex_config:
+                  title:
+                    text: Fout zonverwachting 3 u (W/m²)
+            series:
+              - entity: sensor.quatt_warmteanalyse_modelvergelijking
+                attribute: zonfactor_horizontaal
+                name: Zonfactor horizontaal (Open-Meteo)
+                yaxis_id: g
+                color: "#90A4AE"
+                type: line
+                stroke_width: 2
+                extend_to: false
+                show:
+                  legend_value: false
+              - entity: sensor.quatt_warmteanalyse_modelvergelijking
+                attribute: zonfactor_gevel
+                name: Zonfactor op de ramen (zonnesensor)
+                yaxis_id: g
+                color: "#F9A825"
+                type: line
+                stroke_width: 2
+                extend_to: false
+                show:
+                  legend_value: false
+              - entity: sensor.quatt_warmteanalyse_zonverwachting
+                name: Fout zonverwachting 3 u vooruit
+                yaxis_id: fout
+                color: "#1E88E5"
+                type: line
+                stroke_width: 1
+                extend_to: false
+                group_by:
+                  func: avg
+                  duration: 1d
+                show:
+                  legend_value: false
             grid_options:
               columns: full
               rows: auto

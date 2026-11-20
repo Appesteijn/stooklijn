@@ -34,6 +34,7 @@ from .const import (
     CONF_CH_MAX_WATER_INTERVAL,
     CONF_CH_MAX_WATER_MARGIN,
     CONF_COMFORT_FLOOR_TEMP,
+    CONF_PV_POWER_ENTITY,
     CONF_THROTTLE_ENTITY,
     CONF_PRICE_MODE,
     CONF_PRICE_NORMAL,
@@ -602,6 +603,13 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_COMFORT_FLOOR_TEMP,
                         default=data.get(CONF_COMFORT_FLOOR_TEMP, DEFAULT_COMFORT_FLOOR_TEMP),
                     ): vol.All(vol.Coerce(float), vol.Range(min=10.0, max=22.0)),
+                    # Zon zoals de ramen hem zien (ZONNEWARMTE_PLAN.md). Een
+                    # PV-installatie meet de zon lokaal; zonder blijft alles op
+                    # Open-Meteo draaien zoals voorheen. De richting van panelen
+                    # en ramen wordt geleerd, niet gevraagd.
+                    _prefill(
+                        CONF_PV_POWER_ENTITY, _existing(data.get(CONF_PV_POWER_ENTITY))
+                    ): _entity("sensor"),
                     # Optioneel: entity die aangeeft dat een externe regelaar de
                     # WP knijpt (cap < 20) — tariefsturing, dynamisch contract, eigen
                     # script. Die periodes worden uitgesloten van de COP- en

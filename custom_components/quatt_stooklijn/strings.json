@@ -102,6 +102,7 @@
           "ch_max_water_hysteresis": "Minimum change before writing (°C)",
           "ch_max_water_interval": "Write interval (minutes)",
           "comfort_floor_temp": "Comfort floor (°C) — lowest acceptable indoor temperature; the reference for coast time and stored heat, not the target temperature",
+          "pv_power_entity": "Sun sensor: PV power (W or kW) — optional, measures the sun locally for the house model",
           "eos_throttle_entity": "External throttle entity (optional) — periods where an external controller caps the heat pump are excluded from the COP and heat-loss analysis; leave empty to disable",
           "temp_entities": "Outside temperature sensor(s) — the first available one is used",
           "power_entity": "Heat pump heat output sensor (W)",
@@ -216,6 +217,9 @@
       },
       "model_benchmark": {
         "name": "Model comparison"
+      },
+      "solar_forecast": {
+        "name": "Sun forecast"
       },
       "mpc_recommended_supply_temp": {
         "name": "MPC recommended supply temperature"

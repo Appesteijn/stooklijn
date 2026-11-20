@@ -122,6 +122,12 @@ from .const import (
     MPC_ADVICE_OK,
     MPC_ADVICE_STATUS_ATTR,
     MPC_2R2C_START_TTL_S,
+    CONF_PV_POWER_ENTITY,
+    DEFAULT_ORIENTATION_AZIMUTH,
+    PV_ORIENTATION_HISTORY_DAYS,
+    PV_ORIENTATION_REFRESH_HOURS,
+    WINDOW_AZIMUTH_CANDIDATES,
+    SOLAR_FORECAST_LOG_STORAGE_KEY,
     MPC_CATCHUP_FACTOR,
     MPC_SUPPLY_TEMP_MAX,
     MPC_SUPPLY_TEMP_MIN,
@@ -167,6 +173,8 @@ _COMPRESSOR_STORE_KEYS = {
     ROLE_COMPRESSOR_2: "runs_hp2",
 }
 from .highres_log import SAMPLE_INTERVAL, HighResLogStore
+from .analysis.solar_forecast_log import SolarForecastLog
+from .analysis.solar_input import Orientation
 from .thermal_store import ThermalModelStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -448,6 +456,8 @@ async def async_setup_entry(
     benchmark_sensor = QuattModelBenchmarkSensor(coordinator, entry, mpc_sensor)
     entities.append(benchmark_sensor)
     mpc_sensor.benchmark = benchmark_sensor
+    # Hoe goed de zonverwachting is, per vooruitkijktijd (ZONNEWARMTE_PLAN.md).
+    entities.append(QuattSolarForecastSensor(coordinator, entry, mpc_sensor))
 
     # Geen entity-ID's meer meegeven: die werden hier één keer bij het opstarten
     # bepaald en daarna nooit meer. De sensor zoekt ze nu zelf op via de
@@ -836,6 +846,51 @@ def _calc_heating_curve_breakpoints(
     return breakpoints
 
 
+async def async_pv_hourly(
+    hass: HomeAssistant, entity: str, start_ts: float, end_ts: float
+) -> list[tuple[float, float]]:
+    """Uurgemiddelden van een vermogenssensor uit de recorder, in W.
+
+    ``(begin van het uur in UTC-seconden, gemiddeld W)``. Leeg als de sensor
+    geen statistiek heeft (geen ``state_class``) of de recorder niets weet.
+    """
+    from homeassistant.components.recorder import get_instance
+    from homeassistant.components.recorder.statistics import statistics_during_period
+
+    start = dt_util.utc_from_timestamp(start_ts)
+    end = dt_util.utc_from_timestamp(end_ts + 3600)
+
+    def _fetch() -> dict:
+        return statistics_during_period(
+            hass, start_time=start, end_time=end,
+            statistic_ids={entity}, period="hour", units=None, types={"mean"},
+        )
+
+    stats = await get_instance(hass).async_add_executor_job(_fetch)
+    state = hass.states.get(entity)
+    unit = str((state.attributes.get("unit_of_measurement") if state else "") or "")
+    factor = _power_unit_factor(unit)
+    out: list[tuple[float, float]] = []
+    for row in (stats or {}).get(entity, []):
+        begin, mean = row.get("start"), row.get("mean")
+        if begin is None or mean is None:
+            continue
+        if not isinstance(begin, (int, float)):
+            begin = begin.timestamp()
+        out.append((float(begin), float(mean) * factor))
+    return out
+
+
+def _power_unit_factor(unit: str) -> float:
+    """Omrekenfactor naar W voor een vermogenseenheid (W, kW, MW)."""
+    u = unit.strip().lower()
+    if u == "kw":
+        return 1000.0
+    if u == "mw":
+        return 1_000_000.0
+    return 1.0
+
+
 class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity):
     """Shadow-mode MPC sensor: aanbevolen aanvoertemperatuur op basis van
     weersvoorspelling + zonnewinst.
@@ -899,6 +954,19 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         self.benchmark: QuattModelBenchmarkSensor | None = None
         # (monotone tijd, parameters, begintoestand); zie _room_2r2c.
         self._start_2r2c: tuple[float, tuple, Any] | None = None
+        # Wat Open-Meteo per uur verwachtte, per vooruitkijktijd; zie
+        # analysis/solar_forecast_log.py en de zonverwachtingssensor.
+        self.solar_forecast_log = SolarForecastLog()
+        self._solar_forecast_store = Store(
+            coordinator.hass, 1, SOLAR_FORECAST_LOG_STORAGE_KEY
+        )
+        self._solar_forecast_loaded = False
+        # Geleerd, niet ingesteld: richting van de panelen (uit een jaar
+        # PV-statistiek) en van de ramen (nachtelijke modelvergelijking).
+        self.pv_azimuth: float | None = None
+        self.pv_azimuth_scores: dict[int, float] = {}
+        self._pv_orientation_at: datetime | None = None
+        self.window_azimuth: float | None = None
 
     # ------------------------------------------------------------------ helpers
 
@@ -1020,16 +1088,30 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         return age <= SOLAR_FORECAST_MAX_AGE_SECONDS
 
     def _solar_radiation_at(self, moment) -> float | None:
-        """Straling (W/m²) op het hele uur van ``moment``, of None als onbekend.
+        """Straling (W/m²) in het uur waar ``moment`` in valt, of None als onbekend.
 
         Zoekt op tijdstempel in ``hourly.time``, niet op uur-index. Open-Meteo
         levert die reeks in de tijdzone die we zelf hebben meegegeven, dus een
         gelijke stempel is per definitie hetzelfde uur — ook op de dagen dat er
         een uur verdwijnt of dubbel voorkomt.
+
+        **De stempel is het eind van het uur.** ``shortwave_radiation`` is bij
+        Open-Meteo het gemiddelde over het voorafgaande uur: de waarde op 11:00
+        hoort bij 10:00–11:00. Tot v0.10.6-beta.12 werd de stempel van het
+        begin van het uur gebruikt, en kwam de zon in elk model een uur te laat.
+        Gemeten tegen de PV-opbrengst (sep–nov 2026): de oude reeks paste het
+        best bij de PV van het uur ervóór (correlatie 0,85 tegen 0,79), en het
+        zwaartepunt van de dag lag 0,8 uur te laat. Zie ZONNEWARMTE_PLAN.md.
+
+        Het eind van het uur wordt in UTC opgeteld en dan pas lokaal gemaakt,
+        zodat het ook klopt op de nacht van een DST-overgang.
         """
         if not self._solar_forecast_is_fresh:
             return None
-        stamp = moment.astimezone(dt_util.now().tzinfo).strftime("%Y-%m-%dT%H:00")
+        tz = dt_util.now().tzinfo
+        start = moment.astimezone(tz).replace(minute=0, second=0, microsecond=0)
+        end = (start.astimezone(timezone.utc) + timedelta(hours=1)).astimezone(tz)
+        stamp = end.strftime("%Y-%m-%dT%H:00")
         try:
             idx = self._solar_times.index(stamp)
         except ValueError:
@@ -1319,6 +1401,117 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         except Exception:
             _LOGGER.warning("Meetlogboek laden mislukt", exc_info=True)
         self._highres_loaded = True
+        try:
+            self.solar_forecast_log = SolarForecastLog.from_dict(
+                await self._solar_forecast_store.async_load()
+            )
+        except Exception:
+            _LOGGER.warning("Logboek zonverwachtingen laden mislukt", exc_info=True)
+        # Ook na een mislukte lezing: dan begint het opnieuw. Dit zijn
+        # verwachtingen, geen metingen; er gaat niets onvervangbaars verloren.
+        self._solar_forecast_loaded = True
+
+    # -- zon zoals de ramen hem zien ---------------------------------------
+
+    @property
+    def pv_power_entity(self) -> str | None:
+        """De zonnesensor (PV-vermogen), of None als die niet is ingesteld."""
+        cfg = {**self._entry.data, **self._entry.options}
+        return cfg.get(CONF_PV_POWER_ENTITY) or None
+
+    def _pv_power_w(self) -> float | None:
+        """PV-vermogen nu, in W. None als onbekend (omvormers slapen 's nachts)."""
+        entity = self.pv_power_entity
+        if not entity:
+            return None
+        value = get_float_state(self.hass, entity)
+        if value is None:
+            return None
+        state = self.hass.states.get(entity)
+        unit = str((state.attributes.get("unit_of_measurement") if state else "") or "")
+        return value * _power_unit_factor(unit)
+
+    @property
+    def solar_orientation(self) -> Orientation:
+        """Waar het huis staat en waar ramen en panelen naar wijzen.
+
+        Beide richtingen zijn geleerd; zolang dat niet gelukt is geldt zuid.
+        De helling van de panelen staat vast: uit de data nauwelijks te
+        bepalen, en op het gemeten huis maakte 15–35° geen verschil.
+        """
+        from .analysis.solar_geometry import PV_TILT_ASSUMED
+
+        return Orientation(
+            lat=float(self.hass.config.latitude),
+            lon=float(self.hass.config.longitude),
+            window_azimuth=float(
+                getattr(self, "window_azimuth", None) or DEFAULT_ORIENTATION_AZIMUTH
+            ),
+            pv_tilt=PV_TILT_ASSUMED,
+            pv_azimuth=float(
+                getattr(self, "pv_azimuth", None) or DEFAULT_ORIENTATION_AZIMUTH
+            ),
+        )
+
+    async def async_learn_pv_orientation(self) -> None:
+        """Leer de richting van de panelen uit een jaar PV-uurstatistiek.
+
+        Eens per etmaal; de sensoren die de zon gebruiken roepen dit aan vóór ze
+        rekenen. Mislukt het, of is er te weinig data, dan blijft de vorige
+        uitkomst (of zuid) staan.
+        """
+        from .analysis.solar_geometry import estimate_pv_azimuth
+
+        entity = self.pv_power_entity
+        if not entity:
+            return
+        now = dt_util.utcnow()
+        last = getattr(self, "_pv_orientation_at", None)
+        if last is not None and now - last < timedelta(hours=PV_ORIENTATION_REFRESH_HOURS):
+            return
+        self._pv_orientation_at = now
+        try:
+            hourly = await async_pv_hourly(
+                self.hass, entity,
+                now.timestamp() - PV_ORIENTATION_HISTORY_DAYS * 86400, now.timestamp(),
+            )
+            if not hourly:
+                return
+            ts = [h[0] for h in hourly]
+            pv = [h[1] for h in hourly]
+            azimuth, scores = await self.hass.async_add_executor_job(
+                estimate_pv_azimuth, ts, pv,
+                float(self.hass.config.latitude), float(self.hass.config.longitude),
+            )
+        except Exception:
+            _LOGGER.warning("Richting van de panelen leren mislukt", exc_info=True)
+            return
+        if azimuth is not None:
+            self.pv_azimuth = azimuth
+            self.pv_azimuth_scores = scores
+
+    def _record_solar_forecast(self, times: list[str], values: list) -> None:
+        """Leg een Open-Meteo-ophaling vast in het logboek van zonverwachtingen.
+
+        De stempel is het eind van het uur (zie ``_solar_radiation_at``); het
+        logboek rekent met het begin, in UTC.
+        """
+        if not self._solar_forecast_loaded:
+            return
+        tz = dt_util.get_default_time_zone()
+        hours: list[tuple[float, float | None]] = []
+        for stamp, value in zip(times, values):
+            try:
+                end = datetime.fromisoformat(stamp).replace(tzinfo=tz)
+            except (TypeError, ValueError):
+                continue
+            hours.append((end.timestamp() - 3600.0, value))
+        now = dt_util.utcnow().timestamp()
+        if self.solar_forecast_log.record(now, hours):
+            self.solar_forecast_log.prune(now)
+            self._solar_forecast_store.async_delay_save(
+                self.solar_forecast_log.to_dict, 60
+            )
 
     async def _async_highres_sample(self, _now=None) -> None:
         """Leg elke vijf minuten een monster vast.
@@ -1339,7 +1532,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             return
         q_hp = get_float_state(self.hass, self._power_entity) or 0.0
         self._highres_store.record(
-            dt_util.utcnow(), t_indoor, t_outdoor, q_hp, q_solar_wm2
+            dt_util.utcnow(), t_indoor, t_outdoor, q_hp, q_solar_wm2,
+            self._pv_power_w(),
         )
 
     def _refresh_u_prior(self) -> None:
@@ -1531,6 +1725,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                         self._solar_radiation = values
                         self._solar_times = times
                         self._solar_fetched_at = dt_util.utcnow()
+                        self._record_solar_forecast(times, values)
                     else:
                         # Een half antwoord is geen antwoord: liever de vorige
                         # reeks laten staan (die verloopt vanzelf) dan hier een
@@ -2235,6 +2430,9 @@ class QuattModelBenchmarkSensor(
         self._entry = entry
         self._mpc = mpc_sensor
         self._result: Comparison | None = None
+        # Het 2R2C met de zon op de ramen (zonnesensor), naast de hoofduitkomst.
+        # None zonder zonnesensor of zolang er niet gemeten is.
+        self._window: dict | None = None
         self._running = False
         self._attr_unique_id = f"{entry.entry_id}_model_benchmark"
         self._attr_device_info = get_device_info(entry.entry_id)
@@ -2269,7 +2467,17 @@ class QuattModelBenchmarkSensor(
     def extra_state_attributes(self) -> dict:
         if self._result is None:
             return {"gemeten": False}
-        return {"gemeten": True, **self._result.to_dict()}
+        attrs = {"gemeten": True, **self._result.to_dict()}
+        # Gevelzon (ZONNEWARMTE_PLAN.md). De zonfactoren ook los, zodat een
+        # grafiek per meting kan laten zien of ze stabiliseren.
+        window = getattr(self, "_window", None)
+        attrs["zonfactor_horizontaal"] = (self._result.params or {}).get("g")
+        attrs["gevelzon"] = window
+        attrs["zonfactor_gevel"] = ((window or {}).get("params") or {}).get("g")
+        attrs["gevelzon_rmse_k"] = (window or {}).get("rmse_k")
+        attrs["richting_ramen"] = (window or {}).get("richting_ramen")
+        attrs["richting_panelen"] = (window or {}).get("richting_panelen")
+        return attrs
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -2298,18 +2506,238 @@ class QuattModelBenchmarkSensor(
         self._running = True
         try:
             result = await self.hass.async_add_executor_job(compare, rows, model)
+            window = await self._async_window_variant(rows)
         except Exception:
             _LOGGER.warning("Modelvergelijking mislukt", exc_info=True)
             return
         finally:
             self._running = False
         self._result = result
+        self._window = window
         _LOGGER.info(
-            "Modelvergelijking: 2R2C %s K, huidig %s K, niets doen %s K — %s",
+            "Modelvergelijking: 2R2C %s K, huidig %s K, niets doen %s K — %s; "
+            "gevelzon %s K",
             result.rmse_k, result.reference_rmse_k, result.persistence_rmse_k,
-            result.reason,
+            result.reason, (window or {}).get("rmse_k"),
         )
         self.async_write_ha_state()
+
+    async def _async_window_variant(self, rows: list[list[float]]) -> dict | None:
+        """Het 2R2C met de zon op de ramen, gemeten met de zonnesensor.
+
+        PV staat pas sinds v0.10.6-beta.12 in het meetlogboek. Voor de oudere
+        monsters wordt hij aangevuld uit de uurstatistiek van de recorder,
+        zodat er meteen een uitkomst is in plaats van over vier weken. Een fout
+        hier mag de hoofduitkomst niet meenemen.
+        """
+        from .analysis.model_benchmark import compare_variant
+        from .analysis.solar_input import window_rows
+
+        entity = self._mpc.pv_power_entity
+        if not entity:
+            return None
+        try:
+            await self._mpc.async_learn_pv_orientation()
+            hourly = await async_pv_hourly(
+                self.hass, entity, min(r[0] for r in rows), max(r[0] for r in rows)
+            )
+            where = self._mpc.solar_orientation
+            result = await self.hass.async_add_executor_job(
+                _window_variant_with_learned_direction, rows, where, hourly
+            )
+        except Exception:
+            _LOGGER.warning("Modelvergelijking met gevelzon mislukt", exc_info=True)
+            return {"reden": "berekening mislukt"}
+        if result.get("richting_ramen") is not None:
+            self._mpc.window_azimuth = result["richting_ramen"]
+        result["richting_panelen"] = self._mpc.pv_azimuth
+        return result
+
+
+
+def _window_variant_with_learned_direction(rows, where, hourly) -> dict:
+    """De gevelzonvariant voor elke kandidaat-raamrichting; de beste wint.
+
+    Gekozen op het gemiddelde van beide week-splitsingen: met één splitsing
+    sprong het beste punt op het gemeten huis tussen 135° en 250°. De getoonde
+    uitkomst is die van de gewone splitsing, net als de hoofdvergelijking.
+    Draait in de executor.
+    """
+    from dataclasses import replace
+
+    from .analysis.model_benchmark import compare_variant
+    from .analysis.solar_input import window_rows
+
+    per_richting: dict[int, float] = {}
+    gewoon: dict[int, dict] = {}
+    info: dict = {}
+    for cand in WINDOW_AZIMUTH_CANDIDATES:
+        variant, info = window_rows(rows, replace(where, window_azimuth=float(cand)), hourly)
+        if variant is None:
+            return {**info, "reden": "te weinig PV-data in het meetlogboek"}
+        a = compare_variant(variant)
+        b = compare_variant(variant, reverse=True)
+        if a.get("rmse_k") is None or b.get("rmse_k") is None:
+            return {**info, **a}
+        per_richting[cand] = round((a["rmse_k"] + b["rmse_k"]) / 2, 3)
+        gewoon[cand] = a
+    best = min(per_richting, key=per_richting.get)
+    return {
+        **info,
+        **gewoon[best],
+        "richting_ramen": float(best),
+        "rmse_per_richting": {str(k): v for k, v in per_richting.items()},
+    }
+
+
+class QuattSolarForecastSensor(
+    CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity
+):
+    """Hoe goed is de zonverwachting, per vooruitkijktijd?
+
+    Bij elke Open-Meteo-ophaling legt de MPC-sensor vast wat er voor de
+    komende twaalf uur verwacht werd (``SolarForecastLog``). Deze sensor zet
+    dat elk uur naast wat er kwam: gemeten met de zonnesensor als die is
+    ingesteld, anders de verwachting van vlak ervóór.
+
+    De stand is de gemiddelde fout op drie uur vooruit, de horizon waarop een
+    aansturing met de zon rekent. Die gaat de langetermijnstatistiek in, zodat
+    te zien is of het getal stabiliseert. Zie ZONNEWARMTE_PLAN.md.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "solar_forecast"
+    _attr_icon = "mdi:weather-partly-cloudy"
+    _attr_native_unit_of_measurement = "W/m²"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 0
+    # Het uuroverzicht van vandaag is voor de grafiek, niet voor de recorder.
+    _unrecorded_attributes = frozenset({"vandaag"})
+
+    INTERVAL = timedelta(hours=1)
+    STARTUP_DELAY = timedelta(minutes=3)
+    #: De vooruitkijktijd waarvan de fout de stand is.
+    STATE_LEAD = "3"
+
+    def __init__(
+        self,
+        coordinator: QuattStooklijnCoordinator,
+        entry: ConfigEntry,
+        mpc_sensor: QuattMpcSensor,
+    ) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._mpc = mpc_sensor
+        self._score: dict | None = None
+        self._running = False
+        self._attr_unique_id = f"{entry.entry_id}_solar_forecast"
+        self._attr_device_info = get_device_info(entry.entry_id)
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT, "quatt_warmteanalyse_zonverwachting",
+            hass=coordinator.hass,
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        if not self._score:
+            return None
+        return self._score["per_vooruitkijktijd"].get(self.STATE_LEAD, {}).get("mae")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        if not self._score:
+            return {"gemeten": False}
+        return {"gemeten": True, **self._score}
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_time_interval(self.hass, self._async_run, self.INTERVAL)
+        )
+        self.async_on_remove(
+            async_call_later(
+                self.hass, self.STARTUP_DELAY.total_seconds(), self._async_run
+            )
+        )
+
+    async def _async_run(self, _now=None) -> None:
+        if self._running:
+            return
+        from .analysis.solar_forecast_log import KEEP_HOURS, SolarForecastLog
+
+        now = dt_util.utcnow().timestamp()
+        log_dict = self._mpc.solar_forecast_log.to_dict()
+        rows = [r for r in self._mpc.highres_samples if r[0] >= now - KEEP_HOURS * 3600]
+        entity = self._mpc.pv_power_entity
+        self._running = True
+        await self._mpc.async_learn_pv_orientation()
+        where = self._mpc.solar_orientation
+        tz = dt_util.get_default_time_zone()
+        try:
+            hourly = (
+                await async_pv_hourly(self.hass, entity, now - KEEP_HOURS * 3600, now)
+                if entity else []
+            )
+            self._score = await self.hass.async_add_executor_job(
+                _score_solar_forecast,
+                SolarForecastLog.from_dict(log_dict), rows, entity, where, hourly, now, tz,
+            )
+        except Exception:
+            _LOGGER.warning("Zonverwachting scoren mislukt", exc_info=True)
+            return
+        finally:
+            self._running = False
+        self.async_write_ha_state()
+
+
+def _score_solar_forecast(log, rows, entity, where, hourly, now, tz) -> dict:
+    """Rekenwerk van de zonverwachtingssensor; draait in de executor."""
+    import numpy as np
+
+    from .analysis.solar_geometry import clearsky_ghi, sun_position
+    from .analysis.solar_input import hourly_measured, measured_ghi
+
+    measured = None
+    scale = None
+    reden = None
+    if entity:
+        ts, ghi, scale = measured_ghi(rows, where, hourly)
+        if scale is None:
+            reden = "zonnesensor: nog te weinig zon gezien om de installatie te ijken"
+        else:
+            measured = hourly_measured(ts, ghi, where)
+    hours = sorted(set(log.hours()) | set(measured or {}))
+    clear = {}
+    if hours:
+        mids = np.array(hours, dtype=float) + 1800.0
+        el, _az, _e0 = sun_position(mids, where.lat, where.lon)
+        clear = {h: float(c) for h, c in zip(hours, clearsky_ghi(el))}
+    score = log.score(now, measured or None, clear)
+
+    # Vandaag, voor de grafiek: wat er een uur vooruit verwacht werd, wat de
+    # laatste verwachting was, en wat er gemeten is.
+    today = datetime.fromtimestamp(now, tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    first = int(today.timestamp())
+    vandaag = []
+    for h in range(first, first + 36 * 3600, 3600):
+        latest = log.latest(h)
+        m = (measured or {}).get(h)
+        if latest is None and m is None:
+            continue
+        vandaag.append({
+            "tijd": datetime.fromtimestamp(h, tz).isoformat(),
+            "verwacht_1u": log.at(h, 1),
+            "verwacht_laatste": latest,
+            "gemeten": round(m[0], 1) if m else None,
+        })
+    return {
+        **score,
+        "zonnesensor": entity,
+        "pv_schaal": round(scale, 2) if scale is not None else None,
+        "richting_panelen": where.pv_azimuth if entity else None,
+        "reden": reden,
+        "vandaag": vandaag,
+    }
 
 
 class QuattAdviceErrorSensor(

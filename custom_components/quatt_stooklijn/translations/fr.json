@@ -94,6 +94,7 @@
           "ch_max_water_hysteresis": "Changement minimal avant écriture (°C)",
           "ch_max_water_interval": "Intervalle d'écriture (minutes)",
           "comfort_floor_temp": "Plancher de confort (°C) — température intérieure minimale acceptable ; référence pour le temps d'inertie et la chaleur stockée, pas la consigne",
+          "pv_power_entity": "Capteur solaire : puissance PV (W ou kW) — optionnel, mesure le soleil localement pour le modèle de la maison",
           "eos_throttle_entity": "Limiteur externe (optionnel) — les périodes où un régulateur externe bride la pompe à chaleur sont exclues de l'analyse COP et déperditions ; vide = désactivé",
           "temp_entities": "Capteur(s) de température extérieure — le premier disponible est utilisé",
           "power_entity": "Capteur de puissance thermique de la pompe à chaleur (W)",
@@ -208,6 +209,9 @@
       },
       "model_benchmark": {
         "name": "Comparaison des modèles"
+      },
+      "solar_forecast": {
+        "name": "Prévision solaire"
       },
       "mpc_recommended_supply_temp": {
         "name": "Température de départ recommandée MPC"

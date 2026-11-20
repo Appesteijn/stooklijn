@@ -32,8 +32,8 @@ class TestRecord:
         """Ongeafgerond schrijft een float zeventien cijfers weg; over 25.920
         monsters is dat het verschil tussen een megabyte en het meervoud daarvan."""
         log = HighResLog()
-        log.record(T0, 20.123456789, 3.987654321, 2500.6789, 120.456789)
-        assert log.to_dict()["samples"][0][1:] == [20.12, 3.99, 2501, 120.5]
+        log.record(T0, 20.123456789, 3.987654321, 2500.6789, 120.456789, 1234.567)
+        assert log.to_dict()["samples"][0][1:] == [20.12, 3.99, 2501, 120.5, 1235]
 
     def test_slaat_te_dichte_monsters_over(self):
         """Een herstart-storm of handmatige aanroep mag het venster niet
@@ -101,7 +101,7 @@ class TestSerialisatie:
         """Zonder kolomnamen is een kale lijst getallen over een half jaar
         niet meer terug te lezen."""
         assert HighResLog().to_dict()["columns"] == [
-            "ts", "t_indoor", "t_outdoor", "q_hp_w", "q_solar_wm2",
+            "ts", "t_indoor", "t_outdoor", "q_hp_w", "q_solar_wm2", "pv_w",
         ]
 
     def test_corrupte_rijen_worden_overgeslagen(self):
@@ -247,3 +247,43 @@ class TestOpslaanBijHerladen:
         import asyncio
         sensor = self._sensor(fout=OSError("schijf vol"))
         asyncio.run(sensor.async_will_remove_from_hass())
+
+
+class TestZonnesensor:
+    """Zesde kolom: PV-vermogen van de zonnesensor (v0.10.6-beta.12)."""
+
+    def test_zonder_zonnesensor_none_op_schijf(self):
+        """NaN is geen geldige JSON; onbekend wordt ``None``."""
+        log = HighResLog()
+        log.record(T0, 20.0, 5.0, 2000, 100.0)
+        assert log.to_dict()["samples"][0][5] is None
+
+    def test_onbekende_meting_none(self):
+        log = HighResLog()
+        log.record(T0, 20.0, 5.0, 2000, 100.0, float("nan"))
+        assert log.to_dict()["samples"][0][5] is None
+
+    def test_oud_logboek_met_vijf_kolommen_blijft_laden(self):
+        """Een logboek van vóór de zonnesensor mag geen monster verliezen."""
+        oud = {"samples": [[1_790_000_000 + 300 * i, 20.0, 5.0, 2000.0, 0.0] for i in range(10)]}
+        log = HighResLog.from_dict(oud)
+        assert len(log) == 10
+        assert all(row[5] is None for row in log.to_dict()["samples"])
+
+    def test_rondreis_via_json(self):
+        import json
+
+        log = HighResLog()
+        log.record(T0, 20.0, 5.0, 2000, 100.0, 1500.0)
+        log.record(T0 + SAMPLE_INTERVAL, 20.0, 5.0, 2000, 100.0)
+        terug = HighResLog.from_dict(json.loads(json.dumps(log.to_dict())))
+        assert [r[5] for r in terug.to_dict()["samples"]] == [1500, None]
+
+    def test_rekenen_met_onbekend_geeft_nan(self):
+        """De analyse zet de rijen om met numpy; None wordt dan NaN."""
+        import numpy as np
+
+        log = HighResLog()
+        log.record(T0, 20.0, 5.0, 2000, 100.0)
+        arr = np.asarray(log.to_dict()["samples"], dtype=float)
+        assert np.isnan(arr[0, 5])

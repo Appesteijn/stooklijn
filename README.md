@@ -143,6 +143,7 @@ These are in **Configure**:
 
 - **Comfort floor** (default 19 °C) — The lowest indoor temperature you accept. It is the reference for coast time and stored heat, not the target temperature.
 - **Fallback room setpoint** (default 20 °C) — Used only when the thermostat provides no setpoint.
+- **Sun sensor: PV power** (empty by default) — The power of a PV installation (W or kW). It measures the sun locally: the house model learns from it, and the sun forecast is scored against it. The direction of the panels and of the windows is learned from the data, not asked. See [Solar gain correction](#solar-gain-correction).
 - **External throttle entity** (empty by default) — For an external controller that caps the heat pump, such as a tariff-driven helper. Minutes where its value is below 20 are left out of the knee, stooklijn and heat-loss analysis, because a capped heat pump does not follow its natural curve.
 
 ## Data sources
@@ -324,6 +325,7 @@ Each carries `source_entity`, `source_integration`, `candidates` and `switched_a
 | `geluidsniveau` | — | Current compressor sound level (`building87` / `silent` / `library` / `normal`) — only when sound level compensation is enabled |
 | `compressorstarts` | starts/uur | Compressor starts in the last hour — see [Short cycling](#short-cycling) |
 | `cop_prestatie` | — | Efficiency against this installation's own norm at the same outdoor temperature and the same half of the season — see [Judging a change](#judging-a-change) |
+| `zonverwachting` | W/m² | Mean error of the Open-Meteo sun forecast three hours ahead; attribute `per_vooruitkijktijd` has the error per lead time (1, 2, 3, 6, 12 h), next to "keep the current clearness" when a sun sensor is set — see [Solar gain correction](#solar-gain-correction) |
 | `prijsverschuiving` | EUR | Predicted savings, summed per day, had heat demand been shifted to cheaper hours — only when a tariff is configured, see [Price shift](#price-shift-shadow-measurement) |
 
 Both error sensors return no value while the pump is idle (flow below 30 L/h): comparing advice against actual supply temperature is meaningless without circulation.
@@ -386,7 +388,15 @@ pump off, the 12-hour forecast, and advice versus actual supply temperature.*
 
 ### Solar gain correction
 
-The integration uses [Open-Meteo](https://open-meteo.com/) shortwave radiation (W/m²) as its solar input. The online model learns how much of that radiation ends up as heat inside your home; this calibration improves over time. Solar panel output is not used.
+The integration uses [Open-Meteo](https://open-meteo.com/) shortwave radiation (W/m²) as its solar input. The online model learns how much of that radiation ends up as heat inside your home; this calibration improves over time.
+
+Open-Meteo reports radiation as the mean over the *preceding* hour. Up to v0.10.6-beta.11 the integration read that as the current hour, so the sun arrived an hour late in every model. That is fixed.
+
+Horizontal radiation with one fixed factor does not fit all seasons: a low winter sun shines almost straight through vertical glass, a high spring sun hardly. With a **sun sensor** (PV power) the integration also works out how much sun comes through the windows, and the model comparison fits the two-state model on that as well. On the measured house that predicted the room 14–20 % better twelve hours ahead. It only compares; nothing is controlled with it yet.
+
+Nothing about orientation needs to be entered. The direction of the panels is learned once a day from a year of PV statistics: at the right direction, the clear-sky output has the same shape over the whole day. The direction of the windows is learned roughly (east, south-east, south, south-west, west) in the nightly model comparison; finer is not possible, and not needed — on the measured house everything between 135° and 250° predicted equally well. The tilt of the panels is fixed at 30°; 15–35° made no difference.
+
+The `zonverwachting` sensor records, at every fetch, what Open-Meteo expects for the next twelve hours, and later scores that against what came: measured with the sun sensor, or without one against the last forecast for the same hour. That is the groundwork for control that takes the sun of the coming hours into account.
 
 ### Shadow mode
 

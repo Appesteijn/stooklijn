@@ -58,7 +58,9 @@ def test_temperatuur_en_zon_horen_bij_hetzelfde_uur(monkeypatch, minute):
     temps, solar, meta = _sensor(now_local).build_forecast_arrays(None, n_hours=6)
 
     assert temps == [10.0, 11.0, 12.0, 13.0, 14.0, 15.0]
-    assert solar == temps
+    # Zon hoort bij hetzelfde uur, maar Open-Meteo stempelt het eind ervan:
+    # het uur 10–11 staat op 11:00 (waarde 11). Zie _solar_radiation_at.
+    assert solar == [t + 1 for t in temps]
     assert datetime.fromisoformat(meta[0]["datetime"]) == datetime(
         2026, 10, 10, 10, tzinfo=TZ
     )

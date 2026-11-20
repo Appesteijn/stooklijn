@@ -3,6 +3,43 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.1 — 2026-11-20
+
+Betaversie over de zon: het goede uur, een optionele zonnesensor, en een sensor die meet hoe goed de zonverwachting is.
+
+- **De zon kwam een uur te laat.** Open-Meteo geeft de straling als gemiddelde
+  over het voorafgaande uur, met het eind van dat uur als stempel. De integratie
+  las die waarde als het lopende uur. Gemeten tegen PV-opbrengst paste de oude
+  reeks het best bij het uur ervóór, en het zwaartepunt van de dag lag 0,8 uur
+  te laat. Alle modellen, de vooruitblik en het meetlogboek krijgen nu de zon
+  van het goede uur.
+- **Zonnesensor (optioneel).** Stel het PV-vermogen van je installatie in; meer
+  hoeft niet. Het PV-vermogen gaat mee in het meetlogboek. Op het gemeten huis
+  voorspelde het 2R2C met de zon op de ramen (uit PV) de kamer 14–20 % beter dan
+  met horizontale straling.
+- **Richting van panelen en ramen wordt geleerd.** De panelen eens per etmaal
+  uit een jaar PV-statistiek (bij de juiste richting heeft de opbrengst op
+  heldere dagen de vorm van de zonnestand; op het gemeten huis 180°, gelijk aan
+  de omvormer). De ramen grof in de nachtelijke modelvergelijking: vijf
+  richtingen, de beste op twee onafhankelijke toetsen. Op het gemeten huis
+  voorspelde alles tussen 135° en 250° even goed; oost en west waren duidelijk
+  slechter. Beide staan op het dashboard.
+- **Modelvergelijking met gevelzon.** Met een zonnesensor fit de
+  modelvergelijking het 2R2C ook op de zon zoals de ramen hem zien, naast het
+  huidige. Voor het verleden wordt PV aangevuld uit de uurstatistiek van de
+  recorder, zodat er meteen een uitkomst is. Beide zonfactoren staan als
+  attribuut in de historie, zodat te zien is of ze stabiliseren. Het stuurt
+  niets aan.
+- **Nieuwe sensor `zonverwachting`.** Bij elke ophaling wordt vastgelegd wat
+  Open-Meteo voor de komende twaalf uur verwacht. Elk uur wordt dat gescoord
+  tegen wat er kwam: gemeten met de zonnesensor, of zonder zonnesensor tegen de
+  laatste verwachting. Per vooruitkijktijd (1, 2, 3, 6, 12 uur) de afwijking en
+  de fout, met een zonnesensor ook naast "helderheid van nu aanhouden" en een
+  correctiefactor. De stand is de fout op drie uur vooruit.
+- **Dashboard:** tabel "Zonverwachting", grafieken "Zon vandaag — verwacht en
+  gemeten" en "Leren over de zon — per meting", en een regel voor de gevelzon in
+  de modelvergelijking.
+
 ## v0.10.6 — 2026-11-20
 
 Stabiele afsluiting van v0.10.6-beta.1 t/m beta.11, zonder codewijzigingen

@@ -94,6 +94,7 @@
           "ch_max_water_hysteresis": "Minimale wijziging voor schrijfactie (°C)",
           "ch_max_water_interval": "Schrijfinterval (minuten)",
           "comfort_floor_temp": "Comfort-ondergrens (°C) — laagste acceptabele binnentemperatuur; referentie voor uitlooptijd en opgeslagen warmte, niet de streeftemperatuur",
+          "pv_power_entity": "Zonnesensor: PV-vermogen (W of kW) — optioneel, meet de zon lokaal voor het huismodel",
           "eos_throttle_entity": "Externe begrenzer (optioneel) — periodes waarin een externe regelaar de warmtepomp knijpt tellen niet mee in de COP- en warmteverlies-analyse; leeg = uit",
           "temp_entities": "Buitentemperatuur sensor(en) — de eerste die beschikbaar is wordt gebruikt",
           "power_entity": "Warmtepomp warmtevermogen sensor (W)",
@@ -208,6 +209,9 @@
       },
       "model_benchmark": {
         "name": "Modelvergelijking"
+      },
+      "solar_forecast": {
+        "name": "Zonverwachting"
       },
       "mpc_recommended_supply_temp": {
         "name": "MPC aanbevolen aanvoertemperatuur"

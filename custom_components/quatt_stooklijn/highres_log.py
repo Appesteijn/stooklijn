@@ -25,6 +25,7 @@ from __future__ import annotations
 from collections import deque
 from datetime import datetime, timedelta
 import logging
+import math
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -66,8 +67,15 @@ class HighResLog:
         t_outdoor: float,
         q_hp_w: float,
         q_solar_wm2: float,
+        pv_w: float | None = None,
     ) -> bool:
-        """Leg één monster vast. Geeft False als het is overgeslagen."""
+        """Leg één monster vast. Geeft False als het is overgeslagen.
+
+        ``pv_w`` is de opbrengst van de zonnesensor (PV-vermogen), als die is
+        ingesteld. Onbekend wordt NaN in het geheugen en ``null`` op schijf. De
+        zon gemeten met PV en omgerekend naar de ramen bleek de beste zoninvoer
+        voor het 2R2C; zie ZONNEWARMTE_PLAN.md.
+        """
         ts = int(timestamp.timestamp())
         if self._samples:
             gap = ts - self._samples[-1][0]
@@ -83,6 +91,7 @@ class HighResLog:
             round(float(t_outdoor), 2),
             round(float(q_hp_w)),
             round(float(q_solar_wm2), 1),
+            round(float(pv_w)) if pv_w is not None and math.isfinite(pv_w) else math.nan,
         ])
         return True
 
@@ -102,9 +111,14 @@ class HighResLog:
         return (max(ts) - min(ts)) / 3600.0
 
     def to_dict(self) -> dict:
+        """Voor opslag en analyse. Een onbekende PV-waarde wordt ``None``:
+        NaN is geen geldige JSON. Wie rekent, zet hem terug met ``float('nan')``
+        (numpy doet dat zelf bij ``dtype=float``)."""
         return {
-            "columns": ["ts", "t_indoor", "t_outdoor", "q_hp_w", "q_solar_wm2"],
-            "samples": list(self._samples),
+            "columns": ["ts", "t_indoor", "t_outdoor", "q_hp_w", "q_solar_wm2", "pv_w"],
+            "samples": [
+                row[:5] + [None if math.isnan(row[5]) else row[5]] for row in self._samples
+            ],
         }
 
     @classmethod
@@ -114,11 +128,15 @@ class HighResLog:
             # Een half geschreven of met de hand aangepast bestand mag het
             # logboek niet slopen: sla onbruikbare rijen over in plaats van
             # de hele buffer weg te gooien.
-            if isinstance(row, list) and len(row) == 5:
+            # Vijf kolommen: van vóór de zonnesensor (v0.10.6-beta.12). Die
+            # rijen krijgen een onbekende PV-waarde, ze vallen niet weg.
+            if isinstance(row, list) and len(row) in (5, 6):
                 try:
+                    pv = row[5] if len(row) == 6 else None
                     log._samples.append([
                         int(row[0]), float(row[1]), float(row[2]),
                         float(row[3]), float(row[4]),
+                        float(pv) if pv is not None else math.nan,
                     ])
                 except (TypeError, ValueError):
                     continue
