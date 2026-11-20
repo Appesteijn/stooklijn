@@ -3,6 +3,18 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.6-beta.11 — 2026-11-20
+
+Betaversie zonder spookpunt in de temperatuurgrafieken.
+
+- **Geen spookpunt meer bij 20 °C.** In "Huis thermisch profiel", "COP vs
+  Buitentemperatuur" en "Optimale stooklijn" staat de buitentemperatuur op een
+  tijd-as, met 20 °C als "nu". De grafiekkaart verlengt de laatste waarde
+  standaard tot nu, en zo verscheen het laatste dagpunt een tweede keer
+  helemaal rechts (bijv. 2.817 W bij 20 °C). De legenda toont geen waarden meer:
+  dat was dezelfde laatste waarde met de eenheid van de sensor ("2.817 W/°C") of
+  "N/A" bij de lijnen.
+
 ## v0.10.6-beta.10 — 2026-11-20
 
 Herstelversie: de MPC-sensor is weer leesbaar.

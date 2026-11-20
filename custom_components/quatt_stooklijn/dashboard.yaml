@@ -269,6 +269,9 @@ views:
             series:
               - entity: sensor.quatt_warmteanalyse_optimal_stooklijn_slope
                 name: Dagelijkse warmtevraag
+                extend_to: false
+                show:
+                  legend_value: false
                 color: "#66BB6A"
                 type: line
                 stroke_width: 0
@@ -286,6 +289,9 @@ views:
                   return d.map(p => [now - (20 - p.temp) * 3600000, p.heat]);
               - entity: sensor.quatt_warmteanalyse_optimal_stooklijn_slope
                 name: Optimale stooklijn
+                extend_to: false
+                show:
+                  legend_value: false
                 color: "#4CAF50"
                 type: line
                 stroke_width: 2
@@ -312,6 +318,9 @@ views:
                   return pts;
               - entity: sensor.quatt_warmteanalyse_quatt_warmteanalyse_slope
                 name: Quatt stooklijn (geschat)
+                extend_to: false
+                show:
+                  legend_value: false
                 color: "#FFC107"
                 type: line
                 stroke_width: 2
@@ -338,6 +347,9 @@ views:
                   return pts;
               - entity: sensor.quatt_warmteanalyse_freezing_performance_slope
                 name: HP capaciteit (vorst)
+                extend_to: false
+                show:
+                  legend_value: false
                 color: "#1E88E5"
                 type: line
                 stroke_width: 2
@@ -365,6 +377,9 @@ views:
                   return pts;
               - entity: sensor.quatt_warmteanalyse_gas_heat_loss_coefficient
                 name: Gas data
+                extend_to: false
+                show:
+                  legend_value: false
                 color: "#FFB74D"
                 type: line
                 stroke_width: 0
@@ -381,6 +396,9 @@ views:
                   return d.map(p => [now - (20 - p.temp) * 3600000, p.heat]);
               - entity: sensor.quatt_warmteanalyse_gas_heat_loss_coefficient
                 name: Gas trendlijn
+                extend_to: false
+                show:
+                  legend_value: false
                 color: "#FF9800"
                 type: line
                 stroke_width: 2
@@ -448,6 +466,9 @@ views:
             series:
               - entity: sensor.quatt_warmteanalyse_average_cop
                 name: Dagelijkse COP
+                extend_to: false
+                show:
+                  legend_value: false
                 color: "#42A5F5"
                 type: line
                 stroke_width: 0
@@ -463,6 +484,9 @@ views:
                   return d.map(p => [now - (20 - p.temp) * 3600000, p.cop]);
               - entity: sensor.quatt_warmteanalyse_average_cop
                 name: COP trendlijn
+                extend_to: false
+                show:
+                  legend_value: false
                 color: "#1565C0"
                 type: line
                 stroke_width: 2
@@ -922,6 +946,9 @@ views:
             series:
               - entity: sensor.quatt_warmteanalyse_openquatt_stooklijn
                 name: Optimale breakpoints
+                extend_to: false
+                show:
+                  legend_value: false
                 color: "#4CAF50"
                 type: line
                 stroke_width: 0
@@ -940,6 +967,9 @@ views:
                   bp.aanvoer_temp]);
               - entity: sensor.quatt_warmteanalyse_openquatt_stooklijn
                 name: Optimale curve
+                extend_to: false
+                show:
+                  legend_value: false
                 color: "#4CAF50"
                 type: line
                 stroke_width: 2

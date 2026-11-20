@@ -248,6 +248,60 @@ class TestMeegeleverdBestand:
 
         assert not fout, "ongeldig series-type: " + "; ".join(fout)
 
+    @staticmethod
+    def _apex_series():
+        """(kaarttitel, serie) voor elke apexcharts-serie in het meegeleverde dashboard."""
+        from custom_components.quatt_stooklijn.dashboard import _load_shipped
+
+        for view in _load_shipped()["views"]:
+            for sectie in view.get("sections", []):
+                for kaart in sectie.get("cards", []):
+                    for genest in [kaart, *kaart.get("cards", [])]:
+                        if genest.get("type") != "custom:apexcharts-card":
+                            continue
+                        titel = genest.get("header", {}).get("title", "(zonder titel)")
+                        for serie in genest.get("series", []):
+                            yield titel, serie
+
+    @staticmethod
+    def _temperatuur_als_tijd(serie) -> bool:
+        """Kaarten met buitentemperatuur op de x-as zetten die om in een tijd:
+        ``now - (20 - temp) * 3600000``. De rechterrand (nu) is dan 20 °C."""
+        gen = serie.get("data_generator") or ""
+        return "(20 - " in gen or "(20-" in gen
+
+    def test_temperatuur_as_verlengt_de_laatste_waarde_niet(self):
+        """apexcharts-card verlengt standaard de laatste waarde tot 'nu'.
+
+        Op een tijd-as is dat onschuldig, maar hier is 'nu' 20 °C buiten. Bij
+        het thermisch profiel verscheen zo een spookpunt van 2.817 W bij 20 °C:
+        het laatste dagpunt (4,8 °C) nog een keer, helemaal rechts
+        (20-11-2026). De lijnen hadden er een null-afsluiter tegen; de
+        puntenreeksen niet.
+        """
+        fout = [
+            f"{titel}: {serie.get('name')}"
+            for titel, serie in self._apex_series()
+            if self._temperatuur_als_tijd(serie) and serie.get("extend_to") is not False
+        ]
+        assert not fout, "extend_to: false ontbreekt bij " + "; ".join(fout)
+
+    def test_temperatuur_as_toont_geen_waarde_in_de_legenda(self):
+        """De legenda toont anders 'de laatste waarde' met de eenheid van de
+        entiteit: '2.817 W/°C' voor een dagpunt in W, 'N/A' voor de lijnen."""
+        fout = [
+            f"{titel}: {serie.get('name')}"
+            for titel, serie in self._apex_series()
+            if self._temperatuur_als_tijd(serie)
+            and (serie.get("show") or {}).get("legend_value") is not False
+        ]
+        assert not fout, "legend_value: false ontbreekt bij " + "; ".join(fout)
+
+    def test_temperatuur_as_bewaking_vindt_de_kaarten(self):
+        """Controle op de twee tests hierboven: zonder treffers bewaken ze niets."""
+        titels = {t for t, s in self._apex_series() if self._temperatuur_als_tijd(s)}
+        assert {"Huis thermisch profiel", "COP vs Buitentemperatuur"} <= titels
+
     def test_afdruk_van_het_meegeleverde_bestand_is_stabiel(self):
         """Twee keer inlezen hoort dezelfde afdruk te geven.
 
