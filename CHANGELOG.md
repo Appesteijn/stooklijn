@@ -3,6 +3,21 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.6-beta.8 — 2026-11-20
+
+Betaversie waarin de vooruitblik rekent zoals het advies.
+
+- **De vooruitblik rekent zoals het MPC-advies.** Sinds beta.6 rekent het
+  advies met warmteverlies + een inhaalterm, begrensd op wat de warmtepomp kan.
+  De vooruitbliktabel rekende nog op de oude manier: het hele tekort binnen één
+  uur inhalen, zonder grens. Bij een zwaar huis (± 21 kWh/K) en 0,8 °C tekort
+  toonde +0 daardoor 21 kW en 52,9 °C, naast een advies van 36,8 °C. Nu rekent
+  elk uur van de tabel met dezelfde functie als het advies, met de
+  kamertemperatuur die het model voor dat uur voorspelt. Uur +0 is daarmee
+  gelijk aan het advies van nu, en T binnen laat zien hoe snel het huis
+  werkelijk opwarmt. De kolom "Aanvoer (geen zon)" volgt een kamer zonder zon.
+  De prijsverschuiving rekent ongewijzigd.
+
 ## v0.10.6-beta.7 — 2026-11-20
 
 Betaversie die de dynamische prijzen van Zonneplan leest.

@@ -30,6 +30,7 @@ erin, dus het is geen verkeerd toegewezen zonnewinst.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -693,6 +694,150 @@ def simulate_forward(
             "stored_heat_kwh": stored_heat_kwh(c_whk, t_in_next, comfort_floor),
         })
 
+        t_in = t_in_next
+
+    return results
+
+
+@dataclass(frozen=True)
+class AdviceDemand:
+    """Het vermogen achter het aanvoeradvies, uitgesplitst (zie ``advice_demand``)."""
+
+    stationary_w: float
+    catchup_w: float
+    total_w: float
+    capped_w: float
+    capacity_w: float | None
+
+    @property
+    def capped(self) -> bool:
+        return self.capacity_w is not None and self.total_w > self.capacity_w
+
+
+def advice_demand(
+    u_wk: float,
+    balance_point: float,
+    t_outdoor: float,
+    t_indoor: float | None,
+    t_setpoint: float,
+    catchup_factor: float,
+    capacity_w: float | None,
+) -> AdviceDemand:
+    """Het vermogen waar het aanvoeradvies op rekent, voor één moment.
+
+    ``U · max(0, T_balans − T_buiten)`` plus ``catchup_factor · U · (setpoint −
+    kamer)``, begrensd op ``capacity_w``. Boven het balanspunt geen inhaalterm.
+    Zie ``QuattMpcSensor._advice_demand`` voor het waarom van elk deel.
+
+    Eén functie voor het advies van nu én elk uur van de vooruitblik, zodat de
+    twee niet uit elkaar kunnen lopen. Tot v0.10.6-beta.8 rekende de vooruitblik
+    nog met ``calc_required_power``: het hele tekort in één uur, onbegrensd. Een
+    gebruiker met C ≈ 21 kWh/K zag daardoor 21 kW en 52,9 °C bij +0, naast een
+    advies van 36,8 °C.
+    """
+    stationary = u_wk * max(0.0, balance_point - t_outdoor)
+    catchup = 0.0
+    if t_indoor is not None and stationary > 0:
+        catchup = catchup_factor * u_wk * (t_setpoint - t_indoor)
+    total = stationary + catchup
+    capped = min(total, capacity_w) if capacity_w is not None else total
+    return AdviceDemand(
+        stationary_w=stationary,
+        catchup_w=catchup,
+        total_w=total,
+        capped_w=capped,
+        capacity_w=capacity_w,
+    )
+
+
+def supply_temp_for(
+    q_w: float,
+    t_return: float,
+    flow_lph: float,
+    supply_temp_min: float,
+    supply_temp_max: float,
+) -> float:
+    """Aanvoertemperatuur die ``q_w`` levert bij dit debiet, geklemd."""
+    t_supply = t_return + q_w / (1.16 * flow_lph)
+    return round(max(supply_temp_min, min(supply_temp_max, t_supply)), 1)
+
+
+def simulate_advice_forward(
+    model: OnlineRCModel,
+    t_indoor_now: float,
+    t_return: float,
+    flow_lph: float,
+    forecast_t_outdoor: list[float],
+    forecast_q_solar: list[float],
+    *,
+    u_wk: float,
+    balance_point: float,
+    t_setpoint: float,
+    catchup_factor: float,
+    capacity_w: Callable[[float], float | None],
+    supply_temp_min: float = 20.0,
+    supply_temp_max: float = 55.0,
+    max_hours: int | None = None,
+    comfort_floor: float = 19.0,
+) -> list[dict]:
+    """De vooruitblik: per uur het advies, met het RC-model als kamer.
+
+    Elk uur rekent ``advice_demand`` met de verwachte buitentemperatuur en de
+    kamertemperatuur die het model voor dat uur voorspelt, begrensd op wat de
+    warmtepomp bij die buitentemperatuur kan. Het model schuift de kamer
+    daarna een uur op met dát vermogen en de verwachte zon. Uur 0 met de
+    gemeten buitentemperatuur is zo hetzelfde getal als het advies van nu.
+
+    Zon zit niet in de vraag (het balanspunt bevat de gemiddelde zon al, zie
+    ``advice_demand``), maar wel in de kamer: een zonnig uur warmt de kamer op,
+    en een kamer boven het setpoint verlaagt het volgende uur via de
+    inhaalterm. ``supply_temp_no_solar`` volgt een tweede kamer zonder zon.
+
+    Dezelfde sleutels als ``simulate_forward``, plus ``begrensd``.
+    """
+    results: list[dict] = []
+    raw = model.raw_params
+    c_whk = raw["C"] if raw else None
+
+    def stap(t_in: float, t_out: float) -> tuple[AdviceDemand, float, float | None]:
+        d = advice_demand(
+            u_wk, balance_point, t_out, t_in, t_setpoint, catchup_factor,
+            capacity_w(t_out),
+        )
+        if d.total_w <= 0:
+            return d, 0.0, None
+        q = max(0.0, d.capped_w)
+        supply = (
+            supply_temp_for(q, t_return, flow_lph, supply_temp_min, supply_temp_max)
+            if flow_lph > 0
+            else None
+        )
+        return d, q, supply
+
+    n_hours = min(len(forecast_t_outdoor), len(forecast_q_solar))
+    if max_hours is not None:
+        n_hours = min(n_hours, max_hours)
+    t_in = t_in_ns = t_indoor_now
+    for i in range(n_hours):
+        t_out = forecast_t_outdoor[i]
+        q_solar = forecast_q_solar[i]
+
+        d, q, supply = stap(t_in, t_out)
+        _d_ns, q_ns, supply_ns = stap(t_in_ns, t_out)
+
+        t_in_next = model.predict_t_indoor(t_in, t_out, q, q_solar)
+        t_in_ns = model.predict_t_indoor(t_in_ns, t_out, q_ns, 0.0)
+
+        results.append({
+            "hour": i,
+            "q_hp_needed_w": round(q),
+            "t_indoor_predicted": round(t_in_next, 1),
+            "supply_temp": supply,
+            "supply_temp_no_solar": supply_ns,
+            "hp_needed": bool(q > 200),  # MIN_HEATING_WATTS
+            "begrensd": d.capped,
+            "stored_heat_kwh": stored_heat_kwh(c_whk, t_in_next, comfort_floor),
+        })
         t_in = t_in_next
 
     return results

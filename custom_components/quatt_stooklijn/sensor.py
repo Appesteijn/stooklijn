@@ -38,11 +38,15 @@ from homeassistant.util import dt as dt_util
 from .analysis.model_benchmark import Comparison, compare
 from .analysis.min_power import MinPowerCurve, learn_min_power
 from .analysis.thermal_model import (
+    AdviceDemand,
     OnlineRCModel,
+    advice_demand,
+    simulate_advice_forward,
     simulate_coast_time,
     simulate_forward,
     simulate_recovery_on_min,
     stored_heat_kwh,
+    supply_temp_for,
 )
 from homeassistant.helpers.storage import Store
 
@@ -829,21 +833,6 @@ def _calc_heating_curve_breakpoints(
     return breakpoints
 
 
-@dataclass(frozen=True)
-class AdviceDemand:
-    """Het vermogen achter het aanvoeradvies, uitgesplitst (zie ``_advice_demand``)."""
-
-    stationary_w: float
-    catchup_w: float
-    total_w: float
-    capped_w: float
-    capacity_w: float | None
-
-    @property
-    def capped(self) -> bool:
-        return self.capacity_w is not None and self.total_w > self.capacity_w
-
-
 class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity):
     """Shadow-mode MPC sensor: aanbevolen aanvoertemperatuur op basis van
     weersvoorspelling + zonnewinst.
@@ -1585,13 +1574,12 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             # Kamer warm genoeg of buiten boven het balanspunt: geen vraag, geen
             # advies. De ondergrens hieronder zou anders 20 °C tonen bij nul vraag.
             return None, MPC_ADVICE_NO_DEMAND
-        t_supply = t_return + demand.capped_w / (1.16 * effective_flow)
         # Heating branch: floor at MPC_SUPPLY_TEMP_MIN (HP is inefficient
         # below ~20°C aanvoer). COOL_MIN (15°C) is reserved for the future
         # cooling branch where aanvoer < retour.
-        return round(
-            max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, t_supply)),
-            1,
+        return supply_temp_for(
+            demand.capped_w, t_return, effective_flow,
+            MPC_SUPPLY_TEMP_MIN, MPC_SUPPLY_TEMP_MAX,
         ), MPC_ADVICE_OK
 
     def _advice_demand(self, t_outdoor: float) -> AdviceDemand | None:
@@ -1617,7 +1605,31 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
 
         Begrensd op de gemeten capaciteit: een advies voor vermogen dat er niet
         is zegt niets.
+
+        Boven het balanspunt geen inhaalvraag: daar stookt de regelaar niet, en
+        een kamer die er onder het setpoint zit is geen stookvraag maar een
+        zomerdag of een open raam.
+
+        De rekensom zelf staat in ``advice_demand``, die de vooruitblik per uur
+        ook gebruikt.
         """
+        loss = self._heat_loss_line()
+        if loss is None:
+            return None
+        u_wk, balance_point = loss
+        t_setpoint, _ = self._resolve_room_setpoint()
+        return advice_demand(
+            u_wk,
+            balance_point,
+            t_outdoor,
+            get_float_state(self.hass, self._indoor_temp_entity),
+            t_setpoint,
+            MPC_CATCHUP_FACTOR,
+            self._capacity_w(t_outdoor),
+        )
+
+    def _heat_loss_line(self) -> tuple[float, float] | None:
+        """``(U, T_balans)`` uit de warmteverliesregressie, of None."""
         data = getattr(self.coordinator, "data", None)
         heat_loss = getattr(data, "heat_loss_hp", None)
         slope = getattr(heat_loss, "slope", None)
@@ -1627,26 +1639,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         u_wk = -float(slope)
         if u_wk <= 0:
             return None
-
-        stationary = u_wk * max(0.0, float(balance_point) - t_outdoor)
-        catchup = 0.0
-        t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
-        # Boven het balanspunt geen inhaalvraag: daar stookt de regelaar niet, en
-        # een kamer die er onder het setpoint zit is geen stookvraag maar een
-        # zomerdag of een open raam.
-        if t_indoor is not None and stationary > 0:
-            t_setpoint, _ = self._resolve_room_setpoint()
-            catchup = MPC_CATCHUP_FACTOR * u_wk * (t_setpoint - t_indoor)
-        total = stationary + catchup
-        capacity = self._capacity_w(t_outdoor)
-        capped = min(total, capacity) if capacity is not None else total
-        return AdviceDemand(
-            stationary_w=stationary,
-            catchup_w=catchup,
-            total_w=total,
-            capped_w=capped,
-            capacity_w=capacity,
-        )
+        return u_wk, float(balance_point)
 
     @property
     def extra_state_attributes(self) -> dict | None:
@@ -1686,24 +1679,37 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
 
         # Bouw de vooruitblik over MPC_FORECAST_HOURS uur
         forecast_out: list[dict] = []
-        if model.is_converged and fc_temps:
-            # Online model: forward simulation (input = W/m², model applies g_solar internally)
+        loss = self._heat_loss_line()
+        if model.is_converged and fc_temps and loss is not None:
+            # Elk uur het advies, met het RC-model als kamer: zie
+            # simulate_advice_forward. Uur 0 krijgt de gemeten buitentemperatuur,
+            # zodat +0 hetzelfde getal is als de state.
             t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
             if t_indoor is not None:
-                sim = simulate_forward(
+                temps = list(fc_temps)
+                if t_outdoor is not None:
+                    temps[0] = t_outdoor
+                sim = simulate_advice_forward(
                     model,
                     t_indoor_now=t_indoor,
-                    t_return=t_return or 28.0,
+                    t_return=t_return if t_return is not None else 28.0,
                     flow_lph=effective_flow,
-                    forecast_t_outdoor=fc_temps,
+                    forecast_t_outdoor=temps,
                     forecast_q_solar=fc_solar_wm2,
+                    u_wk=loss[0],
+                    balance_point=loss[1],
                     # Expliciet, ook al is het de default van de functie: de hele
                     # tabel hangt hieraan, en een stil meegenomen default is
                     # precies hoe deze waarde eerder aan het zicht ontsnapte.
                     t_setpoint=room_setpoint,
+                    catchup_factor=MPC_CATCHUP_FACTOR,
+                    capacity_w=self._capacity_w,
+                    supply_temp_min=MPC_SUPPLY_TEMP_MIN,
+                    supply_temp_max=MPC_SUPPLY_TEMP_MAX,
                     max_hours=MPC_FORECAST_HOURS,
                     comfort_floor=self._comfort_floor,
                 )
+                fc_temps = temps
                 for i, step in enumerate(sim):
                     entry = {**step, **fc_meta[i]} if i < len(fc_meta) else step
                     entry["temp_forecast"] = fc_temps[i] if i < len(fc_temps) else None
