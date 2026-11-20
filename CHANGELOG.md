@@ -3,6 +3,53 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.6 — 2026-11-20
+
+Stabiele afsluiting van v0.10.6-beta.1 t/m beta.11, zonder codewijzigingen
+ten opzichte van beta.11. Voor wie geen beta's volgt, alles sinds v0.10.5:
+
+**Nieuw**
+
+- **Stookgrens en nominaal vermogen van de CiC zelf invullen** in de opties.
+  De CiC geeft ze niet door en de Quatt-app toont ze niet. Ingevuld krijg je
+  een concreet advies "van X naar Y"; leeg blijft onbekend, er wordt niets
+  geschat.
+- **Marge op de bijsturing van de max-aanvoertemperatuur**, standaard 2 °C.
+  Het advies is wat het huis nodig heeft; het plafond moet daar ruimte boven
+  laten, anders kreeg het huis structureel te weinig. Wie de bijsturing al
+  gebruikt, krijgt de marge automatisch; zet hem op 0 voor het oude gedrag.
+- **Melding als de aanvoersensor afwijkt** (onder Reparaties): als die over
+  minstens 12 uur stoken 0,3 °C of meer naast de wateruitgang van de
+  warmtepomp ligt. Bij OpenQuatt verhelpt de kalibratie van de watersensoren
+  dat.
+- **Kolom "T binnen (2R2C)" in de vooruitblik**: de kamer volgens het
+  2R2C-model bij hetzelfde vermogen, zodra de modelvergelijking het 2R2C heeft
+  goedgekeurd.
+- **Zonneplan-prijzen** worden gelezen door de prijsverschuiving, ook de
+  oudere Zonneplan ONE-vorm.
+
+**Verbeterd**
+
+- **Rustiger en nauwkeuriger MPC-advies.** Het basisdeel komt uit de
+  warmteverliesanalyse. Een kamertekort wordt ingehaald met 10 × het
+  warmteverlies per graad × het tekort, in plaats van binnen één uur, en het
+  advies is begrensd op wat de warmtepomp kan leveren. Nagerekend over 10
+  dagen: gemiddeld binnen 0,1 °C van de werkelijke aanvoer.
+- **Gladgestreken debiet**: geen adviespieken van 40 °C en meer na een
+  pompstart.
+- **De vooruitblik rekent zoals het advies.** Uur +0 is het advies van nu, en
+  T binnen laat zien hoe snel het huis werkelijk opwarmt.
+- **Geluidsniveau-compensatie** stapt een niveau omlaag als de kamer al warm
+  genoeg is, in plaats van vrij spel te geven. De MPC-sensor heeft daarvoor
+  het attribuut `advies_status`.
+
+**Opgelost**
+
+- De sensor met de ingestelde max-aanvoertemperatuur stond na een herstart op
+  "Unknown"; nu toont hij de vorige waarde.
+- Spookpunt bij 20 °C in de temperatuurgrafieken, en misleidende waarden in de
+  legenda.
+
 ## v0.10.6-beta.11 — 2026-11-20
 
 Betaversie zonder spookpunt in de temperatuurgrafieken.
