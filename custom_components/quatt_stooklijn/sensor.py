@@ -42,6 +42,7 @@ from .analysis.thermal_model import (
     AdviceDemand,
     OnlineRCModel,
     advice_demand,
+    advice_forward_without_model,
     simulate_advice_forward,
     simulate_coast_time,
     simulate_forward,
@@ -114,7 +115,6 @@ from .const import (
     DOMAIN,
     MIN_FLOW_LPH,
     MIN_HEAT_OUTPUT_W,
-    MIN_HEATING_WATTS,
     NOMINAL_FLOW_LPH,
     MPC_FORECAST_HOURS,
     MPC_ADVICE_NO_DEMAND,
@@ -1890,57 +1890,59 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
 
         # Build forecast arrays (shared with the coast-time sensor).
         fc_temps, fc_solar_wm2, fc_meta = self.build_forecast_arrays(t_outdoor)
-        # Solar gain in W: the batch fallback consumes this directly, so it must
-        # keep using the default factor; display follows the active model.
-        fc_solar_gain_batch_w = [
-            wm2 * SOLAR_RADIATION_DEFAULT_FACTOR for wm2 in fc_solar_wm2
-        ]
         fc_solar_gain_w = [wm2 * solar_factor for wm2 in fc_solar_wm2]
 
-        # Bouw de vooruitblik over MPC_FORECAST_HOURS uur
+        # Bouw de vooruitblik over MPC_FORECAST_HOURS uur. Elk uur het advies,
+        # met dezelfde advice_demand als de state. Uur 0 krijgt de gemeten
+        # buitentemperatuur, zodat +0 hetzelfde getal is als de state.
         forecast_out: list[dict] = []
+        # "huismodel": de kamer loopt mee via het RC-model (simulate_advice_forward).
+        # "zonder_huismodel": geen kamer, inhaalterm alleen in uur 0
+        # (advice_forward_without_model). None: geen vooruitblik.
+        forecast_basis: str | None = None
         loss = self._heat_loss_line()
-        if model.is_converged and fc_temps and loss is not None:
-            # Elk uur het advies, met het RC-model als kamer: zie
-            # simulate_advice_forward. Uur 0 krijgt de gemeten buitentemperatuur,
-            # zodat +0 hetzelfde getal is als de state.
+        if fc_temps and loss is not None:
             t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
-            if t_indoor is not None:
-                temps = list(fc_temps)
-                if t_outdoor is not None:
-                    temps[0] = t_outdoor
+            temps = list(fc_temps)
+            if t_outdoor is not None:
+                temps[0] = t_outdoor
+            common = dict(
+                t_return=t_return if t_return is not None else 28.0,
+                flow_lph=effective_flow,
+                forecast_t_outdoor=temps,
+                u_wk=loss[0],
+                balance_point=loss[1],
+                # Expliciet, ook al is het de default van de functie: de hele
+                # tabel hangt hieraan, en een stil meegenomen default is
+                # precies hoe deze waarde eerder aan het zicht ontsnapte.
+                t_setpoint=room_setpoint,
+                catchup_factor=MPC_CATCHUP_FACTOR,
+                capacity_w=self._capacity_w,
+                supply_temp_min=MPC_SUPPLY_TEMP_MIN,
+                supply_temp_max=MPC_SUPPLY_TEMP_MAX,
+                max_hours=MPC_FORECAST_HOURS,
+            )
+            if model.is_converged and t_indoor is not None:
                 sim = simulate_advice_forward(
                     model,
                     t_indoor_now=t_indoor,
-                    t_return=t_return if t_return is not None else 28.0,
-                    flow_lph=effective_flow,
-                    forecast_t_outdoor=temps,
                     forecast_q_solar=fc_solar_wm2,
-                    u_wk=loss[0],
-                    balance_point=loss[1],
-                    # Expliciet, ook al is het de default van de functie: de hele
-                    # tabel hangt hieraan, en een stil meegenomen default is
-                    # precies hoe deze waarde eerder aan het zicht ontsnapte.
-                    t_setpoint=room_setpoint,
-                    catchup_factor=MPC_CATCHUP_FACTOR,
-                    capacity_w=self._capacity_w,
-                    supply_temp_min=MPC_SUPPLY_TEMP_MIN,
-                    supply_temp_max=MPC_SUPPLY_TEMP_MAX,
-                    max_hours=MPC_FORECAST_HOURS,
                     comfort_floor=self._comfort_floor,
+                    **common,
                 )
-                fc_temps = temps
-                for i, step in enumerate(sim):
-                    entry = {**step, **fc_meta[i]} if i < len(fc_meta) else step
-                    entry["temp_forecast"] = fc_temps[i] if i < len(fc_temps) else None
-                    entry["solar_gain_w"] = round(fc_solar_gain_w[i]) if i < len(fc_solar_gain_w) else None
-                    forecast_out.append(entry)
-
-        if not forecast_out:
-            # Fallback: batch stooklijn-based forecast (needs solar gain in W)
-            forecast_out = self._build_batch_forecast(
-                effective_flow, t_return, fc_temps, fc_solar_gain_batch_w, fc_meta,
-            )
+                forecast_basis = "huismodel"
+            else:
+                # Tot v0.10.7-beta.4 rekende de terugval met de stooklijn, met
+                # zon eraf en zonder inhaalterm of capaciteitsgrens: +0 lag dan
+                # naast het advies. Zie advice_forward_without_model.
+                sim = advice_forward_without_model(t_indoor, **common)
+                forecast_basis = "zonder_huismodel"
+            fc_temps = temps
+            for i, step in enumerate(sim):
+                entry = {**step, **fc_meta[i]} if i < len(fc_meta) else step
+                entry["temp_forecast"] = fc_temps[i] if i < len(fc_temps) else None
+                entry["solar_gain_w"] = round(fc_solar_gain_w[i]) if i < len(fc_solar_gain_w) else None
+                forecast_out.append(entry)
 
         # Onder het minimum levert de warmtepomp in blokken: aan op het minimum,
         # dan uit. Het aandeel aan per uur is vraag / minimum.
@@ -2020,6 +2022,11 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             # opnieuw op de sleutelnaam hoeft te vertrouwen als hij weer wijzigt.
             "forecast": forecast_out,
             "forecast_uren": len(forecast_out),
+            # Waarmee de vooruitblik rekent: "huismodel" (kamer loopt mee) of
+            # "zonder_huismodel" (inhaalterm alleen in uur 0, geen kamer). De
+            # kaart legt het tweede uit; model_source alleen is niet genoeg,
+            # want ook een geconvergeerd model valt terug zonder kamertemperatuur.
+            "vooruitblik_basis": forecast_basis,
             # De kolom t_indoor_2r2c: waarom hij leeg is, en hoe goed het model
             # twaalf uur vooruit voorspelt (de vooruitblik is twaalf uur lang).
             "kamer_2r2c": {
@@ -2091,70 +2098,6 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             # staat al in kamer_2r2c.
             _LOGGER.debug("2R2C-kamer doorrekenen mislukt", exc_info=True)
             return None, "doorrekenen mislukt"
-
-    def _build_batch_forecast(
-        self,
-        effective_flow: float,
-        t_return: float | None,
-        fc_temps: list[float],
-        fc_solar: list[float],
-        fc_meta: list[dict],
-    ) -> list[dict]:
-        """Vooruitblik uit de batch-stooklijn — terugval als het RC-model nog
-        niet geconvergeerd is. Volgt de lengte van ``fc_temps``."""
-        if self.coordinator.data is None:
-            return []
-        heat_loss = self.coordinator.data.heat_loss_hp
-        if heat_loss.slope is None or heat_loss.intercept is None:
-            return []
-
-        from .analysis.utils import calc_heat_demand
-
-        sl = self.coordinator.data.stooklijn
-        if sl.slope_optimal is not None and sl.intercept_optimal is not None:
-            sl_slope, sl_intercept = sl.slope_optimal, sl.intercept_optimal
-        else:
-            sl_slope = sl.slope_api
-            sl_intercept = sl.intercept_api
-
-        forecast_out: list[dict] = []
-        for i, fc_temp in enumerate(fc_temps):
-            fc_sg = fc_solar[i] if i < len(fc_solar) else 0.0
-            fc_raw = calc_heat_demand(heat_loss.slope, heat_loss.intercept, fc_temp)
-            fc_net = max(0.0, fc_raw - fc_sg)
-
-            fc_supply = None
-            fc_supply_no_solar = None
-            if sl_slope is not None and sl_intercept is not None and t_return is not None:
-                fc_sl_demand = max(0.0, sl_slope * fc_temp + sl_intercept - fc_sg)
-                if fc_sl_demand > MIN_HEATING_WATTS:
-                    raw_supply = t_return + fc_sl_demand / (1.16 * effective_flow)
-                    fc_supply = round(
-                        max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, raw_supply)), 1
-                    )
-                fc_sl_demand_ns = max(0.0, sl_slope * fc_temp + sl_intercept)
-                if fc_sl_demand_ns > MIN_HEATING_WATTS:
-                    raw_supply_ns = t_return + fc_sl_demand_ns / (1.16 * effective_flow)
-                    fc_supply_no_solar = round(
-                        max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, raw_supply_ns)), 1
-                    )
-
-            entry = {
-                "hour": i,
-                "temp_forecast": fc_temp,
-                "solar_gain_w": round(fc_sg),
-                "heat_demand_w": round(fc_raw),
-                "net_demand_w": round(fc_net),
-                "q_hp_needed_w": round(fc_net),
-                "hp_needed": bool(fc_net > MIN_HEATING_WATTS),
-                "supply_temp": fc_supply,
-                "supply_temp_no_solar": fc_supply_no_solar,
-            }
-            if i < len(fc_meta):
-                entry.update(fc_meta[i])
-            forecast_out.append(entry)
-
-        return forecast_out
 
 
 class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity):

@@ -1664,7 +1664,15 @@ views:
               and k2.reden %} Nu leeg: {{ k2.reden }}.{% endif %}
 
 
-              *Bron: {{ src | default('batch') }}*
+              {% if state_attr(mpc, 'vooruitblik_basis') == 'zonder_huismodel' %}
+              **Zonder huismodel:** het vermogen per uur is het advies bij de
+              verwachte buitentemperatuur. Het extra vermogen om een kamer onder
+              het setpoint bij te trekken telt alleen in uur +0: hoe snel de
+              kamer daarna bijtrekt is zonder huismodel niet te zeggen. T binnen
+              en Buffer blijven leeg tot het huismodel geleerd is.
+
+
+              {% endif %}*Bron: {{ src | default('batch') }}*
 
               {% else %}
 

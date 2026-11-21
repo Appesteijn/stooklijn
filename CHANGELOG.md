@@ -3,6 +3,21 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.4 — 2026-11-21
+
+- **De vooruitblik zonder huismodel rekent zoals het advies.** Zolang het
+  huismodel nog niet geleerd is (`batch_fallback`), rekende de vooruitblik met
+  de stooklijn. Hij trok de verwachte zon af en kende geen inhaalterm en geen
+  capaciteitsgrens. Uur +0 lag daardoor naast het advies, en het leek alsof de
+  aansturing de kamertemperatuur negeerde (gemeld op Tweakers). Nu rekent elk
+  uur met dezelfde berekening als het advies, dus +0 is het advies. Het extra
+  vermogen om een kamer onder het setpoint bij te trekken telt alleen in uur
+  +0: hoe snel de kamer daarna bijtrekt hangt van de thermische massa af, en
+  die is zonder huismodel nog niet bekend. Vanaf +1 wordt een tekort dus
+  onderschat; de kaart legt dat uit. Omdat de zon niet meer wordt afgetrokken,
+  kunnen de getallen op zonnige uren hoger uitkomen dan voorheen. Het
+  advies zelf verandert niet. Nieuw attribuut `vooruitblik_basis`.
+
 ## v0.10.7-beta.3 — 2026-11-21
 
 - **Het huismodel komt weer online op een nieuwe installatie.** Sinds

@@ -926,6 +926,70 @@ def simulate_advice_forward(
     return results
 
 
+def advice_forward_without_model(
+    t_indoor_now: float | None,
+    t_return: float,
+    flow_lph: float,
+    forecast_t_outdoor: list[float],
+    *,
+    u_wk: float,
+    balance_point: float,
+    t_setpoint: float,
+    catchup_factor: float,
+    capacity_w: Callable[[float], float | None],
+    supply_temp_min: float = 20.0,
+    supply_temp_max: float = 55.0,
+    max_hours: int | None = None,
+) -> list[dict]:
+    """De vooruitblik zonder geconvergeerd huismodel: per uur het advies.
+
+    Dezelfde ``advice_demand`` als het advies van nu, zodat uur 0 (met de
+    gemeten buitentemperatuur) hetzelfde getal is als de state. Tot
+    v0.10.7-beta.4 rekende de terugval met de stooklijn, trok hij de zon af en
+    kende hij geen inhaalterm en geen capaciteitsgrens, zodat +0 naast het
+    advies lag.
+
+    De inhaalterm telt alleen in uur 0. Hoe snel de kamer daarna bijtrekt hangt
+    af van C, en die is er juist niet als het model niet geconvergeerd is. Vanaf
+    uur 1 rekent de tabel dus alsof de kamer op het setpoint staat: een
+    bewuste onderschatting zolang er een tekort is, liever dan een verzonnen C.
+    Om dezelfde reden blijven ``t_indoor_predicted`` en ``stored_heat_kwh``
+    leeg. Zon zit niet in de vraag (zie ``advice_demand``), en zonder kamer ook
+    niet in de inhaalterm, dus ``supply_temp_no_solar`` is gelijk aan
+    ``supply_temp``.
+
+    Dezelfde sleutels als ``simulate_advice_forward``.
+    """
+    n_hours = len(forecast_t_outdoor)
+    if max_hours is not None:
+        n_hours = min(n_hours, max_hours)
+    results: list[dict] = []
+    for i in range(n_hours):
+        t_out = forecast_t_outdoor[i]
+        d = advice_demand(
+            u_wk, balance_point, t_out,
+            t_indoor_now if i == 0 else None,
+            t_setpoint, catchup_factor, capacity_w(t_out),
+        )
+        q = max(0.0, d.capped_w) if d.total_w > 0 else 0.0
+        supply = (
+            supply_temp_for(q, t_return, flow_lph, supply_temp_min, supply_temp_max)
+            if d.total_w > 0 and flow_lph > 0
+            else None
+        )
+        results.append({
+            "hour": i,
+            "q_hp_needed_w": round(q),
+            "t_indoor_predicted": None,
+            "supply_temp": supply,
+            "supply_temp_no_solar": supply,
+            "hp_needed": bool(q > 200),  # MIN_HEATING_WATTS
+            "begrensd": bool(d.capped),
+            "stored_heat_kwh": None,
+        })
+    return results
+
+
 def simulate_coast_time(
     model: OnlineRCModel,
     t_indoor_now: float,

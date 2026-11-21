@@ -146,8 +146,13 @@ class TestPlusNulIsDeState:
         {**KOUD, OUTDOOR: -8.0},          # begrensd op de capaciteit
         {**KOUD, INDOOR: 21.0, OUTDOOR: 10.0},  # kamer boven setpoint
     ])
-    def test_plus_nul_gelijk_aan_advies(self, states):
+    @pytest.mark.parametrize("geconvergeerd", [True, False])
+    def test_plus_nul_gelijk_aan_advies(self, states, geconvergeerd):
+        """Ook zonder huismodel (v0.10.7-beta.4): de terugval rekende tot dan
+        met de stooklijn, met zon eraf en zonder inhaalterm."""
         sensor = _sensor(**states)
+        if not geconvergeerd:
+            sensor._thermal_store.model._rls.n_updates_per_param[:] = 0
         with _sources(), patch.object(
             type(sensor), "build_forecast_arrays",
             lambda self, t, n_hours=UREN: _arrays(t),
@@ -160,3 +165,33 @@ class TestPlusNulIsDeState:
             advies = sensor.native_value
         assert attrs["forecast"][0]["supply_temp"] == advies
         assert attrs["forecast"][0]["temp_forecast"] == states[OUTDOOR]
+        assert attrs["vooruitblik_basis"] == (
+            "huismodel" if geconvergeerd else "zonder_huismodel"
+        )
+
+
+class TestZonderHuismodel:
+    """De terugval-vooruitblik op sensorniveau (v0.10.7-beta.4)."""
+
+    def _attrs(self, **states):
+        sensor = _sensor(**states)
+        sensor._thermal_store.model._rls.n_updates_per_param[:] = 0
+        with _sources(), patch.object(
+            type(sensor), "build_forecast_arrays",
+            lambda self, t, n_hours=UREN: _arrays(t),
+        ), patch.object(
+            type(sensor), "min_power_curve",
+            property(lambda self: SimpleNamespace(bins={}, at=lambda t: None,
+                                                  for_temps=lambda t: None)),
+        ):
+            return sensor.extra_state_attributes
+
+    def test_geen_kamer_en_geen_buffer(self):
+        attrs = self._attrs(**KOUD)
+        assert attrs["model_source"] == "batch_fallback"
+        assert len(attrs["forecast"]) == UREN
+        assert all(u["t_indoor_predicted"] is None for u in attrs["forecast"])
+        assert all(u["stored_heat_kwh"] is None for u in attrs["forecast"])
+
+    def test_door_de_json_encoder(self):
+        json_bytes(self._attrs(**{**KOUD, OUTDOOR: -8.0}))

@@ -78,3 +78,14 @@ opwarmt. Een eenstapsfit leest die ruis als snelle dynamiek. Op een
 synthetisch huis met blokverwarming kwam τ_snel daardoor op 1,1 u uit in
 plaats van 3,6 u. Fit daarom over `FIT_HORIZON_HOURS` (6 u) vooruit. De tabel
 staat in `analysis/thermal_model_2r2c.py`, de test in `TestFithorizon`.
+
+## De vooruitblik rekent elk uur zoals het advies
+
+Uur +0 is het advies van nu, met en zonder huismodel. Beide paden gebruiken
+`advice_demand`: `simulate_advice_forward` met de kamer uit het 1R1C,
+`advice_forward_without_model` zonder (v0.10.7-beta.4). Geef de terugval geen
+eigen berekening: tot beta.4 rekende hij met de stooklijn, zon eraf, zonder
+inhaalterm of capaciteitsgrens, en een gebruiker las de lege "T binnen"
+naast een afwijkend +0 als "de aansturing negeert de kamer". Zonder huismodel
+telt de inhaalterm alleen in uur 0: hoe snel een tekort verdwijnt hangt van C
+af, en een aangenomen C zit bij een zwaar huis al gauw een factor 2 mis.

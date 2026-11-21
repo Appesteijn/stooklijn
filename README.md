@@ -375,6 +375,8 @@ The catch-up term is proportional to the heat loss on purpose. Until v0.10.6 the
 
 **The look-ahead** (the 12-hour table on the MPC tab) simulates the house forward with the outdoor temperature forecast from your weather entity and the radiation forecast from Open-Meteo.
 
+Until the house model has learned enough (`model_source: batch_fallback`), there is no room to simulate. The table then shows the advice for each hour at the forecast outdoor temperature, with the catch-up term only in hour +0: how fast the room catches up depends on the thermal mass, which is exactly what is not known yet. From +1 on, a shortfall is therefore underestimated. The room and buffer columns stay empty, and the attribute `vooruitblik_basis` says which of the two the table uses (`huismodel` or `zonder_huismodel`).
+
 Despite the name, the advice is not an optimisation over the forecast horizon: the forecast does not change the sensor's value.
 
 The result is compared to the actual supply temperature via the **error sensors** on the MPC tab:
