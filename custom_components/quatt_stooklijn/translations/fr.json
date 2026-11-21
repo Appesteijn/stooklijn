@@ -38,16 +38,20 @@
           "sound_level_max_night": "Soundslider : position maximale de nuit",
           "sound_night_start_hour": "Soundslider : début de nuit (heure, 0–23, ex. 23) — comme les heures de nuit de l'app Quatt",
           "sound_night_end_hour": "Soundslider : fin de nuit (heure, 0–23, ex. 7) — comme les heures de nuit de l'app Quatt",
-          "otgw_enabled": "Activer la compensation OTGW (nécessite OpenTherm Gateway)",
-          "otgw_room_temp_override": "Entité OTGW de remplacement de température ambiante",
-          "otgw_max_offset": "Offset maximum OTGW (°C, max 3.0)",
-          "ch_max_water_enabled": "Activer la limitation de température de départ (écrit la temp. max. de départ vers Quatt)",
-          "ch_max_water_entity": "Entité température de départ max. Quatt",
-          "ch_max_water_source": "Température de départ max. : quel modèle pilote",
-          "ch_max_water_margin": "Marge au-dessus de la recommandation (°C)",
-          "ch_max_water_hysteresis": "Changement minimal avant écriture (°C)",
-          "ch_max_water_interval": "Intervalle d'écriture (minutes)",
           "supply_temp_entity": "Capteur de température de départ (°C) — référence pour le conseil"
+        },
+        "data_description": {
+          "flow_entity": "Pour convertir la puissance en température de départ.",
+          "return_temp_entity": "Le conseil part du retour : départ = retour + puissance / (1,16 × débit).",
+          "weather_entity": "La température extérieure des heures à venir, pour la prévision et le décalage tarifaire.",
+          "indoor_temp_entity": "Pour la correction de pièce et le modèle de maison auto-apprenant. De préférence un capteur au séjour.",
+          "sound_level_enabled": "Pilote la position de jour et de nuit du soundslider de votre Quatt.",
+          "sound_level_source": "Courbe de chauffe : température extérieure seule. MPC : plus correction de pièce. Modèle de maison (1R1C) : le modèle auto-apprenant plus correction de pièce. Comparez-les avec le capteur Effet du pilotage.",
+          "sound_level_max_day": "La compensation ne dépasse jamais cette position le jour. building87 est le plus silencieux, normal le plus puissant.",
+          "sound_level_max_night": "La compensation ne dépasse jamais cette position la nuit. building87 est le plus silencieux, normal le plus puissant.",
+          "sound_night_start_hour": "Heure locale, 0–23. À garder identique aux heures de nuit de l'app Quatt : sinon l'intégration pilote la position de jour alors que la Quatt est déjà sur celle de nuit, ou l'inverse.",
+          "sound_night_end_hour": "Heure locale, 0–23. À garder identique aux heures de nuit de l'app Quatt.",
+          "supply_temp_entity": "Pour comparer le conseil, et voir si le départ atteint la température de départ max."
         }
       }
     },
@@ -62,54 +66,140 @@
     "step": {
       "init": {
         "title": "Mettre à jour la configuration",
-        "description": "Le capteur de panneaux solaires peut être n'importe quel capteur rapportant la puissance actuelle en Watts (W). Laisser vide si vous n'avez pas de panneaux solaires.",
-        "data": {
-          "quatt_start_date": "Date de début Quatt (AAAA-MM-JJ)",
-          "quatt_end_date": "Date de fin Quatt (AAAA-MM-JJ)",
-          "flow_entity": "Capteur de débit (L/h)",
-          "return_temp_entity": "Capteur de température de retour (°C)",
-          "weather_entity": "Entité de prévisions météo (pour la prévision MPC)",
-          "indoor_temp_entity": "Capteur de température intérieure (°C, pour la calibration solaire)",
-          "control_setpoint_entity": "Capteur de consigne du thermostat (°C) — laisser vide pour la détection auto",
-          "room_setpoint_entity": "Capteur de consigne d'ambiance (°C) — laisser vide pour la détection auto",
-          "room_setpoint_fallback": "Consigne d'ambiance de repli (°C) — utilisée seulement si le thermostat n'en fournit pas",
-          "cic_zero_power_temp": "Seuil de chauffage tel que réglé dans votre Quatt (°C) — facultatif, CiC uniquement ; à demander à votre installateur ou au support Quatt",
-          "cic_rated_power": "Puissance nominale à -10 °C telle que réglée dans votre Quatt (W) — facultatif, CiC uniquement",
-          "cop_entity": "Capteur COP — laisser vide pour la détection auto",
-          "compressor_entity": "Capteur de fréquence du compresseur PAC1 (Hz) — sert à compter les démarrages ; vide = détection automatique",
-          "compressor_2_entity": "Capteur de fréquence du compresseur PAC2 (Hz) — Duo uniquement ; laisser vide sur un Solo",
-          "performance_baseline_date": "Date de la modification (YYYY-MM-DD) — fige la norme de rendement sur tout ce qui précède ; vide = 30 derniers jours de chauffe",
-          "quatt_cloud_enabled": "Utiliser l'API cloud Quatt — désactivé = local uniquement (recorder + stockage interne). L'historique constitué est conservé ; seul le détail horaire s'arrête. Surtout utile avec une seconde source locale comme OpenQuatt.",
-          "sound_level_enabled": "Activer la compensation du soundslider (déplace le soundslider de votre Quatt, et donc la puissance)",
-          "sound_level_source": "Compensation du soundslider : quel modèle pilote",
-          "sound_level_max_day": "Soundslider : position maximale de jour",
-          "sound_level_max_night": "Soundslider : position maximale de nuit",
-          "sound_night_start_hour": "Soundslider : début de nuit (heure, 0–23, ex. 23) — comme les heures de nuit de l'app Quatt",
-          "sound_night_end_hour": "Soundslider : fin de nuit (heure, 0–23, ex. 7) — comme les heures de nuit de l'app Quatt",
-          "otgw_enabled": "Activer la compensation OTGW (nécessite OpenTherm Gateway)",
-          "otgw_room_temp_override": "Entité OTGW de remplacement de température ambiante",
-          "otgw_max_offset": "Offset maximum OTGW (°C, max 3.0)",
-          "ch_max_water_enabled": "Activer la limitation de température de départ (écrit la temp. max. de départ vers Quatt)",
-          "ch_max_water_entity": "Entité température de départ max. Quatt",
-          "ch_max_water_source": "Température de départ max. : quel modèle pilote",
-          "ch_max_water_margin": "Marge au-dessus de la recommandation (°C)",
-          "ch_max_water_hysteresis": "Changement minimal avant écriture (°C)",
-          "ch_max_water_interval": "Intervalle d'écriture (minutes)",
-          "comfort_floor_temp": "Plancher de confort (°C) — température intérieure minimale acceptable ; référence pour le temps d'inertie et la chaleur stockée, pas la consigne",
-          "pv_power_entity": "Capteur solaire : puissance PV (W ou kW) — optionnel, mesure le soleil localement pour le modèle de la maison",
-          "eos_throttle_entity": "Limiteur externe (optionnel) — les périodes où un régulateur externe bride la pompe à chaleur sont exclues de l'analyse COP et déperditions ; vide = désactivé",
-          "temp_entities": "Capteur(s) de température extérieure — le premier disponible est utilisé",
-          "power_entity": "Capteur de puissance thermique de la pompe à chaleur (W)",
-          "supply_temp_entity": "Capteur de température de départ (°C) — référence pour le conseil",
-          "power_input_entity": "Capteur de puissance électrique absorbée (W) — pour le calcul du COP",
-          "boiler_heat_entity": "Capteur de puissance thermique de la chaudière (W) — détection gaz",
-          "price_shift_mode": "Décalage tarifaire (mesure fantôme, ne pilote rien) — désactivé, heures pleines/creuses fixes ou dynamique",
-          "price_normal": "Tarif heures pleines (€/kWh, taxes comprises)",
-          "price_dal": "Tarif heures creuses (€/kWh, taxes comprises)",
-          "price_dal_start_hour": "Début des heures creuses en semaine (heure, 0–23, ex. 23)",
-          "price_dal_end_hour": "Fin des heures creuses en semaine (heure, 0–23, ex. 7)",
-          "price_dal_weekend": "Tout le week-end en heures creuses",
-          "price_entity": "Capteur de prix pour un tarif dynamique (prix horaires d'aujourd'hui/demain en attribut)"
+        "description": "Regroupé par thème. Les sections repliées sont désactivées ou rarement utiles. La demande de chaleur vers OpenQuatt Power House se règle dans OpenQuatt (l'assistant de source), pas ici.",
+        "sections": {
+          "huis": {
+            "name": "Maison et confort",
+            "description": "Ce que vise le conseil, et ce qui est réglé dans votre Quatt.",
+            "data": {
+              "room_setpoint_fallback": "Consigne d'ambiance de repli (°C)",
+              "comfort_floor_temp": "Plancher de confort (°C)",
+              "cic_zero_power_temp": "Seuil de chauffage dans votre Quatt (°C)",
+              "cic_rated_power": "Puissance nominale à −10 °C dans votre Quatt (W)"
+            },
+            "data_description": {
+              "room_setpoint_fallback": "Utilisée seulement si le thermostat ne fournit pas de consigne (pas de liaison OpenTherm, ou source momentanément absente). S'il en fournit une, le thermostat l'emporte.",
+              "comfort_floor_temp": "Température intérieure minimale acceptable. Référence pour le temps d'inertie sûr et la chaleur stockée, pas la consigne.",
+              "cic_zero_power_temp": "CiC uniquement, facultatif. Non lisible : à demander à votre installateur ou au support Quatt. Vide = le conseil n'affiche que la valeur recommandée.",
+              "cic_rated_power": "CiC uniquement, facultatif. Telle que réglée par l'installateur. Vide = inconnue."
+            }
+          },
+          "max_aanvoertemperatuur": {
+            "name": "Température de départ max.",
+            "description": "Écrit à chaque intervalle le conseil plus la marge comme température de départ maximale vers le régulateur : la CiC, ou OpenQuatt hors Power House. Ne pas utiliser avec OpenQuatt en Power House : ce réglage y est un limiteur de sécurité. Utilisez alors la demande de chaleur dans OpenQuatt.",
+            "data": {
+              "ch_max_water_enabled": "Activé",
+              "ch_max_water_source": "Quel modèle pilote",
+              "ch_max_water_margin": "Marge au-dessus du conseil (°C)",
+              "ch_max_water_entity": "Réglage dans votre Quatt",
+              "ch_max_water_hysteresis": "Changement minimal (°C)",
+              "ch_max_water_interval": "Intervalle d'écriture (minutes)"
+            },
+            "data_description": {
+              "ch_max_water_enabled": "Écrit la température de départ maximale vers votre Quatt. Désactivé = l'intégration n'écrit rien.",
+              "ch_max_water_source": "Courbe de chauffe : température extérieure seule. MPC : plus correction de pièce. Modèle de maison (1R1C) : le modèle auto-apprenant plus correction de pièce. Comparez-les avec le capteur Effet du pilotage.",
+              "ch_max_water_margin": "La pompe à chaleur module déjà avant la température de départ maximale. Sans marge elle fournit trop peu et la pièce ne rattrape pas. Par défaut 2 °C.",
+              "ch_max_water_entity": "L'entité de la température de départ maximale. Vide = automatique : la CiC, ou OpenQuatt s'il pilote les unités extérieures.",
+              "ch_max_water_hysteresis": "N'écrire que si la nouvelle valeur s'écarte autant de la précédente. Évite que le réglage change à chaque petite fluctuation.",
+              "ch_max_water_interval": "Fréquence de mise à jour de la température de départ maximale."
+            }
+          },
+          "soundslider": {
+            "name": "Soundslider (CiC uniquement)",
+            "description": "Déplace le soundslider de votre Quatt, le jour et la nuit, et donc la puissance maximale. Tant que c'est activé, l'intégration rétablit dans les dix minutes une position modifiée dans l'app Quatt.",
+            "data": {
+              "sound_level_enabled": "Activé",
+              "sound_level_source": "Quel modèle pilote",
+              "sound_level_max_day": "Position maximale de jour",
+              "sound_level_max_night": "Position maximale de nuit",
+              "sound_night_start_hour": "Début de nuit (heure)",
+              "sound_night_end_hour": "Fin de nuit (heure)"
+            },
+            "data_description": {
+              "sound_level_enabled": "Pilote la position de jour et de nuit du soundslider de votre Quatt.",
+              "sound_level_source": "Courbe de chauffe : température extérieure seule. MPC : plus correction de pièce. Modèle de maison (1R1C) : le modèle auto-apprenant plus correction de pièce. Comparez-les avec le capteur Effet du pilotage.",
+              "sound_level_max_day": "La compensation ne dépasse jamais cette position le jour. building87 est le plus silencieux, normal le plus puissant.",
+              "sound_level_max_night": "La compensation ne dépasse jamais cette position la nuit. building87 est le plus silencieux, normal le plus puissant.",
+              "sound_night_start_hour": "Heure locale, 0–23. À garder identique aux heures de nuit de l'app Quatt : sinon l'intégration pilote la position de jour alors que la Quatt est déjà sur celle de nuit, ou l'inverse.",
+              "sound_night_end_hour": "Heure locale, 0–23. À garder identique aux heures de nuit de l'app Quatt."
+            }
+          },
+          "prijsverschuiving": {
+            "name": "Décalage tarifaire (mesure fantôme)",
+            "description": "Calcule ce qu'aurait rapporté le décalage de la demande de chaleur vers des heures moins chères. Ne pilote rien.",
+            "data": {
+              "price_shift_mode": "Tarif",
+              "price_entity": "Capteur de prix (dynamique)",
+              "price_normal": "Tarif heures pleines (€/kWh)",
+              "price_dal": "Tarif heures creuses (€/kWh)",
+              "price_dal_start_hour": "Début des heures creuses en semaine (heure)",
+              "price_dal_end_hour": "Fin des heures creuses en semaine (heure)",
+              "price_dal_weekend": "Tout le week-end en heures creuses"
+            },
+            "data_description": {
+              "price_shift_mode": "Désactivé, fixe (pleines et creuses) ou dynamique. Désactivé = pas de capteur.",
+              "price_entity": "Tarif dynamique uniquement : un capteur avec les prix horaires d'aujourd'hui et de demain en attribut.",
+              "price_normal": "Taxes comprises. Tarif fixe uniquement.",
+              "price_dal": "Taxes comprises. Tarif fixe uniquement.",
+              "price_dal_start_hour": "0–23, par exemple 23.",
+              "price_dal_end_hour": "0–23, par exemple 7.",
+              "price_dal_weekend": "Samedi et dimanche comptent entièrement en heures creuses."
+            }
+          },
+          "analyse": {
+            "name": "Analyse",
+            "description": "Quelle période de votre historique de chauffe est analysée, et ce qui en est exclu.",
+            "data": {
+              "quatt_start_date": "Date de début (AAAA-MM-JJ)",
+              "performance_baseline_date": "Date de votre modification (AAAA-MM-JJ)",
+              "quatt_cloud_enabled": "Utiliser le cloud Quatt",
+              "eos_throttle_entity": "Limiteur externe"
+            },
+            "data_description": {
+              "quatt_start_date": "L'historique de chauffe est analysé à partir de cette date : déperditions, courbe de chauffe et point d'inflexion.",
+              "performance_baseline_date": "Avez-vous modifié la régulation ? La mesure de rendement fige alors sa norme sur tout ce qui précède et compare les jours suivants à celle-ci. Vide = les 30 derniers jours de chauffe.",
+              "quatt_cloud_enabled": "Désactivé = local uniquement (recorder et stockage interne). L'historique constitué reste ; seul le nouveau détail horaire s'arrête. Surtout utile avec une seconde source locale comme OpenQuatt.",
+              "eos_throttle_entity": "Facultatif. Une entité indiquant qu'un régulateur externe bride la pompe à chaleur, par exemple un pilotage tarifaire. Ces périodes sont exclues de l'analyse COP et déperditions. Vide = désactivé."
+            }
+          },
+          "metingen": {
+            "name": "Mesures",
+            "description": "Quels capteurs l'intégration utilise. Laisser vide = automatique : ce qui fournit une valeur maintenant, de Quatt ou d'OpenQuatt. À remplir seulement si la détection automatique se trompe.",
+            "data": {
+              "temp_entities": "Température extérieure",
+              "power_entity": "Puissance thermique de la pompe à chaleur (W)",
+              "power_input_entity": "Puissance électrique absorbée (W)",
+              "flow_entity": "Débit (l/h)",
+              "supply_temp_entity": "Température de départ (°C)",
+              "return_temp_entity": "Température de retour (°C)",
+              "boiler_heat_entity": "Puissance thermique de la chaudière (W)",
+              "indoor_temp_entity": "Température de la pièce (°C)",
+              "room_setpoint_entity": "Consigne d'ambiance du thermostat (°C)",
+              "control_setpoint_entity": "Consigne de régulation du thermostat (°C)",
+              "cop_entity": "COP",
+              "compressor_entity": "Fréquence du compresseur PAC1 (Hz)",
+              "compressor_2_entity": "Fréquence du compresseur PAC2 (Hz)",
+              "weather_entity": "Prévisions météo",
+              "pv_power_entity": "Capteur solaire : puissance PV (W ou kW)"
+            },
+            "data_description": {
+              "temp_entities": "Un ou plusieurs capteurs ; le premier qui fournit une valeur est utilisé.",
+              "power_entity": "La chaleur fournie. Base des déperditions et du COP.",
+              "power_input_entity": "Pour le COP et la consommation électrique dans l'effet du pilotage.",
+              "flow_entity": "Pour convertir la puissance en température de départ.",
+              "supply_temp_entity": "Pour comparer le conseil, et voir si le départ atteint la température de départ max.",
+              "return_temp_entity": "Le conseil part du retour : départ = retour + puissance / (1,16 × débit).",
+              "boiler_heat_entity": "Pour voir quand la chaudière vient en appoint.",
+              "indoor_temp_entity": "Pour la correction de pièce et le modèle de maison auto-apprenant. De préférence un capteur au séjour.",
+              "room_setpoint_entity": "La cible que vise le conseil.",
+              "control_setpoint_entity": "La température de départ demandée par le thermostat via OpenTherm.",
+              "cop_entity": "Si votre installation fournit elle-même un COP.",
+              "compressor_entity": "Les démarrages du compresseur sont comptés à partir de celle-ci.",
+              "compressor_2_entity": "Duo uniquement ; laisser vide sur un Solo.",
+              "weather_entity": "La température extérieure des heures à venir, pour la prévision et le décalage tarifaire.",
+              "pv_power_entity": "Facultatif. Mesure le soleil localement. L'orientation des panneaux et des fenêtres est apprise, pas demandée."
+            }
+          }
         }
       }
     },

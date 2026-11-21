@@ -51,8 +51,8 @@ from .const import (
     DOMAIN,
     MIN_FLOW_LPH,
     MPC_ADVICE_NO_DEMAND,
-    OTGW_CYCLE_SECONDS,
-    OTGW_UNAVAILABLE_TIMEOUT,
+    SOUND_CYCLE_SECONDS,
+    SOUND_ADVICE_TIMEOUT,
     SIGNAL_SOUND_LEVEL,
 )
 from .coordinator import QuattStooklijnCoordinator
@@ -246,7 +246,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             async_track_time_interval(
                 self.hass,
                 self._async_compensation_cycle,
-                timedelta(seconds=OTGW_CYCLE_SECONDS),
+                timedelta(seconds=SOUND_CYCLE_SECONDS),
             )
         )
 
@@ -348,11 +348,11 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             elapsed = (
                 datetime.now(timezone.utc) - self._last_mpc_available
             ).total_seconds()
-            if elapsed > OTGW_UNAVAILABLE_TIMEOUT:
+            if elapsed > SOUND_ADVICE_TIMEOUT:
                 _LOGGER.warning(
                     "Advies (%s) >%d sec niet beschikbaar, reset geluidsniveau",
                     self._advice_source,
-                    OTGW_UNAVAILABLE_TIMEOUT,
+                    SOUND_ADVICE_TIMEOUT,
                 )
                 await self._async_reset_level()
                 return

@@ -38,16 +38,20 @@
           "sound_level_max_night": "Soundslider: höchste Stufe nachts",
           "sound_night_start_hour": "Soundslider: Nacht beginnt um (Stunde, 0–23, z.B. 23) — wie die Nachtzeiten in der Quatt-App",
           "sound_night_end_hour": "Soundslider: Nacht endet um (Stunde, 0–23, z.B. 7) — wie die Nachtzeiten in der Quatt-App",
-          "otgw_enabled": "OTGW-Kompensation aktivieren (erfordert OpenTherm Gateway)",
-          "otgw_room_temp_override": "OTGW Raumtemperatur-Override Entität",
-          "otgw_max_offset": "OTGW maximaler Offset (°C, max 3.0)",
-          "ch_max_water_enabled": "Vorlauftemperatur-Begrenzung aktivieren (schreibt max. Vorlauftemp. an Quatt)",
-          "ch_max_water_entity": "Quatt max. Vorlauftemperatur Entität",
-          "ch_max_water_source": "Max. Vorlauftemperatur: welches Modell steuert",
-          "ch_max_water_margin": "Aufschlag über der Empfehlung (°C)",
-          "ch_max_water_hysteresis": "Minimale Änderung vor Schreibaktion (°C)",
-          "ch_max_water_interval": "Schreibintervall (Minuten)",
           "supply_temp_entity": "Vorlauftemperatur-Sensor (°C) — Referenz für die Empfehlung"
+        },
+        "data_description": {
+          "flow_entity": "Zur Umrechnung von Leistung in Vorlauftemperatur.",
+          "return_temp_entity": "Die Empfehlung rechnet vom Rücklauf aus: Vorlauf = Rücklauf + Leistung / (1,16 × Durchfluss).",
+          "weather_entity": "Die Außentemperatur der kommenden Stunden, für die Vorschau und die Preisverschiebung.",
+          "indoor_temp_entity": "Für die Raumkorrektur und das lernende Hausmodell. Am besten ein Sensor im Wohnzimmer.",
+          "sound_level_enabled": "Steuert die Tag- und Nachtstufe des Soundsliders in deiner Quatt.",
+          "sound_level_source": "Heizkurve: nur Außentemperatur. MPC: plus Raumkorrektur. Hausmodell (1R1C): das lernende Hausmodell plus Raumkorrektur. Vergleiche sie mit dem Sensor Steuerungseffekt.",
+          "sound_level_max_day": "Die Kompensation geht tagsüber nie über diese Stufe. building87 ist am leisesten, normal am stärksten.",
+          "sound_level_max_night": "Die Kompensation geht nachts nie über diese Stufe. building87 ist am leisesten, normal am stärksten.",
+          "sound_night_start_hour": "Ortszeit, 0–23. Gleich den Nachtzeiten in der Quatt-App halten: sonst steuert die Integration die Tagstufe, während die Quatt schon auf der Nachtstufe steht, oder umgekehrt.",
+          "sound_night_end_hour": "Ortszeit, 0–23. Gleich den Nachtzeiten in der Quatt-App halten.",
+          "supply_temp_entity": "Zum Vergleich mit der Empfehlung und um zu sehen, ob der Vorlauf die max. Vorlauftemperatur erreicht."
         }
       }
     },
@@ -62,54 +66,140 @@
     "step": {
       "init": {
         "title": "Konfiguration aktualisieren",
-        "description": "Der Solaranlagen-Sensor kann jeder Sensor sein, der die aktuelle Leistung in Watt (W) meldet. Leer lassen wenn keine Solaranlage vorhanden.",
-        "data": {
-          "quatt_start_date": "Quatt Startdatum (JJJJ-MM-TT)",
-          "quatt_end_date": "Quatt Enddatum (JJJJ-MM-TT)",
-          "flow_entity": "Durchflussmesser-Sensor (L/h)",
-          "return_temp_entity": "Rücklauftemperatur-Sensor (°C)",
-          "weather_entity": "Wettervorhersage-Entität (für MPC-Prognose)",
-          "indoor_temp_entity": "Raumtemperatur-Sensor (°C, für Solar-Kalibrierung)",
-          "control_setpoint_entity": "Thermostat-Sollwert-Sensor (°C) — leer lassen für Auto-Erkennung",
-          "room_setpoint_entity": "Raum-Sollwert-Sensor (°C) — leer lassen für Auto-Erkennung",
-          "room_setpoint_fallback": "Ersatz-Raumsollwert (°C) — nur genutzt, wenn der Thermostat keinen liefert",
-          "cic_zero_power_temp": "Heizgrenze wie in deinem Quatt eingestellt (°C) — optional, nur für die CiC; beim Installateur oder Quatt-Support erfragen",
-          "cic_rated_power": "Nennleistung bei -10 °C wie in deinem Quatt eingestellt (W) — optional, nur für die CiC",
-          "cop_entity": "COP-Sensor — leer lassen für Auto-Erkennung",
-          "compressor_entity": "Verdichterfrequenz-Sensor WP1 (Hz) — daraus werden die Starts gezählt; leer lassen für automatische Erkennung",
-          "compressor_2_entity": "Verdichterfrequenz-Sensor WP2 (Hz) — nur beim Duo; bei einem Solo leer lassen",
-          "performance_baseline_date": "Datum der Änderung (YYYY-MM-DD) — friert die Effizienznorm auf alles davor ein; leer = letzte 30 Heiztage",
-          "quatt_cloud_enabled": "Quatt-Cloud-API verwenden — aus = nur lokal (Recorder + eigene Speicher). Die aufgebaute Historie bleibt, nur neue Stundendaten entfallen. Sinnvoll vor allem mit einer zweiten lokalen Quelle wie OpenQuatt.",
-          "sound_level_enabled": "Soundslider-Kompensation aktivieren (verschiebt den Soundslider deiner Quatt und damit die Leistung)",
-          "sound_level_source": "Soundslider-Kompensation: welches Modell steuert",
-          "sound_level_max_day": "Soundslider: höchste Stufe tagsüber",
-          "sound_level_max_night": "Soundslider: höchste Stufe nachts",
-          "sound_night_start_hour": "Soundslider: Nacht beginnt um (Stunde, 0–23, z.B. 23) — wie die Nachtzeiten in der Quatt-App",
-          "sound_night_end_hour": "Soundslider: Nacht endet um (Stunde, 0–23, z.B. 7) — wie die Nachtzeiten in der Quatt-App",
-          "otgw_enabled": "OTGW-Kompensation aktivieren (erfordert OpenTherm Gateway)",
-          "otgw_room_temp_override": "OTGW Raumtemperatur-Override Entität",
-          "otgw_max_offset": "OTGW maximaler Offset (°C, max 3.0)",
-          "ch_max_water_enabled": "Vorlauftemperatur-Begrenzung aktivieren (schreibt max. Vorlauftemp. an Quatt)",
-          "ch_max_water_entity": "Quatt max. Vorlauftemperatur Entität",
-          "ch_max_water_source": "Max. Vorlauftemperatur: welches Modell steuert",
-          "ch_max_water_margin": "Aufschlag über der Empfehlung (°C)",
-          "ch_max_water_hysteresis": "Minimale Änderung vor Schreibaktion (°C)",
-          "ch_max_water_interval": "Schreibintervall (Minuten)",
-          "comfort_floor_temp": "Komfort-Untergrenze (°C) — niedrigste akzeptable Raumtemperatur; Bezugswert für Auslaufzeit und gespeicherte Wärme, nicht die Solltemperatur",
-          "pv_power_entity": "Sonnensensor: PV-Leistung (W oder kW) — optional, misst die Sonne lokal für das Hausmodell",
-          "eos_throttle_entity": "Externe Begrenzung (optional) — Zeiträume, in denen ein externer Regler die Wärmepumpe drosselt, werden aus der COP- und Wärmeverlustanalyse ausgeschlossen; leer = aus",
-          "temp_entities": "Außentemperatur-Sensor(en) — der erste verfügbare wird verwendet",
-          "power_entity": "Wärmepumpen-Wärmeleistung (W)",
-          "supply_temp_entity": "Vorlauftemperatur-Sensor (°C) — Referenz für die Empfehlung",
-          "power_input_entity": "Elektrische Leistungsaufnahme (W) — für die COP-Berechnung",
-          "boiler_heat_entity": "Gaskessel-Wärmeleistung (W) — zur Gaserkennung",
-          "price_shift_mode": "Preisverschiebung (Schattenmessung, steuert nichts) — aus, fester HT/NT-Tarif oder dynamisch",
-          "price_normal": "Hochtarif (€/kWh, inkl. Steuern)",
-          "price_dal": "Niedertarif (€/kWh, inkl. Steuern)",
-          "price_dal_start_hour": "Niedertarif beginnt werktags (Stunde, 0–23, z. B. 23)",
-          "price_dal_end_hour": "Niedertarif endet werktags (Stunde, 0–23, z. B. 7)",
-          "price_dal_weekend": "Ganzes Wochenende ist Niedertarif",
-          "price_entity": "Preissensor für einen dynamischen Tarif (mit Stundenpreisen für heute/morgen als Attribut)"
+        "description": "Nach Thema gruppiert. Eingeklappte Abschnitte sind aus oder selten nötig. Den Wärmebedarf an OpenQuatt Power House stellst du in OpenQuatt ein (Quellen-Helfer), nicht hier.",
+        "sections": {
+          "huis": {
+            "name": "Haus und Komfort",
+            "description": "Worauf die Empfehlung zielt und was in deiner Quatt eingestellt ist.",
+            "data": {
+              "room_setpoint_fallback": "Ersatz-Raumsollwert (°C)",
+              "comfort_floor_temp": "Komfort-Untergrenze (°C)",
+              "cic_zero_power_temp": "Heizgrenze in deiner Quatt (°C)",
+              "cic_rated_power": "Nennleistung bei −10 °C in deiner Quatt (W)"
+            },
+            "data_description": {
+              "room_setpoint_fallback": "Nur genutzt, wenn der Thermostat keinen Sollwert liefert (keine OpenTherm-Verbindung oder Quelle kurz weg). Liefert er einen, gewinnt der Thermostat.",
+              "comfort_floor_temp": "Niedrigste akzeptable Raumtemperatur. Bezugswert für die sichere Auslaufzeit und die gespeicherte Wärme, nicht die Solltemperatur.",
+              "cic_zero_power_temp": "Nur für die CiC, optional. Nicht auslesbar: beim Installateur oder Quatt-Support erfragen. Leer = die Empfehlung zeigt nur den empfohlenen Wert.",
+              "cic_rated_power": "Nur für die CiC, optional. Wie vom Installateur eingestellt. Leer = unbekannt."
+            }
+          },
+          "max_aanvoertemperatuur": {
+            "name": "Max. Vorlauftemperatur",
+            "description": "Schreibt in jedem Intervall die Empfehlung plus Aufschlag als maximale Vorlauftemperatur an den Regler: die CiC oder OpenQuatt außerhalb von Power House. Nicht mit OpenQuatt in Power House verwenden: dort ist diese Einstellung ein Sicherheitsbegrenzer. Nutze dann den Wärmebedarf in OpenQuatt.",
+            "data": {
+              "ch_max_water_enabled": "An",
+              "ch_max_water_source": "Welches Modell steuert",
+              "ch_max_water_margin": "Aufschlag über der Empfehlung (°C)",
+              "ch_max_water_entity": "Einstellung in deiner Quatt",
+              "ch_max_water_hysteresis": "Minimale Änderung (°C)",
+              "ch_max_water_interval": "Schreibintervall (Minuten)"
+            },
+            "data_description": {
+              "ch_max_water_enabled": "Schreibt die maximale Vorlauftemperatur an deine Quatt. Aus = die Integration schreibt nichts.",
+              "ch_max_water_source": "Heizkurve: nur Außentemperatur. MPC: plus Raumkorrektur. Hausmodell (1R1C): das lernende Hausmodell plus Raumkorrektur. Vergleiche sie mit dem Sensor Steuerungseffekt.",
+              "ch_max_water_margin": "Die Wärmepumpe moduliert schon vor der maximalen Vorlauftemperatur zurück. Ohne Aufschlag liefert sie zu wenig und der Raum holt nicht auf. Standard 2 °C.",
+              "ch_max_water_entity": "Die Entität für die maximale Vorlauftemperatur. Leer = automatisch: die CiC oder OpenQuatt, wenn es die Außeneinheiten regelt.",
+              "ch_max_water_hysteresis": "Erst schreiben, wenn der neue Wert so stark vom letzten abweicht. Verhindert, dass sich die Einstellung bei jeder kleinen Schwankung ändert.",
+              "ch_max_water_interval": "Wie oft die maximale Vorlauftemperatur aktualisiert wird."
+            }
+          },
+          "soundslider": {
+            "name": "Soundslider (nur CiC)",
+            "description": "Verschiebt den Soundslider deiner Quatt, tagsüber und nachts, und damit die maximale Leistung. Solange das an ist, setzt die Integration eine Stufe, die du in der Quatt-App änderst, innerhalb von zehn Minuten zurück.",
+            "data": {
+              "sound_level_enabled": "An",
+              "sound_level_source": "Welches Modell steuert",
+              "sound_level_max_day": "Höchste Stufe tagsüber",
+              "sound_level_max_night": "Höchste Stufe nachts",
+              "sound_night_start_hour": "Nacht beginnt um (Stunde)",
+              "sound_night_end_hour": "Nacht endet um (Stunde)"
+            },
+            "data_description": {
+              "sound_level_enabled": "Steuert die Tag- und Nachtstufe des Soundsliders in deiner Quatt.",
+              "sound_level_source": "Heizkurve: nur Außentemperatur. MPC: plus Raumkorrektur. Hausmodell (1R1C): das lernende Hausmodell plus Raumkorrektur. Vergleiche sie mit dem Sensor Steuerungseffekt.",
+              "sound_level_max_day": "Die Kompensation geht tagsüber nie über diese Stufe. building87 ist am leisesten, normal am stärksten.",
+              "sound_level_max_night": "Die Kompensation geht nachts nie über diese Stufe. building87 ist am leisesten, normal am stärksten.",
+              "sound_night_start_hour": "Ortszeit, 0–23. Gleich den Nachtzeiten in der Quatt-App halten: sonst steuert die Integration die Tagstufe, während die Quatt schon auf der Nachtstufe steht, oder umgekehrt.",
+              "sound_night_end_hour": "Ortszeit, 0–23. Gleich den Nachtzeiten in der Quatt-App halten."
+            }
+          },
+          "prijsverschuiving": {
+            "name": "Preisverschiebung (Schattenmessung)",
+            "description": "Berechnet, was eine Verschiebung des Wärmebedarfs in günstigere Stunden gebracht hätte. Steuert nichts.",
+            "data": {
+              "price_shift_mode": "Tarif",
+              "price_entity": "Preissensor (dynamisch)",
+              "price_normal": "Hochtarif (€/kWh)",
+              "price_dal": "Niedertarif (€/kWh)",
+              "price_dal_start_hour": "Niedertarif beginnt werktags um (Stunde)",
+              "price_dal_end_hour": "Niedertarif endet werktags um (Stunde)",
+              "price_dal_weekend": "Ganzes Wochenende Niedertarif"
+            },
+            "data_description": {
+              "price_shift_mode": "Aus, fest (Hoch- und Niedertarif) oder dynamisch. Aus = kein Sensor.",
+              "price_entity": "Nur bei dynamischem Tarif: ein Sensor mit den Stundenpreisen für heute und morgen als Attribut.",
+              "price_normal": "Inklusive Steuern. Nur bei festem Tarif.",
+              "price_dal": "Inklusive Steuern. Nur bei festem Tarif.",
+              "price_dal_start_hour": "0–23, zum Beispiel 23.",
+              "price_dal_end_hour": "0–23, zum Beispiel 7.",
+              "price_dal_weekend": "Samstag und Sonntag zählen ganz als Niedertarif."
+            }
+          },
+          "analyse": {
+            "name": "Analyse",
+            "description": "Welcher Zeitraum deiner Heizhistorie analysiert wird und was außen vor bleibt.",
+            "data": {
+              "quatt_start_date": "Startdatum (JJJJ-MM-TT)",
+              "performance_baseline_date": "Datum deiner Änderung (JJJJ-MM-TT)",
+              "quatt_cloud_enabled": "Quatt-Cloud verwenden",
+              "eos_throttle_entity": "Externer Begrenzer"
+            },
+            "data_description": {
+              "quatt_start_date": "Ab diesem Datum wird die Heizhistorie analysiert: Wärmeverlust, Heizkurve und Knickpunkt.",
+              "performance_baseline_date": "Hast du etwas an der Regelung geändert? Dann friert das Effizienzmaß seine Norm auf alles davor ein und prüft die Tage danach daran. Leer = die letzten 30 Heiztage.",
+              "quatt_cloud_enabled": "Aus = nur lokal (Recorder und eigener Speicher). Die aufgebaute Historie bleibt; nur neue Stundendaten entfallen. Vor allem sinnvoll mit einer zweiten lokalen Quelle wie OpenQuatt.",
+              "eos_throttle_entity": "Optional. Eine Entität, die anzeigt, dass ein externer Regler die Wärmepumpe drosselt, zum Beispiel eine Tarifsteuerung. Diese Zeiträume zählen nicht zur COP- und Wärmeverlustanalyse. Leer = aus."
+            }
+          },
+          "metingen": {
+            "name": "Messungen",
+            "description": "Welche Sensoren die Integration nutzt. Leer lassen = automatisch: was jetzt einen Wert liefert, von Quatt oder OpenQuatt. Nur ausfüllen, wenn die Auto-Erkennung den falschen wählt.",
+            "data": {
+              "temp_entities": "Außentemperatur",
+              "power_entity": "Wärmeleistung Wärmepumpe (W)",
+              "power_input_entity": "Elektrische Leistungsaufnahme (W)",
+              "flow_entity": "Durchfluss (l/h)",
+              "supply_temp_entity": "Vorlauftemperatur (°C)",
+              "return_temp_entity": "Rücklauftemperatur (°C)",
+              "boiler_heat_entity": "Wärmeleistung Gaskessel (W)",
+              "indoor_temp_entity": "Raumtemperatur (°C)",
+              "room_setpoint_entity": "Raumsollwert des Thermostats (°C)",
+              "control_setpoint_entity": "Regelsollwert des Thermostats (°C)",
+              "cop_entity": "COP",
+              "compressor_entity": "Verdichterfrequenz WP1 (Hz)",
+              "compressor_2_entity": "Verdichterfrequenz WP2 (Hz)",
+              "weather_entity": "Wettervorhersage",
+              "pv_power_entity": "Sonnensensor: PV-Leistung (W oder kW)"
+            },
+            "data_description": {
+              "temp_entities": "Ein oder mehrere Sensoren; der erste mit einem Wert wird verwendet.",
+              "power_entity": "Die gelieferte Wärme. Grundlage für Wärmeverlust und COP.",
+              "power_input_entity": "Für den COP und den Stromverbrauch im Steuerungseffekt.",
+              "flow_entity": "Zur Umrechnung von Leistung in Vorlauftemperatur.",
+              "supply_temp_entity": "Zum Vergleich mit der Empfehlung und um zu sehen, ob der Vorlauf die max. Vorlauftemperatur erreicht.",
+              "return_temp_entity": "Die Empfehlung rechnet vom Rücklauf aus: Vorlauf = Rücklauf + Leistung / (1,16 × Durchfluss).",
+              "boiler_heat_entity": "Um zu sehen, wann der Kessel einspringt.",
+              "indoor_temp_entity": "Für die Raumkorrektur und das lernende Hausmodell. Am besten ein Sensor im Wohnzimmer.",
+              "room_setpoint_entity": "Das Ziel, auf das die Empfehlung rechnet.",
+              "control_setpoint_entity": "Die Vorlauftemperatur, die der Thermostat über OpenTherm anfordert.",
+              "cop_entity": "Falls deine Anlage selbst einen COP liefert.",
+              "compressor_entity": "Daraus werden die Verdichterstarts gezählt.",
+              "compressor_2_entity": "Nur beim Duo; bei einem Solo leer lassen.",
+              "weather_entity": "Die Außentemperatur der kommenden Stunden, für die Vorschau und die Preisverschiebung.",
+              "pv_power_entity": "Optional. Misst die Sonne lokal. Die Ausrichtung von Modulen und Fenstern wird gelernt, nicht abgefragt."
+            }
+          }
         }
       }
     },

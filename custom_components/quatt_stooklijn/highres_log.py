@@ -98,6 +98,26 @@ class HighResLog:
     def __len__(self) -> int:
         return len(self._samples)
 
+    def mean_heat_between(self, since: datetime, until: datetime) -> tuple[float | None, int]:
+        """Gemiddelde warmte (kolom ``q_hp``) van de monsters in (since, until].
+
+        Voor het huismodel, dat per uur leert: het uurgemiddelde vangt de
+        korte stoten van een bijspringende ketel, een momentopname niet. Van
+        achteren af gelezen, zodat het een vol logboek niet helemaal doorloopt.
+        Geeft ``(gemiddelde, aantal)``; ``(None, 0)`` zonder monsters.
+        """
+        t0, t1 = since.timestamp(), until.timestamp()
+        total, n = 0.0, 0
+        for row in reversed(self._samples):
+            ts = row[0]
+            if ts > t1:
+                continue
+            if ts <= t0:
+                break
+            total += row[3]
+            n += 1
+        return (total / n if n else None), n
+
     @property
     def span_hours(self) -> float | None:
         """Hoeveel uur er tussen het oudste en nieuwste monster zit.

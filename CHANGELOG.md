@@ -3,6 +3,42 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.6 — 2026-11-21
+
+- **Het huismodel telt de gasketel mee.** Het lerende huismodel (1R1C) en het
+  5-minutenlogboek rekenden alleen met de warmte van de warmtepomp; de
+  warmteverliesanalyse telde de ketel al wel mee. Bij een hybride die
+  bijspringt zag het model de kamer opwarmen zonder warmte, en leerde het een
+  negatieve warmtecapaciteit en een veel te grote zonnewinst (gemeld op
+  Tweakers). Nu rekent het met warmtepomp plus ketel. De ketelmeting van Quatt
+  bevat geen tapwater.
+- **Het huismodel leert van het uurgemiddelde.** In plaats van één meting op
+  het hele uur gebruikt het nu het gemiddelde van de 5-minutenmetingen. Een
+  bijspringende ketel stookt in korte stoten, en die mist één meting per uur
+  of telt hij als een heel uur. Zonder ketel verandert er vrijwel niets.
+- **Een ontspoord huismodel begint opnieuw.** Een model met een
+  warmtecapaciteit van nul of lager herstelt zich anders pas na weken. Het
+  begint nu opnieuw vanaf de warmteverliesanalyse, bij het opstarten en na
+  elke uurupdate, met een melding in de log.
+- **Bekende beperking:** vloerverwarming met een bijspringende ketel blijft
+  lastig voor het huismodel. De warmte gaat eerst de dekvloer in, en dat kan
+  dit eenvoudige model niet volgen. Het blijft dan terecht op de terugval; de
+  sturing heeft daar geen last van.
+- **De optiepagina is opgedeeld in secties, met een helptekst bij elk veld.**
+  Tot nu toe was het één lijst van 45 velden zonder uitleg. Nu zijn er zes
+  secties: Huis en comfort, Max. aanvoertemperatuur, Soundslider (alleen CiC),
+  Prijsverschuiving, Analyse en Metingen. Een knop die uit staat is ingeklapt,
+  en de metingen ook, omdat de auto-detectie die meestal zelf vindt. De
+  omschrijving zegt waar de warmtevraag naar OpenQuatt wordt ingesteld (in
+  OpenQuatt), en de sectie Max. aanvoertemperatuur waarschuwt dat die niet
+  bij OpenQuatt in Power House hoort. De instellingen worden bewaard zoals
+  voorheen: er verandert niets aan een bestaande installatie. Een ongeldige
+  datum of een dynamisch tarief zonder prijssensor wordt nu bovenaan het
+  formulier gemeld.
+- **Opgeruimd:** de vertalingen van de OTGW-compensatie (die bestond al lang
+  niet meer), dode velden bij de eerste configuratie, en twee constanten met
+  OTGW in de naam die de soundslider gebruikte.
+
 ## v0.10.7-beta.5 — 2026-11-21
 
 - **Nieuwe sensor "Sturingseffect": wat de knoppen opleveren.** De

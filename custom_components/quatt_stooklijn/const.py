@@ -319,8 +319,8 @@ SOUND_LEVEL_OPTIONS = ["building87", "silent", "library", "normal"]
 DEFAULT_SOUND_LEVEL_MAX = "normal"  # standaard: geen beperking
 DEFAULT_SOUND_NIGHT_START_HOUR = 23
 DEFAULT_SOUND_NIGHT_END_HOUR = 7
-OTGW_CYCLE_SECONDS = 300   # 5 minuten — interval compensatiecyclus
-OTGW_UNAVAILABLE_TIMEOUT = 600  # 10 minuten — reset na MPC timeout
+SOUND_CYCLE_SECONDS = 300   # 5 minuten — interval soundslider-compensatie
+SOUND_ADVICE_TIMEOUT = 600  # 10 minuten zonder advies — soundslider terug naar het maximum
 
 CONDITION_SOLAR_FRACTION: dict[str, float] = {
     "clear-night":       0.0,

@@ -137,9 +137,22 @@ changed something. The norm freezes on everything before that date, and every he
 is tested against it. Leave it empty and the boundary simply follows the last 30 heating days. See
 [Judging a change](#judging-a-change).
 
-### Other options
+### The options page (Configure)
 
-These are in **Configure**:
+**Configure** groups the settings in six sections, each field with a help text. A knob that is off starts collapsed; Measurements and Analysis start collapsed because auto-detection usually fills them. The settings are still stored as before, so nothing changes for an existing installation.
+
+| Section | What is in it |
+|---------|---------------|
+| House and comfort | Fallback room setpoint, comfort floor, and (CiC only) the heating limit and rated power set in your Quatt |
+| Max supply temperature | On/off, which model controls it, margin, target entity, minimum change, write interval. Not for OpenQuatt in Power House: there the setting is a safety limiter |
+| Soundslider (CiC only) | On/off, which model controls it, highest day/night setting, night start/end (keep equal to the night times in the Quatt app) |
+| Price shift (shadow measurement) | Tariff mode, price sensor or fixed prices and off-peak hours |
+| Analysis | Start date, change marker, Quatt cloud, external limiter |
+| Measurements | Every sensor role; leave empty for auto-detection |
+
+The heat demand to OpenQuatt Power House is not on this page: you set it up in OpenQuatt (the source helper), see [below](#driving-power-house-with-the-measured-house-model).
+
+Some of these options in more detail:
 
 - **Comfort floor** (default 19 °C) — The lowest indoor temperature you accept. It is the reference for coast time and stored heat, not the target temperature.
 - **Fallback room setpoint** (default 20 °C) — Used only when the thermostat provides no setpoint.

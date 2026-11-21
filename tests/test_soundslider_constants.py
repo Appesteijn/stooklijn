@@ -12,8 +12,8 @@ from custom_components.quatt_stooklijn.switch import (
     _DEAD_BAND,
 )
 from custom_components.quatt_stooklijn.const import (
-    OTGW_CYCLE_SECONDS,
-    OTGW_UNAVAILABLE_TIMEOUT,
+    SOUND_CYCLE_SECONDS,
+    SOUND_ADVICE_TIMEOUT,
 )
 
 
@@ -46,10 +46,10 @@ class TestSafetyConstants:
         assert _DEAD_BAND > 0
 
     def test_cycle_seconds_reasonable(self):
-        assert 60 <= OTGW_CYCLE_SECONDS <= 600
+        assert 60 <= SOUND_CYCLE_SECONDS <= 600
 
     def test_unavailable_timeout_longer_than_cycle(self):
-        assert OTGW_UNAVAILABLE_TIMEOUT > OTGW_CYCLE_SECONDS
+        assert SOUND_ADVICE_TIMEOUT > SOUND_CYCLE_SECONDS
 
 
 class TestStepBoundaries:

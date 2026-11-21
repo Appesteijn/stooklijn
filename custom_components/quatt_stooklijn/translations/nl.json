@@ -38,16 +38,20 @@
           "sound_level_max_night": "Soundslider: hoogste stand 's nachts",
           "sound_night_start_hour": "Soundslider: nacht begint om (uur, 0–23, bijv. 23) — gelijk aan de nachttijden in de Quatt-app",
           "sound_night_end_hour": "Soundslider: nacht eindigt om (uur, 0–23, bijv. 7) — gelijk aan de nachttijden in de Quatt-app",
-          "otgw_enabled": "OTGW compensatie inschakelen (vereist OpenTherm Gateway)",
-          "otgw_room_temp_override": "OTGW kamertemperatuur override entiteit",
-          "otgw_max_offset": "OTGW maximale offset (°C, max 3.0)",
-          "ch_max_water_enabled": "Aanvoertemperatuur bijsturing inschakelen (schrijft max. aanvoertemp naar Quatt)",
-          "ch_max_water_entity": "Quatt max. aanvoertemperatuur entiteit",
-          "ch_max_water_source": "Max. aanvoertemperatuur: welk model stuurt",
-          "ch_max_water_margin": "Marge boven het advies (°C)",
-          "ch_max_water_hysteresis": "Minimale wijziging voor schrijfactie (°C)",
-          "ch_max_water_interval": "Schrijfinterval (minuten)",
           "supply_temp_entity": "Aanvoertemperatuur sensor (°C) — vergelijkingsbasis voor het advies"
+        },
+        "data_description": {
+          "flow_entity": "Voor de omrekening van vermogen naar aanvoertemperatuur.",
+          "return_temp_entity": "Het advies rekent vanaf de retour: aanvoer = retour + vermogen / (1,16 × debiet).",
+          "weather_entity": "De buitentemperatuur van de komende uren, voor de vooruitblik en de prijsverschuiving.",
+          "indoor_temp_entity": "Voor de kamercorrectie en het lerende huismodel. Bij voorkeur een sensor in de woonkamer.",
+          "sound_level_enabled": "Stuurt de dag- en nachtstand van de soundslider in je Quatt.",
+          "sound_level_source": "Stooklijn: alleen buitentemperatuur. MPC: plus kamercorrectie. Huismodel (1R1C): het lerende huismodel plus kamercorrectie. Vergelijk ze met de sensor Sturingseffect.",
+          "sound_level_max_day": "De compensatie gaat overdag nooit hoger dan deze stand. building87 is het stilst, normal het krachtigst.",
+          "sound_level_max_night": "De compensatie gaat 's nachts nooit hoger dan deze stand. building87 is het stilst, normal het krachtigst.",
+          "sound_night_start_hour": "Lokale tijd, 0–23. Gelijk houden aan de nachttijden in de Quatt-app: anders stuurt de integratie de dagstand terwijl de Quatt al op de nachtstand staat, of andersom.",
+          "sound_night_end_hour": "Lokale tijd, 0–23. Gelijk houden aan de nachttijden in de Quatt-app.",
+          "supply_temp_entity": "Om het advies mee te vergelijken, en om te zien of de aanvoer tegen de max. aanvoertemperatuur aanloopt."
         }
       }
     },
@@ -62,54 +66,140 @@
     "step": {
       "init": {
         "title": "Configuratie bijwerken",
-        "description": "De zonnepanelen-sensor mag elke sensor zijn die het actuele vermogen in Watt (W) rapporteert. Laat leeg als je geen zonnepanelen hebt.",
-        "data": {
-          "quatt_start_date": "Quatt startdatum (JJJJ-MM-DD)",
-          "quatt_end_date": "Quatt einddatum (JJJJ-MM-DD)",
-          "flow_entity": "Debietmeter sensor (L/h)",
-          "return_temp_entity": "Retourtemperatuur sensor (°C)",
-          "weather_entity": "Weersvoorspelling entiteit (voor MPC forecast)",
-          "indoor_temp_entity": "Kamertemperatuur sensor (°C, voor solar gain kalibratie)",
-          "control_setpoint_entity": "Thermostaat setpoint sensor (°C) — leeg laten voor auto-detectie",
-          "room_setpoint_entity": "Kamer setpoint sensor (°C) — leeg laten voor auto-detectie",
-          "room_setpoint_fallback": "Terugval kamersetpoint (°C) — alleen gebruikt als de thermostaat er geen levert",
-          "cic_zero_power_temp": "Stookgrens zoals ingesteld in je Quatt (°C) — optioneel, alleen voor de CiC; vraag na bij installateur of Quatt-support",
-          "cic_rated_power": "Nominaal vermogen bij -10 °C zoals ingesteld in je Quatt (W) — optioneel, alleen voor de CiC",
-          "cop_entity": "COP sensor — leeg laten voor auto-detectie",
-          "compressor_entity": "Compressorfrequentie sensor WP1 (Hz) — hieruit worden de starts geteld; leeg laten voor auto-detectie",
-          "compressor_2_entity": "Compressorfrequentie sensor WP2 (Hz) — alleen bij een Duo; laat leeg op een Solo",
-          "performance_baseline_date": "Datum van je aanpassing (YYYY-MM-DD) — bevriest de rendementsnorm op alles ervóór; leeg = laatste 30 stookdagen",
-          "quatt_cloud_enabled": "Quatt cloud-API gebruiken — uit = alleen lokaal (recorder + eigen stores). De opgebouwde historie blijft, alleen nieuw uurdetail stopt. Vooral zinvol als je een tweede lokale bron hebt, zoals OpenQuatt.",
-          "sound_level_enabled": "Soundslider-compensatie inschakelen (verschuift de soundslider van je Quatt, en daarmee het vermogen)",
-          "sound_level_source": "Soundslider-compensatie: welk model stuurt",
-          "sound_level_max_day": "Soundslider: hoogste stand overdag",
-          "sound_level_max_night": "Soundslider: hoogste stand 's nachts",
-          "sound_night_start_hour": "Soundslider: nacht begint om (uur, 0–23, bijv. 23) — gelijk aan de nachttijden in de Quatt-app",
-          "sound_night_end_hour": "Soundslider: nacht eindigt om (uur, 0–23, bijv. 7) — gelijk aan de nachttijden in de Quatt-app",
-          "otgw_enabled": "OTGW compensatie inschakelen (vereist OpenTherm Gateway)",
-          "otgw_room_temp_override": "OTGW kamertemperatuur override entiteit",
-          "otgw_max_offset": "OTGW maximale offset (°C, max 3.0)",
-          "ch_max_water_enabled": "Aanvoertemperatuur bijsturing inschakelen (schrijft max. aanvoertemp naar Quatt)",
-          "ch_max_water_entity": "Quatt max. aanvoertemperatuur entiteit",
-          "ch_max_water_source": "Max. aanvoertemperatuur: welk model stuurt",
-          "ch_max_water_margin": "Marge boven het advies (°C)",
-          "ch_max_water_hysteresis": "Minimale wijziging voor schrijfactie (°C)",
-          "ch_max_water_interval": "Schrijfinterval (minuten)",
-          "comfort_floor_temp": "Comfort-ondergrens (°C) — laagste acceptabele binnentemperatuur; referentie voor uitlooptijd en opgeslagen warmte, niet de streeftemperatuur",
-          "pv_power_entity": "Zonnesensor: PV-vermogen (W of kW) — optioneel, meet de zon lokaal voor het huismodel",
-          "eos_throttle_entity": "Externe begrenzer (optioneel) — periodes waarin een externe regelaar de warmtepomp knijpt tellen niet mee in de COP- en warmteverlies-analyse; leeg = uit",
-          "temp_entities": "Buitentemperatuur sensor(en) — de eerste die beschikbaar is wordt gebruikt",
-          "power_entity": "Warmtepomp warmtevermogen sensor (W)",
-          "supply_temp_entity": "Aanvoertemperatuur sensor (°C) — vergelijkingsbasis voor het advies",
-          "power_input_entity": "Opgenomen elektrisch vermogen sensor (W) — voor COP-berekening",
-          "boiler_heat_entity": "Gasketel warmtevermogen sensor (W) — voor gasdetectie",
-          "price_shift_mode": "Prijsverschuiving (schaduwmeting, stuurt niets) — uit, vast normaal/dal of dynamisch",
-          "price_normal": "Normaal tarief (€/kWh, incl. belasting en btw)",
-          "price_dal": "Daltarief (€/kWh, incl. belasting en btw)",
-          "price_dal_start_hour": "Dal begint doordeweeks om (uur, 0–23, bijv. 23)",
-          "price_dal_end_hour": "Dal eindigt doordeweeks om (uur, 0–23, bijv. 7)",
-          "price_dal_weekend": "Hele weekend is dal",
-          "price_entity": "Prijssensor voor een dynamisch tarief (met de uurprijzen van vandaag/morgen als attribuut)"
+        "description": "Gegroepeerd per onderwerp. Ingeklapte secties staan uit of zijn zelden nodig. De warmtevraag naar OpenQuatt Power House stel je in OpenQuatt in (de bronhelper), niet hier.",
+        "sections": {
+          "huis": {
+            "name": "Huis en comfort",
+            "description": "Waar het advies naartoe rekent, en wat er in je Quatt is ingesteld.",
+            "data": {
+              "room_setpoint_fallback": "Terugval kamersetpoint (°C)",
+              "comfort_floor_temp": "Comfortgrens (°C)",
+              "cic_zero_power_temp": "Stookgrens in je Quatt (°C)",
+              "cic_rated_power": "Nominaal vermogen bij −10 °C in je Quatt (W)"
+            },
+            "data_description": {
+              "room_setpoint_fallback": "Alleen gebruikt als de thermostaat geen setpoint levert (geen OpenTherm-koppeling, of de bron is even weg). Levert hij er wel een, dan wint de thermostaat.",
+              "comfort_floor_temp": "Laagste binnentemperatuur die nog acceptabel is. Referentie voor de veilige uitlooptijd en de opgeslagen warmte, niet de streeftemperatuur.",
+              "cic_zero_power_temp": "Alleen voor de CiC, optioneel. Niet uit te lezen: vraag het na bij je installateur of Quatt-support. Leeg = het advies toont alleen de aanbevolen waarde.",
+              "cic_rated_power": "Alleen voor de CiC, optioneel. Zoals de installateur het instelde. Leeg = onbekend."
+            }
+          },
+          "max_aanvoertemperatuur": {
+            "name": "Max. aanvoertemperatuur",
+            "description": "Schrijft elk interval het advies plus de marge als maximale aanvoertemperatuur naar de regelaar: de CiC, of OpenQuatt buiten Power House. Niet gebruiken met OpenQuatt in Power House: daar is die instelling een veiligheidsbegrenzer. Gebruik dan de warmtevraag in OpenQuatt.",
+            "data": {
+              "ch_max_water_enabled": "Aan",
+              "ch_max_water_source": "Welk model stuurt",
+              "ch_max_water_margin": "Marge boven het advies (°C)",
+              "ch_max_water_entity": "Instelling in je Quatt",
+              "ch_max_water_hysteresis": "Minimale wijziging (°C)",
+              "ch_max_water_interval": "Schrijfinterval (minuten)"
+            },
+            "data_description": {
+              "ch_max_water_enabled": "Schrijft de maximale aanvoertemperatuur naar je Quatt. Uit = de integratie schrijft niets.",
+              "ch_max_water_source": "Stooklijn: alleen buitentemperatuur. MPC: plus kamercorrectie. Huismodel (1R1C): het lerende huismodel plus kamercorrectie. Vergelijk ze met de sensor Sturingseffect.",
+              "ch_max_water_margin": "De warmtepomp moduleert al terug vóór de maximale aanvoertemperatuur. Zonder marge levert hij te weinig en kan de kamer niet bijtrekken. Standaard 2 °C.",
+              "ch_max_water_entity": "De entiteit voor de maximale aanvoertemperatuur. Leeg = automatisch: de CiC, of OpenQuatt als die de buitenunits regelt.",
+              "ch_max_water_hysteresis": "Pas schrijven als de nieuwe waarde zoveel afwijkt van de vorige. Voorkomt dat de instelling bij elke kleine schommeling verandert.",
+              "ch_max_water_interval": "Hoe vaak de maximale aanvoertemperatuur wordt bijgewerkt."
+            }
+          },
+          "soundslider": {
+            "name": "Soundslider (alleen CiC)",
+            "description": "Verschuift de soundslider van je Quatt, overdag en 's nachts, en daarmee het maximale vermogen. Zolang dit aan staat, zet de integratie een stand die je in de Quatt-app wijzigt binnen tien minuten terug.",
+            "data": {
+              "sound_level_enabled": "Aan",
+              "sound_level_source": "Welk model stuurt",
+              "sound_level_max_day": "Hoogste stand overdag",
+              "sound_level_max_night": "Hoogste stand 's nachts",
+              "sound_night_start_hour": "Nacht begint om (uur)",
+              "sound_night_end_hour": "Nacht eindigt om (uur)"
+            },
+            "data_description": {
+              "sound_level_enabled": "Stuurt de dag- en nachtstand van de soundslider in je Quatt.",
+              "sound_level_source": "Stooklijn: alleen buitentemperatuur. MPC: plus kamercorrectie. Huismodel (1R1C): het lerende huismodel plus kamercorrectie. Vergelijk ze met de sensor Sturingseffect.",
+              "sound_level_max_day": "De compensatie gaat overdag nooit hoger dan deze stand. building87 is het stilst, normal het krachtigst.",
+              "sound_level_max_night": "De compensatie gaat 's nachts nooit hoger dan deze stand. building87 is het stilst, normal het krachtigst.",
+              "sound_night_start_hour": "Lokale tijd, 0–23. Gelijk houden aan de nachttijden in de Quatt-app: anders stuurt de integratie de dagstand terwijl de Quatt al op de nachtstand staat, of andersom.",
+              "sound_night_end_hour": "Lokale tijd, 0–23. Gelijk houden aan de nachttijden in de Quatt-app."
+            }
+          },
+          "prijsverschuiving": {
+            "name": "Prijsverschuiving (schaduwmeting)",
+            "description": "Rekent uit wat het had opgeleverd om de warmtevraag naar goedkopere uren te schuiven. Stuurt niets.",
+            "data": {
+              "price_shift_mode": "Tarief",
+              "price_entity": "Prijssensor (dynamisch)",
+              "price_normal": "Normaal tarief (€/kWh)",
+              "price_dal": "Daltarief (€/kWh)",
+              "price_dal_start_hour": "Dal begint doordeweeks om (uur)",
+              "price_dal_end_hour": "Dal eindigt doordeweeks om (uur)",
+              "price_dal_weekend": "Hele weekend dal"
+            },
+            "data_description": {
+              "price_shift_mode": "Uit, vast (normaal en dal) of dynamisch. Uit = geen sensor.",
+              "price_entity": "Alleen bij een dynamisch tarief: een sensor met de uurprijzen van vandaag en morgen als attribuut.",
+              "price_normal": "Inclusief belasting en btw. Alleen bij een vast tarief.",
+              "price_dal": "Inclusief belasting en btw. Alleen bij een vast tarief.",
+              "price_dal_start_hour": "0–23, bijvoorbeeld 23.",
+              "price_dal_end_hour": "0–23, bijvoorbeeld 7.",
+              "price_dal_weekend": "Zaterdag en zondag tellen helemaal als daltarief."
+            }
+          },
+          "analyse": {
+            "name": "Analyse",
+            "description": "Over welke periode je stookhistorie wordt geanalyseerd, en wat erbuiten valt.",
+            "data": {
+              "quatt_start_date": "Startdatum (JJJJ-MM-DD)",
+              "performance_baseline_date": "Datum van je aanpassing (JJJJ-MM-DD)",
+              "quatt_cloud_enabled": "Quatt-cloud gebruiken",
+              "eos_throttle_entity": "Externe begrenzer"
+            },
+            "data_description": {
+              "quatt_start_date": "Vanaf deze datum wordt de stookhistorie geanalyseerd: warmteverlies, stooklijn en knikpunt.",
+              "performance_baseline_date": "Heb je iets aan de regeling veranderd? Dan bevriest de rendementsmaat zijn norm op alles ervóór en toetst hij de dagen erna daaraan. Leeg = de laatste 30 stookdagen.",
+              "quatt_cloud_enabled": "Uit = alleen lokaal (recorder en eigen opslag). De opgebouwde historie blijft; alleen nieuw uurdetail stopt. Vooral zinvol met een tweede lokale bron zoals OpenQuatt.",
+              "eos_throttle_entity": "Optioneel. Een entiteit die aangeeft dat een externe regelaar de warmtepomp knijpt, bijvoorbeeld tariefsturing. Die periodes tellen niet mee in de COP- en warmteverliesanalyse. Leeg = uit."
+            }
+          },
+          "metingen": {
+            "name": "Metingen",
+            "description": "Welke sensoren de integratie gebruikt. Leeg laten = automatisch: wat er nu een waarde levert, van Quatt of OpenQuatt. Alleen invullen als de auto-detectie de verkeerde kiest.",
+            "data": {
+              "temp_entities": "Buitentemperatuur",
+              "power_entity": "Warmtevermogen warmtepomp (W)",
+              "power_input_entity": "Opgenomen elektrisch vermogen (W)",
+              "flow_entity": "Debiet (l/h)",
+              "supply_temp_entity": "Aanvoertemperatuur (°C)",
+              "return_temp_entity": "Retourtemperatuur (°C)",
+              "boiler_heat_entity": "Warmtevermogen gasketel (W)",
+              "indoor_temp_entity": "Kamertemperatuur (°C)",
+              "room_setpoint_entity": "Kamersetpoint van de thermostaat (°C)",
+              "control_setpoint_entity": "Regelsetpoint van de thermostaat (°C)",
+              "cop_entity": "COP",
+              "compressor_entity": "Compressorfrequentie WP1 (Hz)",
+              "compressor_2_entity": "Compressorfrequentie WP2 (Hz)",
+              "weather_entity": "Weersverwachting",
+              "pv_power_entity": "Zonnesensor: PV-vermogen (W of kW)"
+            },
+            "data_description": {
+              "temp_entities": "Een of meer sensoren; de eerste die een waarde geeft wordt gebruikt.",
+              "power_entity": "De geleverde warmte. Basis van het warmteverlies en de COP.",
+              "power_input_entity": "Voor de COP en het stroomverbruik in het sturingseffect.",
+              "flow_entity": "Voor de omrekening van vermogen naar aanvoertemperatuur.",
+              "supply_temp_entity": "Om het advies mee te vergelijken, en om te zien of de aanvoer tegen de max. aanvoertemperatuur aanloopt.",
+              "return_temp_entity": "Het advies rekent vanaf de retour: aanvoer = retour + vermogen / (1,16 × debiet).",
+              "boiler_heat_entity": "Om te zien wanneer de ketel bijspringt.",
+              "indoor_temp_entity": "Voor de kamercorrectie en het lerende huismodel. Bij voorkeur een sensor in de woonkamer.",
+              "room_setpoint_entity": "Het doel waar het advies naartoe rekent.",
+              "control_setpoint_entity": "De aanvoertemperatuur die de thermostaat via OpenTherm vraagt.",
+              "cop_entity": "Als je installatie zelf een COP levert.",
+              "compressor_entity": "Hieruit worden de compressorstarts geteld.",
+              "compressor_2_entity": "Alleen bij een Duo; leeg laten op een Solo.",
+              "weather_entity": "De buitentemperatuur van de komende uren, voor de vooruitblik en de prijsverschuiving.",
+              "pv_power_entity": "Optioneel. Meet de zon lokaal. De richting van panelen en ramen wordt geleerd, niet gevraagd."
+            }
+          }
         }
       }
     },

@@ -267,10 +267,14 @@ def _learning_sensor(monkeypatch, solar_known: bool):
     sensor._thermal_loaded = True
     sensor._thermal_store = MagicMock()
     sensor._thermal_store.model.update = MagicMock(return_value=True)
+    # Een MagicMock is altijd "waar"; zonder dit begint het model opnieuw.
+    sensor._thermal_store.model.is_broken = False
     sensor._thermal_store.async_save = AsyncMock()
     sensor._highres_loaded = True
     sensor._highres_store = MagicMock()
     sensor._highres_store.async_save = AsyncMock()
+    # Geen uurgemiddelde: het model leert dan van de momentopname.
+    sensor._highres_store.log.mean_heat_between = MagicMock(return_value=(None, 0))
     sensor.coordinator = MagicMock(data=None)
     sensor._refresh_u_prior = MagicMock()
     sensor._async_refresh_forecast = AsyncMock()

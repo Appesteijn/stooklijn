@@ -7,6 +7,7 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers.selector import (
     EntitySelector,
     EntitySelectorConfig,
@@ -53,6 +54,7 @@ from .const import (
     DEFAULT_DAL_END_HOUR,
     DEFAULT_DAL_WEEKEND,
     PRICE_MODE_DYNAMIC,
+    PRICE_MODE_OFF,
     PRICE_MODES,
     CONF_PERFORMANCE_BASELINE_DATE,
     CONF_POWER_INPUT_ENTITY,
@@ -147,6 +149,111 @@ def _advice_source() -> SelectSelector:
             mode=SelectSelectorMode.LIST,
         )
     )
+
+
+# Indeling van het optieformulier: sectie → velden, in deze volgorde. Eén plek,
+# zodat tonen (gegroepeerd) en opslaan (plat, zoals het altijd was) niet uit
+# elkaar kunnen lopen. Een veld dat hier ontbreekt, valt in de laatste sectie;
+# een test bewaakt dat elk veld er precies één keer in staat.
+#
+# De warmtevraag naar OpenQuatt Power House staat er bewust niet in: die stel
+# je in OpenQuatt in (bronhelper), niet hier. De omschrijving van het formulier
+# zegt dat.
+OPTION_SECTIONS: dict[str, tuple[str, ...]] = {
+    "huis": (
+        CONF_ROOM_SETPOINT_FALLBACK,
+        CONF_COMFORT_FLOOR_TEMP,
+        CONF_CIC_ZERO_POWER_TEMP,
+        CONF_CIC_RATED_POWER,
+    ),
+    "max_aanvoertemperatuur": (
+        CONF_CH_MAX_WATER_ENABLED,
+        CONF_CH_MAX_WATER_SOURCE,
+        CONF_CH_MAX_WATER_MARGIN,
+        CONF_CH_MAX_WATER_ENTITY,
+        CONF_CH_MAX_WATER_HYSTERESIS,
+        CONF_CH_MAX_WATER_INTERVAL,
+    ),
+    "soundslider": (
+        CONF_SOUND_LEVEL_ENABLED,
+        CONF_SOUND_LEVEL_SOURCE,
+        CONF_SOUND_LEVEL_MAX_DAY,
+        CONF_SOUND_LEVEL_MAX_NIGHT,
+        CONF_SOUND_NIGHT_START_HOUR,
+        CONF_SOUND_NIGHT_END_HOUR,
+    ),
+    "prijsverschuiving": (
+        CONF_PRICE_MODE,
+        CONF_PRICE_ENTITY,
+        CONF_PRICE_NORMAL,
+        CONF_PRICE_DAL,
+        CONF_DAL_START_HOUR,
+        CONF_DAL_END_HOUR,
+        CONF_DAL_WEEKEND,
+    ),
+    "analyse": (
+        CONF_QUATT_START_DATE,
+        CONF_PERFORMANCE_BASELINE_DATE,
+        CONF_QUATT_CLOUD_ENABLED,
+        CONF_THROTTLE_ENTITY,
+    ),
+    "metingen": (
+        CONF_TEMP_ENTITIES,
+        CONF_POWER_ENTITY,
+        CONF_POWER_INPUT_ENTITY,
+        CONF_FLOW_ENTITY,
+        CONF_SUPPLY_TEMP_ENTITY,
+        CONF_RETURN_TEMP_ENTITY,
+        CONF_BOILER_HEAT_ENTITY,
+        CONF_INDOOR_TEMP_ENTITY,
+        CONF_ROOM_SETPOINT_ENTITY,
+        CONF_CONTROL_SETPOINT_ENTITY,
+        CONF_COP_ENTITY,
+        CONF_COMPRESSOR_ENTITY,
+        CONF_COMPRESSOR_2_ENTITY,
+        CONF_WEATHER_ENTITY,
+        CONF_PV_POWER_ENTITY,
+    ),
+}
+
+
+def _field_name(marker) -> str:
+    """De sleutel achter een vol.Optional/vol.Required (of al een string)."""
+    return getattr(marker, "schema", marker)
+
+
+def _sectioned(fields: dict, collapsed: dict[str, bool]) -> dict:
+    """Zet een plat veldenschema om in secties volgens ``OPTION_SECTIONS``."""
+    by_name = {_field_name(m): (m, v) for m, v in fields.items()}
+    placed: set[str] = set()
+    out: dict = {}
+    names = list(OPTION_SECTIONS)
+    for name in names:
+        keys = list(OPTION_SECTIONS[name])
+        if name == names[-1]:
+            # Vangnet: een nieuw veld dat niemand indeelde, valt hier en niet weg.
+            keys += [k for k in by_name if k not in placed and k not in keys]
+        inner = {by_name[k][0]: by_name[k][1] for k in keys if k in by_name}
+        placed.update(keys)
+        out[vol.Required(name)] = section(
+            vol.Schema(inner), {"collapsed": collapsed.get(name, False)}
+        )
+    return out
+
+
+def _flatten_sections(user_input: dict | None) -> dict:
+    """Invoer van het formulier terug naar de platte vorm waarin hij bewaard wordt.
+
+    Platte sleutels gaan ongewijzigd mee, zodat ook een aanroep zonder secties
+    (tests, oude clients) werkt.
+    """
+    flat: dict = {}
+    for key, value in (user_input or {}).items():
+        if key in OPTION_SECTIONS and isinstance(value, dict):
+            flat.update(value)
+        else:
+            flat[key] = value
+    return flat
 
 
 def _prefill(key: str, value):
@@ -392,7 +499,7 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
         """Manage the options."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            result = dict(user_input)
+            result = _flatten_sections(user_input)
             # Een onleesbare wijzigingsdatum zou de norm-bevriezing stilzwijgend
             # uitzetten en het rendementsgetal onverklaarbaar laten verspringen.
             # Hier melden is de enige plek waar dat nog opvalt.
@@ -401,13 +508,15 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                 try:
                     date.fromisoformat(baseline)
                 except ValueError:
-                    errors[CONF_PERFORMANCE_BASELINE_DATE] = "invalid_date_format"
+                    # "base": een fout op een veld binnen een sectie wordt niet
+                    # overal bij dat veld getoond; bovenaan het formulier wel.
+                    errors["base"] = "invalid_date_format"
             # Dynamisch zonder prijssensor zou een sensor opleveren die nooit
             # iets meet, zonder dat ergens te zien is waarom.
             if result.get(CONF_PRICE_MODE) == PRICE_MODE_DYNAMIC and not result.get(
                 CONF_PRICE_ENTITY
             ):
-                errors[CONF_PRICE_ENTITY] = "price_entity_required"
+                errors["base"] = "price_entity_required"
             if not errors:
                 result[CONF_PERFORMANCE_BASELINE_DATE] = baseline
                 return self.async_create_entry(title="", data=result)
@@ -416,7 +525,7 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
         # niet zoals het opgeslagen staat — anders is elke andere wijziging weg.
         data = {**self._config_entry.data, **self._config_entry.options}
         if user_input is not None:
-            data = {**data, **user_input}
+            data = {**data, **_flatten_sections(user_input)}
         # Auto-detectie levert de voorgestelde waarde als er nog niets is
         # ingesteld — of als de ingestelde entity niet (meer) bestaat. Alleen
         # van de CiC waar deze entry al naar wijst: met twee installaties in
@@ -459,10 +568,7 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                 return detected[role]
             return fallback
 
-        return self.async_show_form(
-            step_id="init",
-            data_schema=vol.Schema(
-                {
+        fields = {
                     vol.Required(
                         CONF_QUATT_START_DATE,
                         default=data.get(CONF_QUATT_START_DATE, ""),
@@ -681,7 +787,19 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     _prefill(
                         CONF_PRICE_ENTITY, data.get(CONF_PRICE_ENTITY, "")
                     ): _entity("sensor"),
-                }
-            ),
+        }
+        # Een knop die uit staat klapt in; aan staat hij open. Metingen en
+        # analyse zijn zelden nodig: de auto-detectie vindt de metingen.
+        collapsed = {
+            "huis": False,
+            "max_aanvoertemperatuur": not data.get(CONF_CH_MAX_WATER_ENABLED, False),
+            "soundslider": not data.get(CONF_SOUND_LEVEL_ENABLED, False),
+            "prijsverschuiving": data.get(CONF_PRICE_MODE, DEFAULT_PRICE_MODE) == PRICE_MODE_OFF,
+            "analyse": True,
+            "metingen": True,
+        }
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(_sectioned(fields, collapsed)),
             errors=errors,
         )

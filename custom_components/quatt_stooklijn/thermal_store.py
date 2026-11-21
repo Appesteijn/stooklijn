@@ -43,6 +43,15 @@ class ThermalModelStore:
         if data:
             try:
                 self.model = OnlineRCModel.from_dict(data)
+                if self.model.is_broken:
+                    # Niets meer te redden (zie OnlineRCModel.is_broken). De
+                    # sensor zaait een vers model vanuit de warmteverliesanalyse.
+                    _LOGGER.warning(
+                        "Opgeslagen huismodel is ontspoord (%s); het begint opnieuw",
+                        self.model.params,
+                    )
+                    self.model = OnlineRCModel()
+                    return
                 params = self.model.params
                 _LOGGER.info(
                     "Loaded thermal model: %d updates, converged=%s, U=%.1f W/K",

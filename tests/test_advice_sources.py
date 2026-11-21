@@ -157,7 +157,8 @@ class TestOpties:
 
     @pytest.mark.parametrize("key", [CONF_CH_MAX_WATER_SOURCE, CONF_SOUND_LEVEL_SOURCE])
     def test_beide_knoppen_dezelfde_keuzelijst(self, key):
-        schema = _run(self._options().async_step_init())["data_schema"]
+        from tests.test_config_flow import _velden
+        schema = _velden(_run(self._options().async_step_init())["data_schema"])
         assert schema[key]["selector"] == "select"
         assert schema[key]["config"]["translation_key"] == "advice_source"
         assert schema[key]["config"]["options"] == ["stooklijn", "mpc", "1r1c"]

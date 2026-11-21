@@ -209,6 +209,9 @@ def _stub_ha():
     # de flow gebruikt om zichzelf te tonen en af te ronden.
     flow_mod = _ensure_module("homeassistant.data_entry_flow")
     flow_mod.FlowResult = dict
+    # Secties in een formulier: in de stub een gewone mapping, zodat tests de
+    # velden per sectie kunnen inspecteren.
+    flow_mod.section = lambda schema, options=None: {"section": schema, "options": options or {}}
     repairs_mod = _ensure_module("homeassistant.components.repairs")
     repairs_mod.RepairsFlow = type(
         "RepairsFlow",

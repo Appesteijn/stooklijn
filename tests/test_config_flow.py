@@ -281,6 +281,18 @@ class TestSetupStapDrie:
         assert CONF_SUPPLY_TEMP_ENTITY in _run(_flow().async_step_options())["data_schema"]
 
 
+
+def _velden(schema: dict) -> dict:
+    """Alle velden van een formulier, ook als ze in secties staan."""
+    out: dict = {}
+    for key, value in schema.items():
+        if isinstance(value, dict) and "section" in value:
+            out.update(value["section"])
+        else:
+            out[key] = value
+    return out
+
+
 class TestOptiescherm:
     def _options(self, data=None, entries=_MODERN):
         entry = MagicMock()
@@ -298,7 +310,7 @@ class TestOptiescherm:
         CONF_TEMP_ENTITIES,
     ])
     def test_voorheen_onbereikbare_velden_zijn_instelbaar(self, key):
-        assert key in _run(self._options().async_step_init())["data_schema"]
+        assert key in _velden(_run(self._options().async_step_init())["data_schema"])
 
     @pytest.mark.parametrize("role,conf_key", sorted(ROLE_CONF_KEYS.items()))
     def test_elke_gespiegelde_meting_is_instelbaar(self, role, conf_key):
@@ -309,7 +321,7 @@ class TestOptiescherm:
         de bronregistratie negeert (dan verdwijnt de keuze stilzwijgend). Deze
         test faalt in beide gevallen.
         """
-        assert conf_key in _run(self._options().async_step_init())["data_schema"]
+        assert conf_key in _velden(_run(self._options().async_step_init())["data_schema"])
 
     def test_ingevulde_waarde_wordt_bewaard(self):
         result = _run(self._options().async_step_init(
@@ -318,11 +330,11 @@ class TestOptiescherm:
         assert result["data"][CONF_SUPPLY_TEMP_ENTITY] == "sensor.flowmeter_temperature"
 
     def test_weather_veld_filtert_op_weather_domein(self):
-        schema = _run(self._options().async_step_init())["data_schema"]
+        schema = _velden(_run(self._options().async_step_init())["data_schema"])
         assert schema[CONF_WEATHER_ENTITY]["config"]["domain"] == "weather"
 
     def test_ch_max_water_veld_filtert_op_number_domein(self):
-        schema = _run(self._options().async_step_init())["data_schema"]
+        schema = _velden(_run(self._options().async_step_init())["data_schema"])
         assert schema[CONF_CH_MAX_WATER_ENTITY]["config"]["domain"] == "number"
 
 
@@ -416,7 +428,7 @@ class TestHandmatigeCicInstellingen:
 
     @pytest.mark.parametrize("key", [CONF_CIC_ZERO_POWER_TEMP, CONF_CIC_RATED_POWER])
     def test_veld_staat_in_het_optiescherm(self, key):
-        assert key in _run(TestOptiescherm()._options().async_step_init())["data_schema"]
+        assert key in _velden(_run(TestOptiescherm()._options().async_step_init())["data_schema"])
 
     def test_ingevulde_waarden_worden_bewaard(self):
         result = _run(TestOptiescherm()._options().async_step_init(

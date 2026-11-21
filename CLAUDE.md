@@ -30,10 +30,35 @@ Uurwaarden zijn wél goed voor:
 - **toetsen en plannen**: de MPC plant per uur, dus modellen worden per uur
   gescoord (`DEFAULT_DT_HOURS`). Dat het model fijner leert dan het getoetst
   wordt is de bedoeling, en kan omdat de discretisatie exact is.
-- **het 1R1C**: dat leert per uur, maar uit één momentopname op de timertik,
-  niet uit een gemiddelde. In oktober 2026 gemeten: de warmtepomp draait in
-  stabiele blokken (±5% binnen het uur), en de fout zit in de ~4–5
-  overgangsuren per dag.
+- **het 1R1C**: dat leert per uur, één stap vooruit, met één warmtebuffer.
+  De timing binnen het uur doet er voor dat model niet toe, de energie wel.
+  Daarom leert het sinds v0.10.7-beta.6 van het **uurgemiddelde** uit het
+  5-minutenlogboek (warmtepomp + ketel), met de momentopname op de timertik
+  als terugval als het logboek te weinig monsters heeft. Op een huis met
+  alleen een warmtepomp maakte dat niets uit (oktober 2026: stabiele blokken,
+  ±5% binnen het uur, +27 W verschil). Een bijspringende ketel stookt in korte
+  stoten, en die mist een momentopname of telt hij als een heel uur.
+  Nagebootst (21-11-2026, radiatorhuis met ketel): momentopname 3 van de 20
+  modellen online, uurgemiddelde 16.
+
+## Het huismodel rekent met warmtepomp plus ketel
+
+Net als de warmteverliesanalyse (`totalHeatPerHour` = warmtepomp + ketel).
+Rekent het huismodel alleen met de warmtepomp, dan ziet het bij een hybride
+de kamer opwarmen zonder warmte, en verklaart het dat met een negatieve C en
+een te grote zonnewinst (Tweakers 21-11-2026: C −674 Wh/K, g 25,7).
+Nagebootst met een onzichtbare ketel: C negatief bij 20 van de 20
+vloerverwarmingshuizen. De ketelmeting van Quatt bevat geen tapwater (op het
+gemeten huis de hele zomer van 2025 precies 0).
+
+Wat dit níét oplost: vloerverwarming met een bijspringende ketel. De warmte
+gaat eerst de dekvloer in, en het 1R1C kan die vertraging niet uitdrukken;
+in de nabootsing bleef C ook met uurgemiddelde en ketel een factor 3 te hoog
+of werd hij negatief. 5-minutendata helpt daar niet bij een fit van één stap
+vooruit (C 70.700 tegen 69.400 uit uurdata, echt 23.000). Dat is werk voor
+het 2R2C. Een model dat zo ontspoort (C ≤ 0) begint opnieuw vanaf de
+warmteverliesanalyse (`OnlineRCModel.is_broken`), bij het laden en na elke
+uurupdate.
 
 Geschiedenis: dit stond al vast voor de knikdetectie, maar raakte zoek. In
 v0.10.3 rekende de modelvergelijking "bewust op uurgemiddelden". Dat is op

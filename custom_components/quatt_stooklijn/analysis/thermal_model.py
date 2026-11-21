@@ -356,6 +356,7 @@ class OnlineRCModel:
         q_hp_w: float,
         q_solar_w: float,
         timestamp: datetime,
+        q_hp_interval_w: float | None = None,
     ) -> bool:
         """Add a measurement and update the model.
 
@@ -363,6 +364,17 @@ class OnlineRCModel:
         The RLS update uses the PREVIOUS hour's conditions (T_out, Q_hp,
         Q_solar) to explain the observed ΔT, since those are the conditions
         that caused the temperature change.
+
+        ``q_hp_interval_w`` is de gemiddelde warmte over het interval sinds de
+        vorige update (uit het 5-minutenlogboek). Gegeven, dan vervangt hij de
+        momentopname van de vorige tik als verklaring van ΔT. Sinds
+        v0.10.7-beta.6: een momentopname was op een huis met alleen een
+        warmtepomp, die in stabiele blokken draait, gelijkwaardig (+27 W), maar
+        mist de korte stoten van een bijspringende ketel, of telt een stoot van
+        een paar minuten als een heel uur. Nagebootst (21-11-2026, radiatorhuis
+        met ketel): met de momentopname 3 van de 20 modellen online, met het
+        uurgemiddelde 16. ``q_hp_w`` blijft de momentopname, als terugval voor
+        de volgende tik.
         """
         if self._prev_t_indoor is None or self._prev_timestamp is None:
             # First call — store and wait for next
@@ -408,11 +420,17 @@ class OnlineRCModel:
         # y = ΔT_indoor (what happened), x = Δt × [T_out-T_in, Q_solar, Q_hp, 1] (what caused it)
         delta_t = t_indoor - self._prev_t_indoor
         anchor = getattr(self, "_p_c_anchor", None)
+        # De warmte die ΔT veroorzaakte: het gemiddelde over het interval als
+        # dat er is, anders de momentopname van de vorige tik.
+        q_interval = (
+            float(q_hp_interval_w) if q_hp_interval_w is not None
+            else (self._prev_q_hp or 0.0)
+        )
         x = np.array([
             dt_hours * (self._prev_t_outdoor - self._prev_t_indoor),  # θ₁ term
             dt_hours * self._prev_q_solar,                            # θ₂ term
             # θ₃ term: met anker telt de bekende constante winst mee als warmte.
-            dt_hours * (self._prev_q_hp + (anchor or 0.0)),
+            dt_hours * (q_interval + (anchor or 0.0)),
             dt_hours if anchor is None else 0.0,                      # θ₄ term
         ])
 
@@ -437,8 +455,7 @@ class OnlineRCModel:
         # TestOnlineRCModel was het model na 80 uur goed en na 150 uur
         # uitgelopen tot een negatieve C. Prijs van meeleren: P_c volgt ook
         # de zomer, en moet in het najaar terug. Zie de CHANGELOG.
-        q_hp_used = self._prev_q_hp or 0.0
-        low_heat = q_hp_used < ANCHOR_MAX_Q_HP_W
+        low_heat = q_interval < ANCHOR_MAX_Q_HP_W
 
         frozen: tuple[int, ...] = (2,) if low_heat else ()
         if anchor is not None:
@@ -525,6 +542,23 @@ class OnlineRCModel:
         if getattr(self, "_p_c_anchor", None) is not None:
             counts = np.delete(counts, _P_C)
         return int(counts.min())
+
+    @property
+    def is_broken(self) -> bool:
+        """Is de schatting ontspoord tot iets waar niets meer van te redden is?
+
+        Een warmtecapaciteit van nul of lager (θ₃ ≤ 0) kan fysisch niet, en de
+        RLS komt daar met een vergeetfactor van 0,998 pas na weken uit, als hij
+        er al uitkomt. Gezien op Tweakers (21-11-2026): C = −674 Wh/K na 132
+        uur, samen met U = 700 W/K en g = 25,7, op een hybride waarvan het
+        model de bijspringende ketel niet zag. Zo'n model begint opnieuw vanaf
+        de warmteverliesanalyse (zie QuattMpcSensor._reset_broken_model).
+
+        Andere waarden buiten bereik (U, g, P_c) tellen hier niet: daar kan RLS
+        uit terugkomen, en ``is_converged`` houdt het model intussen buiten
+        gebruik.
+        """
+        return bool(self._rls.theta[2] <= 0)
 
     @property
     def is_converged(self) -> bool:

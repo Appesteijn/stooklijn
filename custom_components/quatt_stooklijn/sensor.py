@@ -96,6 +96,7 @@ from .const import (
     CONF_QUATT_CLOUD_ENABLED,
     FORECAST_RETRY_DELAYS,
     DEFAULT_QUATT_CLOUD_ENABLED,
+    CONF_BOILER_HEAT_ENTITY,
     CONF_POWER_ENTITY,
     CONF_RETURN_TEMP_ENTITY,
     CONF_ROOM_SETPOINT_ENTITY,
@@ -149,6 +150,7 @@ from .discovery import (
     ROLE_ROOM_SETPOINT,
     ROLE_SUPPLY_TEMP,
     ROLE_TOTAL_POWER,
+    ROLE_BOILER_HEAT,
 )
 from .coordinator import QuattStooklijnCoordinator, QuattStooklijnData
 from .helpers import FlowSmoother, get_device_info, get_effective_flow, get_float_state
@@ -924,7 +926,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     """Shadow-mode MPC sensor: aanbevolen aanvoertemperatuur op basis van
     weersvoorspelling + zonnewinst.
 
-    Schrijft NIKS naar OTGW of klimaat-entiteiten — puur observatie voor
+    Schrijft niets naar de regelaar of klimaat-entiteiten — puur observatie voor
     vergelijking met de huidige stooklijn.
 
     Verversing:
@@ -1052,6 +1054,36 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             self.hass, self._entry.entry_id, ROLE_TOTAL_POWER,
             config=cfg, conf_key=CONF_POWER_ENTITY,
         )
+
+    @property
+    def _boiler_heat_entity(self) -> str | None:
+        cfg = {**self._entry.data, **self._entry.options}
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_BOILER_HEAT,
+            config=cfg, conf_key=CONF_BOILER_HEAT_ENTITY,
+        )
+
+    def _house_heat_w(self) -> float:
+        """Warmte die het huis nu krijgt: warmtepomp plus gasketel (W).
+
+        Het huismodel (1R1C) en het meetlogboek (waar het 2R2C op leert)
+        rekenden tot v0.10.7-beta.6 alleen met de warmtepomp. De
+        warmteverliesanalyse telde de ketel al wel mee. Bij een hybride die
+        bijspringt ziet het model de kamer dan opwarmen zonder warmte, en
+        dat verklaart het met een negatieve warmtecapaciteit en een veel te
+        grote zonnewinst. Nagebootst (21-11-2026, ketel van 8 kW die bijspringt
+        bij een kamer 0,4 K onder het setpoint): C negatief in 20 van de 20
+        vloerverwarmingshuizen en 9 van de 20 radiatorhuizen, tegen 0 van de 20
+        zonder ketel.
+
+        De ketelmeting van Quatt bevat geen tapwater: op het gemeten huis was
+        hij de hele zomer van 2025 precies 0. Zonder ketelmeting telt de ketel
+        als 0, zoals voorheen.
+        """
+        q_hp = get_float_state(self.hass, self._power_entity) or 0.0
+        boiler = self._boiler_heat_entity
+        q_boiler = (get_float_state(self.hass, boiler) or 0.0) if boiler else 0.0
+        return max(0.0, q_hp) + max(0.0, q_boiler)
 
     @property
     def _room_setpoint_entity(self) -> str:
@@ -1380,6 +1412,59 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         _feed_flow(self.coordinator, get_float_state(self.hass, self._flow_entity))
         self.async_write_ha_state()
 
+    #: Minimaal zoveel 5-minutenmonsters in het interval voor een uurgemiddelde
+    #: (een half uur). Minder, dan de momentopname van de vorige tik.
+    INTERVAL_HEAT_MIN_SAMPLES = 6
+
+    def _interval_heat_w(self, now: datetime) -> float | None:
+        """Gemiddelde warmte naar het huis sinds de vorige modelupdate, of None.
+
+        Uit het 5-minutenlogboek (warmtepomp + ketel, zie _house_heat_w). None
+        als het logboek niet geladen is, als er geen vorige update is, of als
+        het interval te weinig monsters heeft; dan leert het model van de
+        momentopname, zoals voor v0.10.7-beta.6.
+        """
+        if not getattr(self, "_highres_loaded", False):
+            return None
+        since = self._thermal_store.model._prev_timestamp
+        if since is None:
+            return None
+        mean, n = self._highres_store.log.mean_heat_between(since, now)
+        return mean if n >= self.INTERVAL_HEAT_MIN_SAMPLES else None
+
+    def _seed_from_batch(self, model: OnlineRCModel) -> None:
+        """Zaai een vers model met U uit de warmteverliesanalyse, als die er is."""
+        if not self.coordinator.data:
+            return
+        heat_loss = self.coordinator.data.heat_loss_hp
+        if heat_loss.slope is not None:
+            # heat_loss.slope is negative (W per °C increase),
+            # the heat loss coefficient U = -slope
+            model.initialise_from_batch(-heat_loss.slope)
+
+    async def _async_reset_broken_model(self) -> bool:
+        """Begin opnieuw als het huismodel ontspoord is (``is_broken``).
+
+        Ook tijdens bedrijf, niet alleen bij het laden: anders blijft een model
+        dat ontspoort tot de volgende herstart staan. De ankers (U, P_c) komen
+        er direct weer op via ``_refresh_u_prior``. Geeft True als er opnieuw
+        is begonnen.
+        """
+        model = self._thermal_store.model
+        if not model.is_broken:
+            return False
+        _LOGGER.warning(
+            "Huismodel ontspoord na %d updates (%s); het begint opnieuw vanaf "
+            "de warmteverliesanalyse",
+            model._rls.n_updates, model.params,
+        )
+        fresh = OnlineRCModel()
+        self._seed_from_batch(fresh)
+        self._thermal_store.model = fresh
+        self._refresh_u_prior()
+        await self._thermal_store.async_save()
+        return True
+
     async def _async_load_thermal_model(self) -> None:
         """Load persisted thermal model and initialise from batch if needed."""
         await self._thermal_store.async_load()
@@ -1387,12 +1472,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
 
         # If model has no updates yet, seed with batch heat loss coefficient
         model = self._thermal_store.model
-        if model._rls.n_updates == 0 and self.coordinator.data:
-            heat_loss = self.coordinator.data.heat_loss_hp
-            if heat_loss.slope is not None:
-                # heat_loss.slope is negative (W per °C increase),
-                # the heat loss coefficient U = -slope
-                model.initialise_from_batch(-heat_loss.slope)
+        if model._rls.n_updates == 0:
+            self._seed_from_batch(model)
         self._refresh_u_prior()
 
         # Prime the model with current sensor values so the first hourly
@@ -1401,7 +1482,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         if model._prev_timestamp is None:
             t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
             t_outdoor = get_float_state(self.hass, self._outdoor_entity)
-            q_hp = get_float_state(self.hass, self._power_entity) or 0.0
+            q_hp = self._house_heat_w()
             q_solar_wm2 = self._get_current_solar_radiation_wm2()
             if t_indoor is not None and t_outdoor is not None and q_solar_wm2 is not None:
                 model.update(t_indoor, t_outdoor, q_hp, q_solar_wm2, dt_util.utcnow())
@@ -1559,7 +1640,9 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         # overslaan eerlijker dan bewaren.
         if t_indoor is None or t_outdoor is None or q_solar_wm2 is None:
             return
-        q_hp = get_float_state(self.hass, self._power_entity) or 0.0
+        # Warmtepomp plus ketel, zoals het huismodel (zie _house_heat_w). De
+        # kolom heet nog q_hp; vóór v0.10.7-beta.6 was het alleen de warmtepomp.
+        q_hp = self._house_heat_w()
         self._highres_store.record(
             dt_util.utcnow(), t_indoor, t_outdoor, q_hp, q_solar_wm2,
             self._pv_power_w(),
@@ -1625,7 +1708,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             self._refresh_u_prior()
             t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
             t_outdoor = get_float_state(self.hass, self._outdoor_entity)
-            q_hp = get_float_state(self.hass, self._power_entity) or 0.0
+            q_hp = self._house_heat_w()
             q_solar_wm2 = self._get_current_solar_radiation_wm2()
 
             if q_solar_wm2 is None:
@@ -1638,10 +1721,14 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                     "(Open-Meteo onbereikbaar of reeks verouderd)."
                 )
             elif t_indoor is not None and t_outdoor is not None:
+                now = dt_util.utcnow()
                 updated = self._thermal_store.model.update(
-                    t_indoor, t_outdoor, q_hp, q_solar_wm2, dt_util.utcnow()
+                    t_indoor, t_outdoor, q_hp, q_solar_wm2, now,
+                    q_hp_interval_w=self._interval_heat_w(now),
                 )
-                if updated:
+                if updated and await self._async_reset_broken_model():
+                    pass  # opnieuw begonnen en al opgeslagen
+                elif updated:
                     await self._thermal_store.async_save()
                     _LOGGER.info(
                         "RC model update #%d: %s",

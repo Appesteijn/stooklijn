@@ -38,16 +38,20 @@
           "sound_level_max_night": "Soundslider: highest setting at night",
           "sound_night_start_hour": "Soundslider: night starts at (hour, 0–23, e.g. 23) — same as the night times in the Quatt app",
           "sound_night_end_hour": "Soundslider: night ends at (hour, 0–23, e.g. 7) — same as the night times in the Quatt app",
-          "otgw_enabled": "Enable OTGW compensation (requires OpenTherm Gateway)",
-          "otgw_room_temp_override": "OTGW room temperature override entity",
-          "otgw_max_offset": "OTGW maximum offset (°C, max 3.0)",
-          "ch_max_water_enabled": "Enable supply temperature control (writes max. supply temp to Quatt)",
-          "ch_max_water_entity": "Quatt max. supply temperature entity",
-          "ch_max_water_source": "Max supply temperature: which model controls it",
-          "ch_max_water_margin": "Margin above the advice (°C)",
-          "ch_max_water_hysteresis": "Minimum change before writing (°C)",
-          "ch_max_water_interval": "Write interval (minutes)",
           "supply_temp_entity": "Supply temperature sensor (°C) — reference for the advice"
+        },
+        "data_description": {
+          "flow_entity": "To convert power into supply temperature.",
+          "return_temp_entity": "The advice starts from the return: supply = return + power / (1.16 × flow).",
+          "weather_entity": "Outdoor temperature for the coming hours, for the look-ahead and the price shift.",
+          "indoor_temp_entity": "For the room correction and the learning house model. Preferably a sensor in the living room.",
+          "sound_level_enabled": "Controls the day and night setting of the soundslider in your Quatt.",
+          "sound_level_source": "Heating curve: outdoor temperature only. MPC: plus room correction. House model (1R1C): the learning house model plus room correction. Compare them with the Steering effect sensor.",
+          "sound_level_max_day": "The compensation never goes above this setting during the day. building87 is the quietest, normal the strongest.",
+          "sound_level_max_night": "The compensation never goes above this setting at night. building87 is the quietest, normal the strongest.",
+          "sound_night_start_hour": "Local time, 0–23. Keep equal to the night times in the Quatt app: otherwise the integration controls the day setting while the Quatt is already on its night setting, or the other way round.",
+          "sound_night_end_hour": "Local time, 0–23. Keep equal to the night times in the Quatt app.",
+          "supply_temp_entity": "To compare the advice with, and to see whether the supply reaches the max supply temperature."
         }
       }
     },
@@ -61,55 +65,141 @@
   "options": {
     "step": {
       "init": {
-        "title": "Update Configuration",
-        "description": "The solar panel sensor can be any sensor that reports current power in Watts (W). Leave empty if you have no solar panels.",
-        "data": {
-          "quatt_start_date": "Quatt start date (YYYY-MM-DD)",
-          "quatt_end_date": "Quatt end date (YYYY-MM-DD)",
-          "flow_entity": "Flow rate sensor (L/h)",
-          "return_temp_entity": "Return temperature sensor (°C)",
-          "weather_entity": "Weather forecast entity (for MPC forecast)",
-          "indoor_temp_entity": "Indoor temperature sensor (°C, for solar gain calibration)",
-          "control_setpoint_entity": "Thermostat control setpoint sensor (°C) — leave empty for auto-detection",
-          "room_setpoint_entity": "Thermostat room setpoint sensor (°C) — leave empty for auto-detection",
-          "room_setpoint_fallback": "Fallback room setpoint (°C) — used only when the thermostat provides none",
-          "cic_zero_power_temp": "Heating limit as set in your Quatt (°C) — optional, CiC only; ask your installer or Quatt support",
-          "cic_rated_power": "Nominal power at -10 °C as set in your Quatt (W) — optional, CiC only",
-          "cop_entity": "COP sensor — leave empty for auto-detection",
-          "compressor_entity": "Compressor frequency sensor HP1 (Hz) — used to count compressor starts; leave empty for auto-detection",
-          "compressor_2_entity": "Compressor frequency sensor HP2 (Hz) — Duo only; leave empty on a Solo",
-          "performance_baseline_date": "Change marker date (YYYY-MM-DD) — freezes the efficiency norm on everything before it; empty = last 30 heating days",
-          "quatt_cloud_enabled": "Use Quatt cloud API — off = local only (recorder + own stores). The built-up history is kept; only new hourly detail stops. Best if you have a second local source such as OpenQuatt.",
-          "sound_level_enabled": "Enable soundslider compensation (moves the soundslider of your Quatt, and with it the heat pump power)",
-          "sound_level_source": "Soundslider compensation: which model controls it",
-          "sound_level_max_day": "Soundslider: highest setting during the day",
-          "sound_level_max_night": "Soundslider: highest setting at night",
-          "sound_night_start_hour": "Soundslider: night starts at (hour, 0–23, e.g. 23) — same as the night times in the Quatt app",
-          "sound_night_end_hour": "Soundslider: night ends at (hour, 0–23, e.g. 7) — same as the night times in the Quatt app",
-          "otgw_enabled": "Enable OTGW compensation (requires OpenTherm Gateway)",
-          "otgw_room_temp_override": "OTGW room temperature override entity",
-          "otgw_max_offset": "OTGW maximum offset (°C, max 3.0)",
-          "ch_max_water_enabled": "Enable supply temperature control (writes max. supply temp to Quatt)",
-          "ch_max_water_entity": "Quatt max. supply temperature entity",
-          "ch_max_water_source": "Max supply temperature: which model controls it",
-          "ch_max_water_margin": "Margin above the advice (°C)",
-          "ch_max_water_hysteresis": "Minimum change before writing (°C)",
-          "ch_max_water_interval": "Write interval (minutes)",
-          "comfort_floor_temp": "Comfort floor (°C) — lowest acceptable indoor temperature; the reference for coast time and stored heat, not the target temperature",
-          "pv_power_entity": "Sun sensor: PV power (W or kW) — optional, measures the sun locally for the house model",
-          "eos_throttle_entity": "External throttle entity (optional) — periods where an external controller caps the heat pump are excluded from the COP and heat-loss analysis; leave empty to disable",
-          "temp_entities": "Outside temperature sensor(s) — the first available one is used",
-          "power_entity": "Heat pump heat output sensor (W)",
-          "supply_temp_entity": "Supply temperature sensor (°C) — reference for the advice",
-          "power_input_entity": "Electrical power input sensor (W) — for COP calculation",
-          "boiler_heat_entity": "Gas boiler heat output sensor (W) — for gas detection",
-          "price_shift_mode": "Price shift (shadow measurement, controls nothing) — off, fixed normal/off-peak, or dynamic",
-          "price_normal": "Normal tariff (€/kWh, incl. taxes)",
-          "price_dal": "Off-peak tariff (€/kWh, incl. taxes)",
-          "price_dal_start_hour": "Off-peak starts on weekdays (hour, 0–23, e.g. 23)",
-          "price_dal_end_hour": "Off-peak ends on weekdays (hour, 0–23, e.g. 7)",
-          "price_dal_weekend": "Whole weekend is off-peak",
-          "price_entity": "Price sensor for a dynamic tariff (with today/tomorrow hourly prices as attributes)"
+        "title": "Update configuration",
+        "description": "Grouped by topic. Collapsed sections are off or rarely needed. The heat demand to OpenQuatt Power House is set up in OpenQuatt (the source helper), not here.",
+        "sections": {
+          "huis": {
+            "name": "House and comfort",
+            "description": "What the advice aims for, and what is set in your Quatt.",
+            "data": {
+              "room_setpoint_fallback": "Fallback room setpoint (°C)",
+              "comfort_floor_temp": "Comfort floor (°C)",
+              "cic_zero_power_temp": "Heating limit in your Quatt (°C)",
+              "cic_rated_power": "Rated power at −10 °C in your Quatt (W)"
+            },
+            "data_description": {
+              "room_setpoint_fallback": "Only used when the thermostat provides no setpoint (no OpenTherm link, or the source is briefly gone). When it does provide one, the thermostat wins.",
+              "comfort_floor_temp": "Lowest acceptable indoor temperature. Reference for the safe coast time and stored heat, not the target temperature.",
+              "cic_zero_power_temp": "CiC only, optional. Cannot be read: ask your installer or Quatt support. Empty = the advice shows only the recommended value.",
+              "cic_rated_power": "CiC only, optional. As your installer set it. Empty = unknown."
+            }
+          },
+          "max_aanvoertemperatuur": {
+            "name": "Max supply temperature",
+            "description": "Writes the advice plus the margin as maximum supply temperature to the controller at every interval: the CiC, or OpenQuatt outside Power House. Do not use with OpenQuatt in Power House: there this setting is a safety limiter. Use the heat demand in OpenQuatt instead.",
+            "data": {
+              "ch_max_water_enabled": "On",
+              "ch_max_water_source": "Which model controls it",
+              "ch_max_water_margin": "Margin above the advice (°C)",
+              "ch_max_water_entity": "Setting in your Quatt",
+              "ch_max_water_hysteresis": "Minimum change (°C)",
+              "ch_max_water_interval": "Write interval (minutes)"
+            },
+            "data_description": {
+              "ch_max_water_enabled": "Writes the maximum supply temperature to your Quatt. Off = the integration writes nothing.",
+              "ch_max_water_source": "Heating curve: outdoor temperature only. MPC: plus room correction. House model (1R1C): the learning house model plus room correction. Compare them with the Steering effect sensor.",
+              "ch_max_water_margin": "The heat pump already throttles before the maximum supply temperature. Without a margin it delivers too little and the room cannot catch up. Default 2 °C.",
+              "ch_max_water_entity": "The entity for the maximum supply temperature. Empty = automatic: the CiC, or OpenQuatt when it runs the outdoor units.",
+              "ch_max_water_hysteresis": "Only write when the new value differs this much from the last one. Keeps the setting from changing at every small fluctuation.",
+              "ch_max_water_interval": "How often the maximum supply temperature is updated."
+            }
+          },
+          "soundslider": {
+            "name": "Soundslider (CiC only)",
+            "description": "Moves the soundslider of your Quatt, day and night, and with it the maximum power. While this is on, the integration sets back a setting you change in the Quatt app within ten minutes.",
+            "data": {
+              "sound_level_enabled": "On",
+              "sound_level_source": "Which model controls it",
+              "sound_level_max_day": "Highest setting during the day",
+              "sound_level_max_night": "Highest setting at night",
+              "sound_night_start_hour": "Night starts at (hour)",
+              "sound_night_end_hour": "Night ends at (hour)"
+            },
+            "data_description": {
+              "sound_level_enabled": "Controls the day and night setting of the soundslider in your Quatt.",
+              "sound_level_source": "Heating curve: outdoor temperature only. MPC: plus room correction. House model (1R1C): the learning house model plus room correction. Compare them with the Steering effect sensor.",
+              "sound_level_max_day": "The compensation never goes above this setting during the day. building87 is the quietest, normal the strongest.",
+              "sound_level_max_night": "The compensation never goes above this setting at night. building87 is the quietest, normal the strongest.",
+              "sound_night_start_hour": "Local time, 0–23. Keep equal to the night times in the Quatt app: otherwise the integration controls the day setting while the Quatt is already on its night setting, or the other way round.",
+              "sound_night_end_hour": "Local time, 0–23. Keep equal to the night times in the Quatt app."
+            }
+          },
+          "prijsverschuiving": {
+            "name": "Price shift (shadow measurement)",
+            "description": "Calculates what shifting the heat demand to cheaper hours would have saved. Controls nothing.",
+            "data": {
+              "price_shift_mode": "Tariff",
+              "price_entity": "Price sensor (dynamic)",
+              "price_normal": "Normal tariff (€/kWh)",
+              "price_dal": "Off-peak tariff (€/kWh)",
+              "price_dal_start_hour": "Off-peak starts on weekdays at (hour)",
+              "price_dal_end_hour": "Off-peak ends on weekdays at (hour)",
+              "price_dal_weekend": "Whole weekend off-peak"
+            },
+            "data_description": {
+              "price_shift_mode": "Off, fixed (normal and off-peak) or dynamic. Off = no sensor.",
+              "price_entity": "Dynamic tariff only: a sensor with today's and tomorrow's hourly prices as an attribute.",
+              "price_normal": "Including taxes. Fixed tariff only.",
+              "price_dal": "Including taxes. Fixed tariff only.",
+              "price_dal_start_hour": "0–23, for example 23.",
+              "price_dal_end_hour": "0–23, for example 7.",
+              "price_dal_weekend": "Saturday and Sunday count entirely as off-peak."
+            }
+          },
+          "analyse": {
+            "name": "Analysis",
+            "description": "Which period of your heating history is analysed, and what is left out.",
+            "data": {
+              "quatt_start_date": "Start date (YYYY-MM-DD)",
+              "performance_baseline_date": "Date of your change (YYYY-MM-DD)",
+              "quatt_cloud_enabled": "Use Quatt cloud",
+              "eos_throttle_entity": "External limiter"
+            },
+            "data_description": {
+              "quatt_start_date": "The heating history is analysed from this date: heat loss, heating curve and knee point.",
+              "performance_baseline_date": "Did you change something in the control? Then the efficiency measure freezes its norm on everything before it and tests the days after against it. Empty = the last 30 heating days.",
+              "quatt_cloud_enabled": "Off = local only (recorder and own storage). The built-up history stays; only new hourly detail stops. Mainly useful with a second local source such as OpenQuatt.",
+              "eos_throttle_entity": "Optional. An entity indicating that an external controller is capping the heat pump, for example tariff control. Those periods are left out of the COP and heat-loss analysis. Empty = off."
+            }
+          },
+          "metingen": {
+            "name": "Measurements",
+            "description": "Which sensors the integration uses. Leave empty = automatic: whatever provides a value now, from Quatt or OpenQuatt. Only fill in when auto-detection picks the wrong one.",
+            "data": {
+              "temp_entities": "Outdoor temperature",
+              "power_entity": "Heat pump heat output (W)",
+              "power_input_entity": "Electrical power input (W)",
+              "flow_entity": "Flow (l/h)",
+              "supply_temp_entity": "Supply temperature (°C)",
+              "return_temp_entity": "Return temperature (°C)",
+              "boiler_heat_entity": "Gas boiler heat output (W)",
+              "indoor_temp_entity": "Room temperature (°C)",
+              "room_setpoint_entity": "Thermostat room setpoint (°C)",
+              "control_setpoint_entity": "Thermostat control setpoint (°C)",
+              "cop_entity": "COP",
+              "compressor_entity": "Compressor frequency HP1 (Hz)",
+              "compressor_2_entity": "Compressor frequency HP2 (Hz)",
+              "weather_entity": "Weather forecast",
+              "pv_power_entity": "Sun sensor: PV power (W or kW)"
+            },
+            "data_description": {
+              "temp_entities": "One or more sensors; the first one with a value is used.",
+              "power_entity": "The delivered heat. Basis of the heat loss and the COP.",
+              "power_input_entity": "For the COP and the electricity use in the steering effect.",
+              "flow_entity": "To convert power into supply temperature.",
+              "supply_temp_entity": "To compare the advice with, and to see whether the supply reaches the max supply temperature.",
+              "return_temp_entity": "The advice starts from the return: supply = return + power / (1.16 × flow).",
+              "boiler_heat_entity": "To see when the boiler helps out.",
+              "indoor_temp_entity": "For the room correction and the learning house model. Preferably a sensor in the living room.",
+              "room_setpoint_entity": "The target the advice aims for.",
+              "control_setpoint_entity": "The supply temperature the thermostat asks for over OpenTherm.",
+              "cop_entity": "If your installation provides a COP itself.",
+              "compressor_entity": "Compressor starts are counted from this.",
+              "compressor_2_entity": "Duo only; leave empty on a Solo.",
+              "weather_entity": "Outdoor temperature for the coming hours, for the look-ahead and the price shift.",
+              "pv_power_entity": "Optional. Measures the sun locally. The orientation of panels and windows is learned, not asked."
+            }
+          }
         }
       }
     },
