@@ -3,6 +3,26 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.7 — nog niet uitgebracht
+
+- **Een nieuw huismodel leert stabiel, ook als het in het stookseizoen
+  begint.** Het lerende huismodel (1R1C) zet zijn warmtecapaciteit in uren
+  zonder warmtevraag even vast. De rekenstap die dat deed, liet de
+  onzekerheden van het model daarbij uit elkaar lopen, en zodra de
+  warmtecapaciteit weer meedeed kon het model de verkeerde kant op leren.
+  Nagespeeld op echte meetdata: een model dat half oktober begon, stond met de
+  oude rekenstap 1% van de tijd aan en eindigde met een zonnewinst van 58; met
+  de nieuwe 89%, met normale waarden. Een draaiend model merkt er weinig van,
+  maar zou na een paar maanden met veel uren zonder warmtevraag (het voorjaar)
+  ook ontsporen. Een opgeslagen model waarvan de onzekerheden al ongeldig
+  waren, wordt bij het laden hersteld.
+- **Een sensor die "nan" doorgeeft, verstoort niets meer.** Zo'n waarde werd
+  als getal gelezen. Het stooklijnadvies werd dan 55 °C met status "advies",
+  en één zo'n meting zette het huismodel blijvend uit. Nu telt "nan" of "inf"
+  als onbekend, slaat het huismodel zo'n uur over en schrijft het
+  meetlogboek hem niet weg. Een huismodel dat al door een NaN geraakt was,
+  begint opnieuw vanaf de warmteverliesanalyse.
+
 ## v0.10.7-beta.6 — 2026-11-21
 
 - **Het huismodel telt de gasketel mee.** Het lerende huismodel (1R1C) en het

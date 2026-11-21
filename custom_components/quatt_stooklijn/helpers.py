@@ -24,9 +24,13 @@ def get_float_state(hass, entity_id: str) -> float | None:
     if state is None or state.state in ("unknown", "unavailable", "None", ""):
         return None
     try:
-        return float(state.state)
+        value = float(state.state)
     except (ValueError, TypeError):
         return None
+    # float("nan") en float("inf") slagen gewoon. Een sensor die "nan"
+    # doorgeeft, zette het stooklijnadvies op 55,0 °C met status "advies"
+    # (min(55, nan) is 55) en het 1R1C blijvend op NaN.
+    return value if math.isfinite(value) else None
 
 
 def get_effective_flow(flow_lph: float | None) -> float:

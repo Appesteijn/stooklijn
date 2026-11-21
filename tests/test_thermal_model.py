@@ -56,11 +56,18 @@ class TestRLSEstimator:
         assert rls.P[2, 2] == p22
 
     def test_bevriezen_laat_de_rest_gewoon_leren(self):
-        """Alleen de genoemde parameter staat stil."""
+        """Alleen de genoemde parameter staat stil.
+
+        θ₃ staat op de echte waarde én is bekend (kleine P[2,2]). Sinds
+        v0.10.7-beta.7 telt de onzekerheid van een bevroren parameter mee in
+        de gain van de rest (Schmidt-Kalman); met de startonzekerheid van 1000
+        op θ₃ zou de rest terecht voorzichtig leren.
+        """
         rng = np.random.default_rng(12)
         theta_true = np.array([0.04, 0.00006, 0.0002])
         rls = RLSEstimator()
         rls.theta = np.array([0.0, 0.0, theta_true[2]])
+        rls.P[2, 2] = 1e-14
         for _ in range(400):
             x = rng.standard_normal(3) * np.array([10.0, 500.0, 3000.0])
             y = float(x @ theta_true) + rng.normal(0, 0.01)
@@ -214,13 +221,18 @@ class TestOnlineRCModel:
         assert not model.is_converged
 
     def test_predict_t_indoor(self):
-        """Voorspelling is consistent met geleerde parameters."""
+        """Voorspelling volgt de fysica van het testhuis (U 200, C 5000).
+
+        Niet bij 3000 W toetsen: bij 15 K verschil is dat precies het verlies
+        (200 × 15), dus het echte antwoord is 20,0 en ``>= 20`` hing van de
+        afronding van de schatting af (tot v0.10.7-beta.7). Bij 4000 W hoort de
+        kamer in een uur (4000 − 3000) / 5000 = 0,2 K warmer te worden.
+        """
         model = self._make_trained_model()
         t_pred = model.predict_t_indoor(
-            t_indoor=20.0, t_outdoor=5.0, q_hp_w=3000.0, q_solar_w=0.0,
+            t_indoor=20.0, t_outdoor=5.0, q_hp_w=4000.0, q_solar_w=0.0,
         )
-        # Met HP aan (3000W), huis moet (iets) warmer worden
-        assert t_pred >= 20.0
+        assert 20.1 < t_pred < 20.3
 
     def test_predict_cooling_without_hp(self):
         """Zonder HP en zon koelt het huis af."""

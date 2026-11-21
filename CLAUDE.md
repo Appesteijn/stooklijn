@@ -76,8 +76,9 @@ C staan en komt P_c zelf op ~1.050 W. Ook 's nachts, dus het is geen zon.
 - P_c krijgt één startwaarde uit het balanspunt. Vanaf nul leert RLS hem te
   traag en zakt C intussen toch (`test_vastleggen_zonder_startwaarde_te_traag`).
 - θ₄ niet bevriezen in uren zonder warmtevraag. Zijn regressor (dt) is nooit
-  nul, en de blokupdate van `RLSEstimator` ontregelt P dan. Uitgeprobeerd: op
-  het koude-starthuis liep C negatief.
+  nul, en de oude blokupdate van `RLSEstimator` ontregelde P dan. Uitgeprobeerd:
+  op het koude-starthuis liep C negatief. Met de huidige update (zie
+  "Bevriezen in de RLS" hieronder) is dat niet opnieuw geprobeerd.
 - **P_c staat vast op de warmteverliesanalyse** (sinds v0.10.7-beta.2):
   P_c = U × (mediaan kamer 14 d − balanspunt), bijgewerkt bij elke analyse,
   net als het U-anker. Vrij geleerd (θ₄ = P_c/C) groeide P_c in watt mee met
@@ -87,13 +88,53 @@ C staan en komt P_c zelf op ~1.050 W. Ook 's nachts, dus het is geen zon.
   met anker C stabiel 12.000–14.700 Wh/K, U 283–287, testfout 0,409 K;
   zonder anker zwierf C van 6.600 tot 18.300 en U van 235 tot 377, testfout
   0,662 K. Met anker telt P_c als bekende warmte in de regressor van θ₃ en
-  heeft θ₄ géén regressor (x[3] = 0, waarde 0, kruiscovarianties op nul). Dat
-  is iets anders dan het bevriezen hierboven: er is niets met een regressor
-  die nooit nul is. De startwaarde (`seed_constant_gain`) blijft alleen voor
+  heeft θ₄ géén regressor (x[3] = 0, waarde 0, kruiscovarianties op nul). Voor
+  θ₄ is dat iets anders dan het bevriezen hierboven. **Maar de regressor van θ₃
+  wordt daardoor `dt·(Q + P_c)`, en die is nooit nul**, ook niet in de uren
+  waarin θ₃ bevroren staat. Tot 21-11-2026 stond hier dat er met anker
+  "niets is met een regressor die nooit nul is"; voor θ₃ klopte dat niet. Zie
+  de volgende sectie. De startwaarde (`seed_constant_gain`) blijft alleen voor
   installaties zonder balanspunt.
 - Met anker telt θ₄ **niet** mee voor de convergentie (`_n_updates_min`). Zijn
   teller loopt niet op, en in v0.10.7-beta.2 bleef een nieuw model daardoor
   voorgoed op `batch_fallback` (`TestConvergentieMetAnker`).
+
+## Bevriezen in de RLS houdt P geldig (Schmidt-Kalman)
+
+`RLSEstimator.update` met `frozen` zet de gain van de bevroren parameters op
+nul, maar telt hun onzekerheid mee in de gain van de rest, en werkt P als
+geheel bij in de Joseph-vorm. De vergeetfactor werkt alleen op het actieve
+blok, zodat P[2,2] in een zomer niet opblaast (de reden om θ₃ te bevriezen).
+
+De oude blokupdate werkte alleen `P[actief, actief]` bij en liet de
+kruistermen staan. Dan is P geen covariantie meer, kan `λ + x'Px` negatief
+worden, en krijgt de gain het verkeerde teken zodra de parameter weer
+meedoet. Gevonden in een externe analyse (21-11-2026) en nagespeeld op het
+echte 5-minutenlogboek (08-09 t/m 21-11-2026), jong model met beide ankers:
+
+| start | oud: uren P indefiniet / online / 12u-fout | nieuw |
+|---|---|---|
+| 08-09 | 5 / 54% / 0,83 K | 0 / 54% / 0,56 K |
+| 15-10 | 373 / 1% / 6,4 K (eind-g 58,7) | 0 / 89% / 0,40 K |
+| 01-11 | 131 / 89% / 0,65 K | 0 / 90% / 0,51 K |
+
+Het draaiende model (toestand 26-10) merkte er in vier weken niets van; de
+P van 21-11 was nog positief-definiet, met een kleinste eigenwaarde van
+3,9e-11. Op een synthetisch herfsthuis werd een rijp model met de oude update
+na ~1.850 uur indefiniet, vooral in weken met veel uren onder de ankerdrempel
+(het voorjaar). Een P die al indefiniet is opgeslagen, wordt bij het laden
+hersteld (`repair_covariance`).
+
+Wat níét werkt:
+
+- **θ₃ met anker gewoon niet bevriezen.** Op echte data vanaf 08-09 liep C
+  naar nul; vanaf 15-10 ging het wel goed.
+- **Alleen de kruistermen consistent bijwerken**, met θ zoals in de oude
+  blokupdate (de onzekerheid van θ₃ telt dan niet mee in de gain). P bleef
+  geldig, maar op het herfsthuis met beide ankers eindigden 3 van de 20
+  modellen goed, tegen 20 van de 20 met Schmidt-Kalman.
+
+Tests: `tests/test_rls_covariantie.py`.
 
 ## Op vijfminutendata niet één stap vooruit fitten
 
@@ -140,6 +181,9 @@ Wat níét werkt, alle drie geprobeerd:
 - **Alleen 's nachts bevriezen of alleen de ondergrens**: geen verbetering op
   het novemberhuis.
 
-Het echte probleem is dat een jong model in november onstabiel leert. Wie
+Het echte probleem is dat een jong model in november onstabiel leert. Een
+belangrijke oorzaak bleek de covariantie-update (zie "Bevriezen in de RLS"),
+opgelost in v0.10.7-beta.7; of het Tweakers-geval daarmee verklaard is, is
+niet bewezen (de nabootsing gaf één keer g −2,37 na 73 uur). Wie
 daaraan werkt, speelt eerst na op echte data (RLS-toestand en logboek uit
 `.storage`), niet alleen synthetisch.

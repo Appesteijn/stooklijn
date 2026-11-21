@@ -154,28 +154,40 @@ class RLSEstimator:
           warmtevraag daarna aan, dan zet die opgeblazen onzekerheid de
           parameter in één klap ergens anders neer.
 
-        Bevriezen gebeurt door de update op de deelruimte van de actieve
-        parameters te doen: de bekende bijdrage van de bevroren parameters
-        gaat uit het residu, en alleen het bijbehorende blok van P beweegt.
+        Bevriezen gebeurt als Schmidt-Kalmanfilter ("consider parameters"):
+        de gain van de bevroren parameters staat op nul, maar hun onzekerheid
+        telt wél mee in de gain van de rest, en P wordt als geheel bijgewerkt
+        met de Joseph-vorm. Die vorm houdt P symmetrisch en positief-definiet
+        voor élke gain, ook een bewust suboptimale. De vergeetfactor werkt
+        alleen op het actieve blok; het bevroren blok blijft staan.
+
+        Tot v0.10.7-beta.7 bewoog alleen ``P[actief, actief]``, en bleven de
+        kruistermen ``P[actief, bevroren]`` op hun oude grootte. Dan is P geen
+        geldige covariantie meer: de noemer ``λ + x'Px`` kan negatief worden en
+        de gain krijgt het verkeerde teken zodra de parameter weer meedoet.
+        Nagespeeld op het echte logboek (08-09 t/m 21-11-2026): een jong model
+        dat op 15-10 begon, had 373 uur een indefiniete P en stond 1% van de
+        tijd online, met g = 58,7 aan het eind. Met deze update: 0 uur, 89%
+        online. Zie ``TestCovariantieBlijftGeldig``.
         """
         lam = self.forgetting
         if frozen:
             active = [i for i in range(self.n_params) if i not in frozen]
             if not active:
                 return
-            held = list(frozen)
-            block = np.ix_(active, active)
-            y = y - float(x[held] @ self.theta[held])
-            xa = x[active]
-            Pa = self.P[block]
-            Px = Pa @ xa
-            denom = lam + float(xa @ Px)
+            Px = self.P @ x
+            denom = lam + float(x @ Px)
             if abs(denom) < 1e-12:
                 return  # numerical guard
-            K = Px / denom
-            err = y - float(xa @ self.theta[active])
-            self.theta[active] = self.theta[active] + K * err
-            self.P[block] = (Pa - np.outer(K, Px)) / lam
+            K = np.zeros(self.n_params)
+            K[active] = Px[active] / denom
+            err = y - float(x @ self.theta)
+            self.theta = self.theta + K * err
+            A = np.eye(self.n_params) - np.outer(K, x)
+            P_new = A @ self.P @ A.T + lam * np.outer(K, K)
+            block = np.ix_(active, active)
+            P_new[block] = P_new[block] / lam
+            self.P = (P_new + P_new.T) / 2.0
             self.n_updates += 1
             self.n_updates_per_param[active] += 1
             return
@@ -224,7 +236,37 @@ class RLSEstimator:
             np.asarray(per_param, dtype=int) if per_param is not None
             else np.full(est.n_params, est.n_updates, dtype=int)
         )
+        est.repair_covariance()
         return est
+
+    def repair_covariance(self) -> bool:
+        """Maak P weer een geldige covariantie als hij dat niet meer is.
+
+        Voor opgeslagen toestanden van vóór v0.10.7-beta.7: de oude blokupdate
+        kon P indefiniet maken, en de Joseph-vorm houdt een P die al
+        indefiniet is ook indefiniet. Negatieve eigenwaarden worden afgekapt
+        op een kleine positieve ondergrens; θ blijft staan. Een P met NaN of
+        inf begint opnieuw op de startonzekerheid. Geeft True als er iets is
+        hersteld.
+        """
+        P = self.P
+        if not np.all(np.isfinite(P)):
+            self.P = np.eye(self.n_params) * RLS_INITIAL_COV
+            _LOGGER.warning("RC model: covariantie bevatte NaN/inf, opnieuw begonnen")
+            return True
+        P = (P + P.T) / 2.0
+        w, V = np.linalg.eigh(P)
+        floor = max(float(w.max()), 0.0) * 1e-12
+        if w.min() > floor:
+            self.P = P
+            return False
+        w_clipped = np.maximum(w, max(floor, 1e-30))
+        self.P = (V * w_clipped) @ V.T
+        _LOGGER.warning(
+            "RC model: covariantie was niet positief-definiet (kleinste "
+            "eigenwaarde %.3g), hersteld", float(w.min()),
+        )
+        return True
 
 
 class OnlineRCModel:
@@ -318,9 +360,10 @@ class OnlineRCModel:
 
         Met anker is P_c een bekende invoer: hij telt op bij het
         warmtepompvermogen in de regressor van θ₃ = 1/C, en θ₄ staat vast op
-        nul zonder regressor. Daarmee is er niets te bevriezen met een
-        regressor die nooit nul is (zie CLAUDE.md, waarom dat misging), en
-        leert RLS alleen nog de dynamiek: U, g en C.
+        nul zonder regressor. RLS leert dan alleen nog de dynamiek: U, g en C.
+        Let op: daardoor is de regressor van θ₃ nooit bijna nul, ook niet in
+        de uren waarin θ₃ bevroren wordt. Dat vraagt een update die de
+        kruiscovarianties meeneemt (zie ``RLSEstimator.update``).
 
         Bij het aanzetten wordt θ₄ nul en verliest hij zijn kruiscovarianties;
         bij uitzetten neemt θ₄ de laatste ankerwaarde over en leert weer vrij.
@@ -376,6 +419,20 @@ class OnlineRCModel:
         uurgemiddelde 16. ``q_hp_w`` blijft de momentopname, als terugval voor
         de volgende tik.
         """
+        # Eén NaN of inf in θ is blijvend: RLS rekent hem bij elke volgende
+        # update door. Zo'n monster dus helemaal niet gebruiken, ook niet als
+        # "vorige" waarde voor de volgende tik.
+        values = (t_indoor, t_outdoor, q_hp_w, q_solar_w)
+        if q_hp_interval_w is not None:
+            values += (q_hp_interval_w,)
+        if not all(np.isfinite(v) for v in values):
+            _LOGGER.warning(
+                "RC model: monster met NaN/inf overgeslagen (T_in=%s, T_out=%s, "
+                "Q=%s, zon=%s, Q_interval=%s)",
+                t_indoor, t_outdoor, q_hp_w, q_solar_w, q_hp_interval_w,
+            )
+            return False
+
         if self._prev_t_indoor is None or self._prev_timestamp is None:
             # First call — store and wait for next
             self._prev_t_indoor = t_indoor
@@ -446,15 +503,19 @@ class OnlineRCModel:
         # door een P[2,2] die de vergeetfactor intussen heeft opgeblazen.
         # g blijft wél leren: de zomer is juist de beste periode daarvoor.
         #
-        # θ₄ (P_c/C) wordt bewust níét mee bevroren, hoe logisch dat ook lijkt.
-        # Bevriezen werkt voor θ₃ omdat zijn regressor (dt·Q_hp) in die uren
-        # bijna nul is: dan doen de kruiscovarianties met de actieve
-        # parameters er niet toe. De regressor van θ₄ (dt) is nooit nul. De
-        # blokupdate laat P[actief, θ₄] staan terwijl het actieve blok
-        # krimpt, en dan raakt P ontregeld. Op het koude-starthuis van
-        # TestOnlineRCModel was het model na 80 uur goed en na 150 uur
-        # uitgelopen tot een negatieve C. Prijs van meeleren: P_c volgt ook
-        # de zomer, en moet in het najaar terug. Zie de CHANGELOG.
+        # Met anker is de regressor van θ₃ dt·(Q_hp + P_c), dus nooit bijna
+        # nul, ook in deze uren niet. Bevriezen kan dan alleen omdat
+        # RLSEstimator.update de kruiscovarianties consistent bijwerkt
+        # (Schmidt-Kalman, sinds v0.10.7-beta.7). De oude blokupdate liet ze
+        # staan, en dan raakte P ontregeld: zie TestCovariantieBlijftGeldig.
+        # θ₃ niet bevriezen is géén alternatief: nagespeeld op het echte
+        # logboek vanaf 08-09-2026 liep C dan naar nul.
+        #
+        # θ₄ (P_c/C, alleen zonder anker) wordt niet mee bevroren. Op het
+        # koude-starthuis van TestOnlineRCModel liep dat met de oude
+        # blokupdate uit tot een negatieve C; met de nieuwe update is het niet
+        # opnieuw geprobeerd. Prijs van meeleren: P_c volgt ook de zomer, en
+        # moet in het najaar terug. Zie de CHANGELOG.
         low_heat = q_interval < ANCHOR_MAX_Q_HP_W
 
         frozen: tuple[int, ...] = (2,) if low_heat else ()
@@ -558,7 +619,10 @@ class OnlineRCModel:
         uit terugkomen, en ``is_converged`` houdt het model intussen buiten
         gebruik.
         """
-        return bool(self._rls.theta[2] <= 0)
+        # NaN in θ (een sensor die "nan" doorgaf, vóór v0.10.7-beta.7) is net
+        # zo onherstelbaar: elke volgende update rekent NaN door.
+        theta = self._rls.theta
+        return bool(not np.all(np.isfinite(theta)) or theta[2] <= 0)
 
     @property
     def is_converged(self) -> bool:

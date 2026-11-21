@@ -76,6 +76,13 @@ class HighResLog:
         zon gemeten met PV en omgerekend naar de ramen bleek de beste zoninvoer
         voor het 2R2C; zie ZONNEWARMTE_PLAN.md.
         """
+        # Een NaN in de warmtekolom komt via mean_heat_between in het 1R1C.
+        # Alleen pv_w mag ontbreken; de rest moet een getal zijn.
+        if not all(
+            math.isfinite(float(v))
+            for v in (t_indoor, t_outdoor, q_hp_w, q_solar_wm2)
+        ):
+            return False
         ts = int(timestamp.timestamp())
         if self._samples:
             gap = ts - self._samples[-1][0]
