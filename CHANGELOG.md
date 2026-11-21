@@ -3,7 +3,7 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
-## v0.10.7-beta.7 — nog niet uitgebracht
+## v0.10.7-beta.7 — 2026-11-21
 
 - **Een nieuw huismodel leert stabiel, ook als het in het stookseizoen
   begint.** Het lerende huismodel (1R1C) zet zijn warmtecapaciteit in uren
