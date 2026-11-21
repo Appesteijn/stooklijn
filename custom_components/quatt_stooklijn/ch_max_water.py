@@ -12,9 +12,9 @@ moduleert al terug vóór het plafond, en een tekort inhalen kan dan niet.
 Schrijft alleen als het plafond meer dan `hysteresis` graden afwijkt van de
 laatst geschreven waarde.
 
-Bronentiteit (instelbaar via config):
-- "stooklijn" → sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-- "mpc"        → sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
+Welk advies (instelbaar via config): de gedeelde bronnenlijst uit
+advice_sources — "stooklijn" (alleen buitentemperatuur) of "mpc" (met
+kamercorrectie). Dezelfde keuze bestaat voor de geluidsniveaucompensatie.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 import homeassistant.util.dt as dt_util
 
+from .advice_sources import advice_entity_id, read_advice, valid_source
 from .const import (
     CH_MAX_WATER_MARGIN_MAX,
     CONF_CH_MAX_WATER_ENTITY,
@@ -40,12 +41,6 @@ from .discovery import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-# Vaste entity-slugs waaronder de sensoren worden geregistreerd.
-_SOURCE_ENTITY: dict[str, str] = {
-    "stooklijn": "sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur",
-    "mpc": "sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur",
-}
 
 # De warmtevraag-sensor uit dezelfde integratie. Wijst de OpenQuatt-bronhelper
 # hiernaar, dan loopt de aansturing via de vermogensvraag en heeft deze
@@ -71,14 +66,18 @@ class ChMaxWaterController:
         hysteresis: float,
         interval_minutes: int,
         margin: float = DEFAULT_CH_MAX_WATER_MARGIN,
+        entry_id: str | None = None,
     ) -> None:
         self._hass = hass
+        # Om de adviessensor op unique_id te vinden (advice_sources). Zonder
+        # entry_id valt de lezing terug op de vaste entity-slug.
+        self._entry_id = entry_id
         # Wat de gebruiker heeft ingesteld — leeg is normaal en betekent
         # "detecteer zelf". Bewust niet één keer opgelost en vastgehouden: de
         # regelaar kan wisselen (OpenQuatt-node die na HA opkomt, of juist
         # losgekoppeld wordt), en dan hoort de schrijfactie mee te verhuizen.
         self._configured_entity = (number_entity or "").strip()
-        self._source = source if source in _SOURCE_ENTITY else DEFAULT_CH_MAX_WATER_SOURCE
+        self._source = valid_source(source, DEFAULT_CH_MAX_WATER_SOURCE)
         self._hysteresis = hysteresis
         self._interval = timedelta(minutes=interval_minutes)
         # Begrensd zoals in de opties: een negatieve marge zou het plafond
@@ -95,7 +94,7 @@ class ChMaxWaterController:
 
     @property
     def source_entity(self) -> str:
-        return _SOURCE_ENTITY[self._source]
+        return advice_entity_id(self._hass, self._entry_id, self._source)
 
     @property
     def target_entity(self) -> str | None:
@@ -196,14 +195,8 @@ class ChMaxWaterController:
         return async_heat_demand_link(self._hass, HEAT_DEMAND_ENTITY).active
 
     def _read_recommended(self) -> float | None:
-        """Lees de aanbevolen aanvoertemperatuur uit de geconfigureerde bronentiteit."""
-        state = self._hass.states.get(self.source_entity)
-        if state is None or state.state in ("unknown", "unavailable", ""):
-            return None
-        try:
-            return float(state.state)
-        except ValueError:
-            return None
+        """Lees de aanbevolen aanvoertemperatuur van de gekozen bron."""
+        return read_advice(self._hass, self._entry_id, self._source)[0]
 
     def _resolve_number_entity(self) -> str | None:
         """Geef de number-entity van de regelaar die nu daadwerkelijk stuurt.

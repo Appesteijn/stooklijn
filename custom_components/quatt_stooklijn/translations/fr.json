@@ -32,17 +32,18 @@
           "return_temp_entity": "Capteur de température de retour (°C)",
           "weather_entity": "Entité de prévisions météo (pour la prévision MPC)",
           "indoor_temp_entity": "Capteur de température intérieure (°C, pour la calibration solaire)",
-          "sound_level_enabled": "Activer la compensation du niveau sonore (limite la puissance de la pompe à chaleur via le niveau sonore CiC)",
-          "sound_level_max_day": "Niveau sonore maximum de jour",
-          "sound_level_max_night": "Niveau sonore maximum de nuit",
-          "sound_night_start_hour": "Début de nuit (heure, 0–23, heure locale HA, ex. 23)",
-          "sound_night_end_hour": "Fin de nuit (heure, 0–23, heure locale HA, ex. 7)",
+          "sound_level_enabled": "Activer la compensation du soundslider (déplace le soundslider de votre Quatt, et donc la puissance)",
+          "sound_level_source": "Compensation du soundslider : quel modèle pilote",
+          "sound_level_max_day": "Soundslider : position maximale de jour",
+          "sound_level_max_night": "Soundslider : position maximale de nuit",
+          "sound_night_start_hour": "Soundslider : début de nuit (heure, 0–23, ex. 23) — comme les heures de nuit de l'app Quatt",
+          "sound_night_end_hour": "Soundslider : fin de nuit (heure, 0–23, ex. 7) — comme les heures de nuit de l'app Quatt",
           "otgw_enabled": "Activer la compensation OTGW (nécessite OpenTherm Gateway)",
           "otgw_room_temp_override": "Entité OTGW de remplacement de température ambiante",
           "otgw_max_offset": "Offset maximum OTGW (°C, max 3.0)",
           "ch_max_water_enabled": "Activer la limitation de température de départ (écrit la temp. max. de départ vers Quatt)",
           "ch_max_water_entity": "Entité température de départ max. Quatt",
-          "ch_max_water_source": "Source de pilotage (courbe de chauffe ou MPC)",
+          "ch_max_water_source": "Température de départ max. : quel modèle pilote",
           "ch_max_water_margin": "Marge au-dessus de la recommandation (°C)",
           "ch_max_water_hysteresis": "Changement minimal avant écriture (°C)",
           "ch_max_water_interval": "Intervalle d'écriture (minutes)",
@@ -79,17 +80,18 @@
           "compressor_2_entity": "Capteur de fréquence du compresseur PAC2 (Hz) — Duo uniquement ; laisser vide sur un Solo",
           "performance_baseline_date": "Date de la modification (YYYY-MM-DD) — fige la norme de rendement sur tout ce qui précède ; vide = 30 derniers jours de chauffe",
           "quatt_cloud_enabled": "Utiliser l'API cloud Quatt — désactivé = local uniquement (recorder + stockage interne). L'historique constitué est conservé ; seul le détail horaire s'arrête. Surtout utile avec une seconde source locale comme OpenQuatt.",
-          "sound_level_enabled": "Activer la compensation du niveau sonore (limite la puissance de la pompe à chaleur via le niveau sonore CiC)",
-          "sound_level_max_day": "Niveau sonore maximum de jour",
-          "sound_level_max_night": "Niveau sonore maximum de nuit",
-          "sound_night_start_hour": "Début de nuit (heure, 0–23, heure locale HA, ex. 23)",
-          "sound_night_end_hour": "Fin de nuit (heure, 0–23, heure locale HA, ex. 7)",
+          "sound_level_enabled": "Activer la compensation du soundslider (déplace le soundslider de votre Quatt, et donc la puissance)",
+          "sound_level_source": "Compensation du soundslider : quel modèle pilote",
+          "sound_level_max_day": "Soundslider : position maximale de jour",
+          "sound_level_max_night": "Soundslider : position maximale de nuit",
+          "sound_night_start_hour": "Soundslider : début de nuit (heure, 0–23, ex. 23) — comme les heures de nuit de l'app Quatt",
+          "sound_night_end_hour": "Soundslider : fin de nuit (heure, 0–23, ex. 7) — comme les heures de nuit de l'app Quatt",
           "otgw_enabled": "Activer la compensation OTGW (nécessite OpenTherm Gateway)",
           "otgw_room_temp_override": "Entité OTGW de remplacement de température ambiante",
           "otgw_max_offset": "Offset maximum OTGW (°C, max 3.0)",
           "ch_max_water_enabled": "Activer la limitation de température de départ (écrit la temp. max. de départ vers Quatt)",
           "ch_max_water_entity": "Entité température de départ max. Quatt",
-          "ch_max_water_source": "Source de pilotage (courbe de chauffe ou MPC)",
+          "ch_max_water_source": "Température de départ max. : quel modèle pilote",
           "ch_max_water_margin": "Marge au-dessus de la recommandation (°C)",
           "ch_max_water_hysteresis": "Changement minimal avant écriture (°C)",
           "ch_max_water_interval": "Intervalle d'écriture (minutes)",
@@ -244,7 +246,7 @@
         "name": "Température de retour"
       },
       "sound_level": {
-        "name": "Niveau sonore"
+        "name": "Soundslider"
       },
       "source_overview": {
         "name": "Sources de données"
@@ -263,6 +265,12 @@
       },
       "price_shift": {
         "name": "Économie par décalage tarifaire (fantôme)"
+      },
+      "steering_effect": {
+        "name": "Effet du pilotage"
+      },
+      "rc_recommended_supply_temp": {
+        "name": "Température de départ recommandée 1R1C"
       }
     },
     "binary_sensor": {
@@ -272,7 +280,7 @@
     },
     "switch": {
       "sound_level_compensation": {
-        "name": "Compensation du niveau sonore"
+        "name": "Compensation du soundslider"
       }
     },
     "text": {
@@ -304,6 +312,15 @@
     "supply_sensor_offset": {
       "title": "Le capteur de température de départ dérive",
       "description": "La température de départ ({supply_entity}) s'écarte de {offset} K de la sortie d'eau de la pompe à chaleur ({reference_entity}), mesuré sur {hours} heures de chauffage stable. Entre ces deux points, la température de l'eau ne change presque pas : le capteur dérive donc. Le conseil de température de départ et les capteurs d'erreur paraissent décalés d'autant.\n\nVous utilisez OpenQuatt ? Lancez la calibration des capteurs d'eau et vérifiez **Water Supply Temperature Calibration Status**. Sans OpenQuatt : vérifiez le montage du capteur de départ.\n\nCet avis disparaît de lui-même dès que l'écart passe sous {clear} K."
+    }
+  },
+  "selector": {
+    "advice_source": {
+      "options": {
+        "stooklijn": "Courbe de chauffe — température extérieure seule (d'après vos jours de chauffe)",
+        "mpc": "MPC — courbe de chauffe plus correction de pièce (monte si la pièce est sous la consigne, baisse au-dessus) ; n'utilise pas le modèle de maison auto-apprenant",
+        "1r1c": "Modèle de maison (1R1C) — le modèle auto-apprenant (déperditions, soleil, apports internes) plus correction de pièce ; MPC tant que le modèle apprend"
+      }
     }
   }
 }

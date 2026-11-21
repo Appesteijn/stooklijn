@@ -1721,6 +1721,9 @@ views:
                 - entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
                   name: MPC advies
                   color: "#4CAF50"
+                - entity: sensor.quatt_warmteanalyse_1r1c_aanbevolen_aanvoertemperatuur
+                  name: Huismodel (1R1C) advies
+                  color: "#FF9800"
             grid_options:
               columns: full
               rows: auto
@@ -2404,6 +2407,10 @@ views:
 
               {% set stooklijn = states('sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur') | float(none) %}
 
+              {% set rc = states('sensor.quatt_warmteanalyse_1r1c_aanbevolen_aanvoertemperatuur') | float(none) %}
+
+              {% set rc_terugval = state_attr('sensor.quatt_warmteanalyse_1r1c_aanbevolen_aanvoertemperatuur', 'terugval') %}
+
               {% set last_at = state_attr(s, 'last_written_at') %}
 
               {% set interval = state_attr(s, 'interval_minutes') | int(30) %}
@@ -2412,7 +2419,7 @@ views:
 
               {% set marge = state_attr(s, 'margin_c') | float(none) %}
 
-              De bijsturing stuurt op **{{ geconfigureerd }}** en schrijft elke {{ interval }} min
+              De bijsturing stuurt op **{{ {'stooklijn': 'Stooklijn', 'mpc': 'MPC', '1r1c': 'Huismodel (1R1C)'}.get(geconfigureerd, geconfigureerd) }}** en schrijft elke {{ interval }} min
               het advies{% if marge %} plus {{ marge | round(1) }}°C marge{% endif %} als maximale
               aanvoertemperatuur naar de warmtepomp.
 
@@ -2423,6 +2430,8 @@ views:
               | MPC advies | {% if mpc %}{% if geconfigureerd == 'mpc' %}**{{ mpc | round(1) }}°C** ◀{% else %}{{ mpc | round(1) }}°C{% endif %}{% else %}*niet beschikbaar*{% endif %} |
 
               | Stooklijn advies | {% if stooklijn %}{% if geconfigureerd == 'stooklijn' %}**{{ stooklijn | round(1) }}°C** ◀{% else %}{{ stooklijn | round(1) }}°C{% endif %}{% else %}*n/b*{% endif %} |
+
+              | Huismodel (1R1C) advies | {% if rc %}{% if geconfigureerd == '1r1c' %}**{{ rc | round(1) }}°C** ◀{% else %}{{ rc | round(1) }}°C{% endif %}{% if rc_terugval %} <small>(terugval op MPC: huismodel nog niet online)</small>{% endif %}{% else %}*n/b*{% endif %} |
 
               | Marge boven advies | {% if marge is not none %}+{{ marge | round(1) }}°C{% else %}*n/b*{% endif %} |
 
@@ -2715,7 +2724,7 @@ views:
               columns: full
               rows: auto
 
-      # ── Geluidsniveau & gasketel status (alleen met compensatie aan) ──
+      # ── Soundslider & gasketel status (alleen met compensatie aan) ──
       - type: grid
         column_span: 2
         visibility:
@@ -2726,11 +2735,11 @@ views:
               - unknown
         cards:
           - type: history-graph
-            title: Geluidsniveau & gasketel (48 uur)
+            title: Soundslider & gasketel (48 uur)
             hours_to_show: 48
             entities:
               - entity: sensor.quatt_warmteanalyse_geluidsniveau
-                name: Geluidsniveau
+                name: Soundslider
               - entity: binary_sensor.quatt_warmteanalyse_gasketel_actief
                 name: Gasketel
               - entity: switch.quatt_warmteanalyse_geluidsniveau_compensatie
@@ -2739,7 +2748,7 @@ views:
               columns: full
               rows: auto
 
-      # ── Geluidsniveau compensatie (alleen zichtbaar als geconfigureerd) ──
+      # ── Soundslider-compensatie (alleen zichtbaar als geconfigureerd) ──
       - type: grid
         visibility:
           - condition: state
@@ -2755,7 +2764,7 @@ views:
                 state_not: unavailable
             card:
               type: markdown
-              title: Geluidsniveau Compensatie
+              title: Soundslider-compensatie
               content: >
                 {% set sw =
                 states('switch.quatt_warmteanalyse_geluidsniveau_compensatie') %}
@@ -2766,7 +2775,11 @@ views:
 
                 {% set mpc_err =
                 state_attr('switch.quatt_warmteanalyse_geluidsniveau_compensatie',
-                'mpc_error') %}
+                'advies_fout') %}
+
+                {% set bron =
+                state_attr('switch.quatt_warmteanalyse_geluidsniveau_compensatie',
+                'advies_bron') %}
 
                 {% set hp =
                 state_attr('switch.quatt_warmteanalyse_geluidsniveau_compensatie',
@@ -2793,17 +2806,19 @@ views:
 
                 | Switch | {% if sw == 'on' %}Aan{% else %}Uit{% endif %} |
 
+                | Stuurt op | {% if bron == 'stooklijn' %}Stooklijn (alleen buitentemperatuur){% elif bron == 'mpc' %}MPC (stooklijn + kamercorrectie){% elif bron == '1r1c' %}Huismodel (1R1C) + kamercorrectie{% if state_attr('sensor.quatt_warmteanalyse_1r1c_aanbevolen_aanvoertemperatuur', 'terugval') %} — nu terugval op MPC{% endif %}{% else %}—{% endif %} |
+
                 | HP actief | {% if hp %}Ja{% else %}Nee{% endif %} |
 
                 | Gas actief | {% if gas %}Ja ({{ boiler }} W){% else %}Nee{% endif %} |
 
-                | Geluidsniveau | **{{ level | default('—') }}** |
+                | Soundslider | **{{ level | default('—') }}** |
 
                 | CiC ({{ state_attr(swe, 'period') | default('—', true) }}) | {{ cic | default('—', true) }}{% if cic and level and cic != level %} ⚠️{% endif %} |
 
                 | Teruggezet | {{ corr }}×{% if corr %} — {{ state_attr(swe, 'last_correction') }}{% endif %} |
 
-                | MPC fout | {% if mpc_err is not none %}{{ mpc_err }}°C{%
+                | Advies − aanvoer | {% if mpc_err is not none %}{{ mpc_err }}°C{%
                 else %}*n/a*{% endif %} |
 
 
@@ -2811,29 +2826,64 @@ views:
 
                 {% if not hp %}
 
-                HP inactief — na 10 minuten zonder debiet gaat het geluidsniveau terug naar '{{ state_attr('switch.quatt_warmteanalyse_geluidsniveau_compensatie', 'effective_max') | default('normal') }}'.
+                HP inactief — na 10 minuten zonder debiet gaat de soundslider terug naar '{{ state_attr('switch.quatt_warmteanalyse_geluidsniveau_compensatie', 'effective_max') | default('normal') }}'.
 
                 {% elif gas %}
 
-                Gas actief ({{ boiler }} W) — geluidsniveau omhoog naar
+                Gas actief ({{ boiler }} W) — soundslider omhoog naar
                 **{{ level }}**.
 
                 {% elif mpc_err is not none and mpc_err < -2 %}
 
-                Aanvoer te hoog (fout={{ mpc_err }}°C) — geluidsniveau omlaag
+                Aanvoer te hoog (fout={{ mpc_err }}°C) — soundslider omlaag
                 naar **{{ level }}**.
 
                 {% elif mpc_err is not none and mpc_err > 2 %}
 
-                Aanvoer te laag (fout={{ mpc_err }}°C) — geluidsniveau omhoog tot het maximum, nu **{{ level }}**.
+                Aanvoer te laag (fout={{ mpc_err }}°C) — soundslider omhoog tot het maximum, nu **{{ level }}**.
 
                 {% else %}
 
-                Aanvoer op schema — geluidsniveau op **{{ level }}**.
+                Aanvoer op schema — soundslider op **{{ level }}**.
 
                 {% endif %}
 
                 {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
+
+      # ── Sturingseffect: wat de knoppen opleveren, per instelling ──
+      - type: grid
+        column_span: 2
+        cards:
+          - type: markdown
+            title: Sturingseffect
+            content: |
+              {%- set s = 'sensor.quatt_warmteanalyse_sturingseffect' -%}
+              {%- set per = state_attr(s, 'per_instelling') or {} -%}
+              {%- set v = state_attr(s, 'vandaag') -%}
+              {%- set d = state_attr(s, 'drempels') or {} -%}
+              {%- macro f(x, eenheid='') -%}{{ '—' if x is none else (x | string) ~ eenheid }}{%- endmacro -%}
+              Wat de knoppen opleveren aan comfort, verbruik en slijtage — niet hoe goed een advies de CiC naspeelt.
+
+              **Nu:** {{ states(s) }}
+
+              {% if per -%}
+              {%- set ns = namespace(t='| Instelling | Dagen | kWh stroom / graaddag | COP | Kamer − setpoint | Uren te koud / dag | Starts / stookuur | Gas | Tegen max. aanvoertemp. |\n|:--|--:|--:|--:|--:|--:|--:|--:|--:|\n') -%}
+              {%- for naam, w in per.items() -%}
+              {%- set ns.t = ns.t ~ '| ' ~ naam ~ ' | ' ~ w.dagen ~ ' | ' ~ f(w.kwh_stroom_per_graaddag) ~ ' | ' ~ f(w.cop) ~ ' | ' ~ f(w.kamer_afwijking_k, ' K') ~ ' | ' ~ f(w.uren_te_koud_per_dag) ~ ' | ' ~ f(w.starts_per_stookuur) ~ ' | ' ~ f(w.gas_aandeel_pct, '%') ~ ' | ' ~ f(w.tegen_max_aanvoer_pct, '%') ~ ' |\n' -%}
+              {%- endfor -%}
+              {{ ns.t }}
+              {%- else -%}
+              *Nog geen dag in het vergelijk. Een dag telt mee bij minstens 20 meeturen, {{ d.min_graaddagen | default(1) }} graaddag en één instelling voor minstens 80% van de tijd.*
+              {%- endif %}
+
+              {% if v -%}
+              **Vandaag tot nu** ({{ v.instelling }}): kamer − setpoint {{ f(v.kamer_afwijking_k, ' K') }}, {{ v.uren_te_koud }} u te koud, {{ f(v.kwh_stroom, ' kWh') }} stroom, COP {{ f(v.cop) }}, {{ f(v.starts) }} starts in {{ v.stookuren }} stookuren{% if v.tegen_max_aanvoer_pct is not none %}, {{ v.tegen_max_aanvoer_pct }}% van de stooktijd tegen de max. aanvoertemperatuur{% endif %}.
+              {%- endif %}
+
+              *Graaddagen op het balanspunt van het huis ({{ d.graaddag_basis_c | default('—') }} °C). Te koud = meer dan {{ d.te_koud_k | default(0.3) }} K onder het setpoint; te warm = meer dan {{ d.te_warm_k | default(0.5) }} K erboven. Weer en gedrag verschillen per week: vergelijk instellingen over meerdere weken. Kijk eerst hoe vaak de aanvoer tegen de max. aanvoertemperatuur aanliep: gebeurt dat niet, dan begrenst die knop niets en komt een verschil er niet van. "Gepauzeerd (warmtevraag stuurt)": de warmtevraag stuurt OpenQuatt Power House rechtstreeks aan, en de max. aanvoertemperatuur schrijft dan niets.*
             grid_options:
               columns: full
               rows: auto

@@ -3,6 +3,67 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.5 — 2026-11-21
+
+- **Nieuwe sensor "Sturingseffect": wat de knoppen opleveren.** De
+  foutsensoren meten hoe dicht een advies bij de aanvoer ligt die de
+  installatie zelf koos, en dat zegt niet of sturen helpt. Deze sensor houdt per
+  dag bij hoe de knoppen stonden (max. aanvoertemperatuur, soundslider,
+  warmtevraag naar OpenQuatt, en met welke bron) en wat dat opleverde: kamer ten opzichte van het setpoint
+  en uren te koud, kWh stroom per graaddag en COP, compressorstarts per
+  stookuur, het aandeel gas, en hoe vaak de aanvoer tegen de ingestelde max.
+  aanvoertemperatuur aanliep.
+  Per instelling staan de gemiddelden naast elkaar, zodat je een week op
+  "stooklijn" en een week op "MPC" kunt vergelijken op comfort en verbruik.
+  Met alle knoppen uit meet hij de referentie. Kaart "Sturingseffect" op het
+  tabblad Systeem. Het is geen harde A/B-test: weer en gedrag verschillen per
+  week, dus vergelijk over meerdere weken.
+- **Het lerende huismodel (1R1C) als stuurbron.** Naast "Stooklijn" en "MPC"
+  kan de max. aanvoertemperatuur en de soundslider nu ook op "Huismodel (1R1C)"
+  sturen: het warmteverlies, de zon van nu en de constante warmtewinst uit het
+  lerende model, met dezelfde kamercorrectie en capaciteitsgrens als MPC. Dat
+  de rechte lijn beter stuurt dan het 1R1C is in november alleen op één huis
+  vastgesteld, met een 1R1C dat toen nog een fout in de constante warmtewinst
+  had. Met deze bron en het sturingseffect is het op meer huizen te meten.
+  Zolang het huismodel niet online is, stuurt deze bron met het MPC-advies; dat
+  staat op de kaarten en apart in het sturingseffect ("terugval op MPC"). Nieuwe
+  sensor `sensor.quatt_warmteanalyse_1r1c_aanbevolen_aanvoertemperatuur`, ook als
+  lijn in de grafiek "Advies vs Werkelijk". De omschrijving van MPC zegt nu dat
+  het niet met het lerende huismodel rekent. De warmtevraag naar OpenQuatt krijgt
+  bewust geen bronkeuze: Power House corrigeert zelf voor de kamer, dus een
+  kamercorrectie hier zou dubbel tellen.
+- **Per knop kiezen welk model stuurt.** De max. aanvoertemperatuur en de
+  soundslider-compensatie kiezen nu allebei uit dezelfde lijst: "Stooklijn"
+  (alleen buitentemperatuur) of "MPC" (warmteverlies plus kamercorrectie: hoger
+  als de kamer onder het setpoint zit, lager als hij erboven zit). Tot nu toe had
+  alleen de max. aanvoertemperatuur die keuze, en volgde de soundslider-compensatie altijd MPC. De
+  keuzelijst laat nu ook zien wat elke bron doet. De standaarden blijven zoals
+  ze waren (max. aanvoertemperatuur: Stooklijn, soundslider: MPC), dus zonder iets te veranderen
+  stuurt alles hetzelfde als voorheen.
+- **Attributen van de soundslider-compensatie hernoemd.** `mpc_advised`,
+  `mpc_advies_status` en `mpc_error` heten nu `advies`, `advies_status` en
+  `advies_fout`, omdat het advies niet meer per se van MPC komt. Nieuw zijn
+  `advies_bron` en `advies_entiteit`. Gebruik je de oude namen in een eigen
+  automatisering of kaart, pas die dan aan. Het meegeleverde dashboard is
+  bijgewerkt en toont ook op welk model de compensatie stuurt.
+- **Het stooklijnadvies zegt waarom er geen advies is** (`advies_status`:
+  `geen_vraag` boven het balanspunt, `geen_invoer` als een meting ontbreekt),
+  net als het MPC-advies. Zo stapt de soundslider-compensatie ook op de stooklijn
+  omlaag als er niets te stoken valt, in plaats van na tien minuten naar het
+  maximum te gaan.
+- **"Geluidsniveau" heet nu "soundslider"**, zoals in de Quatt-app: in de
+  opties, de namen van de switch en de sensor, en op de dashboardkaarten
+  ("Soundslider-compensatie", "Soundslider & gasketel"). De entity-ID's blijven
+  hetzelfde, dus automatiseringen werken door. Bij het nachtvenster staat nu
+  dat het gelijk moet zijn aan de nachttijden in de Quatt-app.
+- **Duidelijkere namen in het sturingseffect**: de stand leest als
+  `max. aanvoertemp: MPC · soundslider: uit · warmtevraag OpenQuatt: uit`, met
+  dezelfde woorden als in de opties. "Gepauzeerd (warmtevraag stuurt)" betekent
+  dat de warmtevraag OpenQuatt Power House rechtstreeks aanstuurt en de max.
+  aanvoertemperatuur dan niets schrijft.
+- **README:** de max. aanvoertemperatuur hoort niet bij OpenQuatt in Power House.
+  Daar is de maximale watertemperatuur een veiligheidsbegrenzer, geen stuurknop.
+
 ## v0.10.7-beta.4 — 2026-11-21
 
 - **De vooruitblik zonder huismodel rekent zoals het advies.** Zolang het

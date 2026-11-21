@@ -31,6 +31,8 @@ PLATFORMS = {
     "binary_sensor": "binary_sensor.py",
     "switch": "switch.py",
     "text": "text.py",
+    # Een sensorklasse in een eigen module, opgezet vanuit sensor.py.
+    "sensor (sturingseffect)": "steering_effect.py",
 }
 
 

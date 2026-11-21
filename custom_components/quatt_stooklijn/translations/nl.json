@@ -32,17 +32,18 @@
           "return_temp_entity": "Retourtemperatuur sensor (°C)",
           "weather_entity": "Weersvoorspelling entiteit (voor MPC forecast)",
           "indoor_temp_entity": "Kamertemperatuur sensor (°C, voor solar gain kalibratie)",
-          "sound_level_enabled": "Geluidsniveau compensatie inschakelen (beperkt warmtepompvermogen via CiC geluidsniveau)",
-          "sound_level_max_day": "Maximaal geluidsniveau overdag",
-          "sound_level_max_night": "Maximaal geluidsniveau 's nachts",
-          "sound_night_start_hour": "Nacht begint om (uur, 0–23, HA lokale tijd, bijv. 23)",
-          "sound_night_end_hour": "Nacht eindigt om (uur, 0–23, HA lokale tijd, bijv. 7)",
+          "sound_level_enabled": "Soundslider-compensatie inschakelen (verschuift de soundslider van je Quatt, en daarmee het vermogen)",
+          "sound_level_source": "Soundslider-compensatie: welk model stuurt",
+          "sound_level_max_day": "Soundslider: hoogste stand overdag",
+          "sound_level_max_night": "Soundslider: hoogste stand 's nachts",
+          "sound_night_start_hour": "Soundslider: nacht begint om (uur, 0–23, bijv. 23) — gelijk aan de nachttijden in de Quatt-app",
+          "sound_night_end_hour": "Soundslider: nacht eindigt om (uur, 0–23, bijv. 7) — gelijk aan de nachttijden in de Quatt-app",
           "otgw_enabled": "OTGW compensatie inschakelen (vereist OpenTherm Gateway)",
           "otgw_room_temp_override": "OTGW kamertemperatuur override entiteit",
           "otgw_max_offset": "OTGW maximale offset (°C, max 3.0)",
           "ch_max_water_enabled": "Aanvoertemperatuur bijsturing inschakelen (schrijft max. aanvoertemp naar Quatt)",
           "ch_max_water_entity": "Quatt max. aanvoertemperatuur entiteit",
-          "ch_max_water_source": "Stuuradvies bron (stooklijn of MPC)",
+          "ch_max_water_source": "Max. aanvoertemperatuur: welk model stuurt",
           "ch_max_water_margin": "Marge boven het advies (°C)",
           "ch_max_water_hysteresis": "Minimale wijziging voor schrijfactie (°C)",
           "ch_max_water_interval": "Schrijfinterval (minuten)",
@@ -79,17 +80,18 @@
           "compressor_2_entity": "Compressorfrequentie sensor WP2 (Hz) — alleen bij een Duo; laat leeg op een Solo",
           "performance_baseline_date": "Datum van je aanpassing (YYYY-MM-DD) — bevriest de rendementsnorm op alles ervóór; leeg = laatste 30 stookdagen",
           "quatt_cloud_enabled": "Quatt cloud-API gebruiken — uit = alleen lokaal (recorder + eigen stores). De opgebouwde historie blijft, alleen nieuw uurdetail stopt. Vooral zinvol als je een tweede lokale bron hebt, zoals OpenQuatt.",
-          "sound_level_enabled": "Geluidsniveau compensatie inschakelen (beperkt warmtepompvermogen via CiC geluidsniveau)",
-          "sound_level_max_day": "Maximaal geluidsniveau overdag",
-          "sound_level_max_night": "Maximaal geluidsniveau 's nachts",
-          "sound_night_start_hour": "Nacht begint om (uur, 0–23, HA lokale tijd, bijv. 23)",
-          "sound_night_end_hour": "Nacht eindigt om (uur, 0–23, HA lokale tijd, bijv. 7)",
+          "sound_level_enabled": "Soundslider-compensatie inschakelen (verschuift de soundslider van je Quatt, en daarmee het vermogen)",
+          "sound_level_source": "Soundslider-compensatie: welk model stuurt",
+          "sound_level_max_day": "Soundslider: hoogste stand overdag",
+          "sound_level_max_night": "Soundslider: hoogste stand 's nachts",
+          "sound_night_start_hour": "Soundslider: nacht begint om (uur, 0–23, bijv. 23) — gelijk aan de nachttijden in de Quatt-app",
+          "sound_night_end_hour": "Soundslider: nacht eindigt om (uur, 0–23, bijv. 7) — gelijk aan de nachttijden in de Quatt-app",
           "otgw_enabled": "OTGW compensatie inschakelen (vereist OpenTherm Gateway)",
           "otgw_room_temp_override": "OTGW kamertemperatuur override entiteit",
           "otgw_max_offset": "OTGW maximale offset (°C, max 3.0)",
           "ch_max_water_enabled": "Aanvoertemperatuur bijsturing inschakelen (schrijft max. aanvoertemp naar Quatt)",
           "ch_max_water_entity": "Quatt max. aanvoertemperatuur entiteit",
-          "ch_max_water_source": "Stuuradvies bron (stooklijn of MPC)",
+          "ch_max_water_source": "Max. aanvoertemperatuur: welk model stuurt",
           "ch_max_water_margin": "Marge boven het advies (°C)",
           "ch_max_water_hysteresis": "Minimale wijziging voor schrijfactie (°C)",
           "ch_max_water_interval": "Schrijfinterval (minuten)",
@@ -244,7 +246,7 @@
         "name": "Retourtemperatuur"
       },
       "sound_level": {
-        "name": "Geluidsniveau"
+        "name": "Soundslider"
       },
       "source_overview": {
         "name": "Databronnen"
@@ -263,6 +265,12 @@
       },
       "price_shift": {
         "name": "Prijsverschuiving besparing (schaduw)"
+      },
+      "steering_effect": {
+        "name": "Sturingseffect"
+      },
+      "rc_recommended_supply_temp": {
+        "name": "1R1C aanbevolen aanvoertemperatuur"
       }
     },
     "binary_sensor": {
@@ -272,7 +280,7 @@
     },
     "switch": {
       "sound_level_compensation": {
-        "name": "Geluidsniveau compensatie"
+        "name": "Soundslider-compensatie"
       }
     },
     "text": {
@@ -304,6 +312,15 @@
     "supply_sensor_offset": {
       "title": "Aanvoertemperatuursensor wijkt af",
       "description": "De aanvoertemperatuur ({supply_entity}) ligt {offset} K naast de wateruitgang van de warmtepomp ({reference_entity}), gemeten over {hours} uur stabiel stoken. Tussen die twee punten verandert de watertemperatuur nauwelijks, dus de sensor wijkt af. Het aanvoeradvies en de foutsensoren lijken daardoor even ver verschoven.\n\nGebruik je OpenQuatt? Voer de kalibratie van de watersensoren uit en kijk bij **Water Supply Temperature Calibration Status**. Zonder OpenQuatt: controleer hoe de aanvoersensor gemonteerd is.\n\nDeze melding verdwijnt vanzelf zodra het verschil onder {clear} K komt."
+    }
+  },
+  "selector": {
+    "advice_source": {
+      "options": {
+        "stooklijn": "Stooklijn — alleen buitentemperatuur (uit je stookdagen)",
+        "mpc": "MPC — stooklijn plus kamercorrectie (omhoog als de kamer onder het setpoint zit, omlaag als hij erboven zit); rekent niet met het lerende huismodel",
+        "1r1c": "Huismodel (1R1C) — het lerende huismodel (warmteverlies, zon, interne warmte) plus kamercorrectie; MPC zolang het model nog leert"
+      }
     }
   }
 }

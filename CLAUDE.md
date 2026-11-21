@@ -89,3 +89,32 @@ inhaalterm of capaciteitsgrens, en een gebruiker las de lege "T binnen"
 naast een afwijkend +0 als "de aansturing negeert de kamer". Zonder huismodel
 telt de inhaalterm alleen in uur 0: hoe snel een tekort verdwijnt hangt van C
 af, en een aangenomen C zit bij een zwaar huis al gauw een factor 2 mis.
+
+## Een negatieve zonnewinst is een waarschuwing, geen ruis om weg te poetsen
+
+Een negatieve g betekent vrijwel altijd dat de hele 1R1C-fit niet klopt, niet
+alleen de zonnewinst. Laat `G_MIN = 0` in `_params_sane` het model dus naar de
+batch-terugval sturen, ook als U en C binnen hun grenzen liggen.
+
+Uitgezocht op 21-11-2026 (Tweakers: g = −1,96 na 73 uur, U 257 en C 13.280,
+model op de terugval). Op een nagebootst novemberhuis (80 jonge modellen, 14
+dagen, kamerruis ±0,015 K) hadden de uren met g ≥ 0 een mediaanfout van 2% op
+U en 7% op C. In elk uur met −2 ≤ g < 0 zat U er 119% en C 59% naast, binnen de
+grenzen. Een plausibele U zegt weinig: in uren zonder warmtevraag staat U
+vast op de warmteverliesanalyse.
+
+Wat níét werkt, alle drie geprobeerd:
+
+- **g bij gebruik als 0 tellen** (`max(0, θ₂)`). Dat haalt de waarschuwing
+  weg en zet precies de slechte modellen online: vooruitblik,
+  prijsverschuiving en de veilige uitlooptijd, die als comfortgrens voor
+  sturing van buitenaf bedoeld is.
+- **θ₂ in de RLS op nul zetten** zonder P mee te nemen, samen met g 's nachts
+  bevriezen: het koude-starthuis van `TestOnlineRCModel` ontspoorde (U
+  −477 W/K, C negatief).
+- **Alleen 's nachts bevriezen of alleen de ondergrens**: geen verbetering op
+  het novemberhuis.
+
+Het echte probleem is dat een jong model in november onstabiel leert. Wie
+daaraan werkt, speelt eerst na op echte data (RLS-toestand en logboek uit
+`.storage`), niet alleen synthetisch.

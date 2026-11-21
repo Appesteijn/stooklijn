@@ -11,7 +11,7 @@ Optionally compares against your gas consumption from before the heat pump.
 
 Everything it does is read-only by default: it advises, it does not steer your installation.
 Two optional features do write to the heat pump, and both are off until you enable them:
-[sound level compensation](#geluidsniveaucompensatie) and
+[soundslider compensation](#soundslider-compensation) and
 [supply-temperature control](#supply-temperature-control).
 
 ![Overzicht tab](screenshot-overzicht.png)
@@ -127,8 +127,8 @@ Leave a field empty and auto-detection picks the entity at runtime. That is usua
 - **Boiler efficiency** — Your old boiler's efficiency (default: 0.90)
 - **Hot water threshold** — Temperature above which gas usage is counted as hot water only (default: 18°C)
 
-### Step 3: Geluidsniveaucompensatie (optional)
-- Enable the sound level compensation switch and configure day/night maximum levels and the hours at which night starts and ends
+### Step 3: Soundslider compensation (optional)
+- Enable the soundslider compensation switch and configure the highest day/night setting and the hours at which night starts and ends (the same night times as in the Quatt app)
 
 ### Change marker (optional)
 
@@ -263,7 +263,7 @@ Almost every Home Assistant installation has this: the built-in [Met.no integrat
 - **Online thermisch model** — Learns how fast your house warms up and cools down (thermal mass Wh/K, solar gain) every hour, with heat loss and constant heat gain held at the heat-loss regression. It feeds the look-ahead, coast time, stored heat and price shift; see [Which model is used where](#which-model-is-used-where)
 - **Model comparison** — Scores a two-node (2R2C) house model against the running model on held-out data, once a day. It only measures; the 2R2C model drives nothing
 - **Quatt advies** — Shows exactly which parameters to ask Quatt to adjust (stookgrens, nominaal vermogen, stooklijn breakpoints)
-- **Geluidsniveaucompensatie** (optional) — Automatically adjusts the compressor sound level based on MPC error and boiler activity, with separate day/night limits
+- **Soundslider compensation** (optional) — Automatically moves the soundslider of the Quatt (day and night maximum sound level) based on the chosen advice and boiler activity, with separate day/night limits
 - **Supply-temperature control** (optional) — Writes the recommended supply temperature to the controller's maximum supply temperature setting
 - **OpenQuatt ready** — Output sensors with optimal heating curve breakpoints and balance point, ready for OpenQuatt automations
 - **Power House feedforward** — Publishes the measured house heat demand (W) for OpenQuatt's external heat demand input
@@ -317,12 +317,13 @@ Each carries `source_entity`, `source_integration`, `candidates` and `switched_a
 | `geschatte_actuele_cop` | — | Interpolated COP at current outdoor temperature |
 | `aanbevolen_aanvoertemperatuur` | °C | Recommended supply temperature (stooklijn-based) |
 | `mpc_aanbevolen_aanvoertemperatuur` | °C | MPC recommended supply temperature (heat loss + catch-up for a room below setpoint) |
+| `1r1c_aanbevolen_aanvoertemperatuur` | °C | Recommended supply temperature from the learning house model (1R1C) with the same catch-up; passes the MPC advice through (`terugval: true`) until the model is online |
 | `stooklijn_fout_aanvoertemperatuur` | °C | Error: stooklijn advice − actual supply |
 | `mpc_fout_aanvoertemperatuur` | °C | Error: MPC advice − actual supply |
 | `veilige_uitlooptijd` | min | How long the house can coast with the heat pump off before hitting the comfort floor; attribute `recovery_on_min_minutes` is how long getting back to the room setpoint takes with the heat pump at its minimum output |
 | `opgeslagen_warmte` | kWh | Heat stored in the building above the comfort floor: what the house has to lose before it reaches that floor. Negative when the room is below it. Available once the online model has converged |
 | `max_aanvoertemperatuur_instelling` | °C | Value last written to the heat pump's max supply temperature (only when [supply-temperature control](#supply-temperature-control) is enabled) |
-| `geluidsniveau` | — | Current compressor sound level (`building87` / `silent` / `library` / `normal`) — only when sound level compensation is enabled |
+| `geluidsniveau` | — | Current soundslider setting (`building87` / `silent` / `library` / `normal`) — only when soundslider compensation is enabled |
 | `compressorstarts` | starts/uur | Compressor starts in the last hour — see [Short cycling](#short-cycling) |
 | `cop_prestatie` | — | Efficiency against this installation's own norm at the same outdoor temperature and the same half of the season — see [Judging a change](#judging-a-change) |
 | `zonverwachting` | W/m² | Mean error of the Open-Meteo sun forecast three hours ahead; attribute `per_vooruitkijktijd` has the error per lead time (1, 2, 3, 6, 12 h), next to "keep the current clearness" when a sun sensor is set — see [Solar gain correction](#solar-gain-correction) |
@@ -336,11 +337,11 @@ Both error sensors return no value while the pump is idle (flow below 30 L/h): c
 |--------|-------------|
 | `gasketel_actief` | Whether the gas boiler is currently producing heat |
 
-**Control entities** (only when geluidsniveaucompensatie is enabled):
+**Control entities** (only when soundslider compensation is enabled):
 
 | Entity | Type | Description |
 |--------|------|-------------|
-| `geluidsniveau_compensatie` | switch | Enable/disable automatic sound level management |
+| `geluidsniveau_compensatie` | switch | Enable/disable automatic soundslider management |
 
 **Other entities:**
 
@@ -475,9 +476,19 @@ The sensor state is one of:
 
 > **Why no "current" value for Quatt?** Up to v0.10.4 the current stookgrens and rated power were estimated from a regression on daily averages. That fit only covers a narrow band of cold days and had to be extrapolated far to reach its zero point, and daily heat mostly reflects what the house asks for (the room thermostat corrects), not how the heating curve is set. One user got "raise from 13 to 16" while Quatt confirmed the setting was already 16. Since v0.10.6 you can enter the real values yourself instead; they are never guessed. The rated power counts as off when it differs by 250 W or more, the same threshold the Power House calibration uses.
 
-## Geluidsniveaucompensatie
+## Soundslider compensation
 
-The integration can automatically manage the Quatt compressor sound level based on real-time heating performance, keeping noise low while ensuring enough heat output.
+The integration can automatically move the **soundslider** of your Quatt — the day and night maximum sound level you know from the Quatt app — based on real-time heating performance, keeping noise low while ensuring enough heat output. The entity IDs keep their Dutch names (`…_geluidsniveau_compensatie`, `…_geluidsniveau`) so existing automations keep working.
+
+**Which model controls it** is your choice (`sound_level_source`), from the same list as the [max supply temperature](#supply-temperature-control) uses:
+
+| Source | Advice | Reacts to the room? |
+|--------|--------|---------------------|
+| `stooklijn` | Heat loss from your heating days, outdoor temperature only | No |
+| `mpc` (default) | The same heat loss plus a room correction: 10 × U × (setpoint − room) | Yes: higher when the room is below setpoint, lower when above |
+| `1r1c` | The learning house model: U × (setpoint − outdoor) − sun − constant gain, plus the same room correction. Until the model is online it uses the MPC advice | Yes, and also to the sun and a lower setpoint at night |
+
+The name `mpc` is historical: until v0.10.6-beta.6 that advice used the learning house model (1R1C); since then it uses the heat-loss line with a room correction. The `1r1c` source brings the house model back as an option. That the heat-loss line controls better was established on one house only (November 2026), with a 1R1C whose constant gain was still drifting; the [steering effect](#steering-effect) sensor lets you compare the sources on your own house. The 2R2C is not offered as a source yet: it has no supply advice of its own.
 
 ### How it works
 
@@ -487,11 +498,11 @@ Every 5 minutes the switch goes through these conditions in order and acts on th
 |-----------|--------|
 | Heat pump inactive (flow below 30 L/h) | After 10 minutes of this: reset to configured maximum, ready for the next cycle |
 | Gas boiler active (above 200 W) | Raise by one step (up to maximum), so the heat pump can deliver more |
-| MPC error < −2°C (supply too high) | Lower by one step — overheating, reduce compressor |
-| MPC error > +2°C (supply too low) | Raise by one step (up to maximum) |
+| Advice − supply < −2°C (supply too high) | Lower by one step — overheating, reduce compressor |
+| Advice − supply > +2°C (supply too low) | Raise by one step (up to maximum) |
 | Within dead band (±2°C) | No change |
 
-The level changes by at most one step per cycle, which limits how fast it can move. If the MPC advice has no value for more than 10 minutes, the level is reset to the configured maximum.
+The level changes by at most one step per cycle, which limits how fast it can move. If the chosen advice has no value for more than 10 minutes, the level is reset to the configured maximum. "No heat demand" (`advies_status: geen_vraag`) is not a missing value: it steps down, like supply too high.
 
 Before those conditions, each cycle reads back both CiC selects (`day_max_sound_level`, `night_max_sound_level`). If one differs from what the compensation wants for two cycles in a row, it is set back. Right after a restart this happens in the first cycle. This also overrides a level changed in the Quatt app while the compensation is on: to set it by hand, switch the compensation off first.
 
@@ -505,7 +516,8 @@ Enable in the integration options:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `sound_level_enabled` | `false` | Enable geluidsniveaucompensatie |
+| `sound_level_enabled` | `false` | Enable soundslider compensation |
+| `sound_level_source` | `mpc` | Which model controls it: `stooklijn`, `mpc` or `1r1c` (see above) |
 | `sound_level_max_day` | `normal` | Maximum level during the day |
 | `sound_level_max_night` | `normal` | Maximum level at night |
 | `sound_night_start_hour` | `23` | Hour the night period starts (local time) |
@@ -519,7 +531,9 @@ The switch exposes these attributes for monitoring:
 |-----------|-------------|
 | `current_level` | Current sound level being applied |
 | `effective_max` | Active maximum (day or night) |
-| `mpc_error` | Difference between MPC advice and actual supply temp (°C) |
+| `advies_bron` / `advies_entiteit` | Which model controls it, and the sensor that holds its advice |
+| `advies` / `advies_status` | The advice (°C), and why it is empty when it is (`geen_vraag`, `geen_invoer`) |
+| `advies_fout` | Advice minus actual supply temperature (°C); negative = supply too warm. Until v0.10.7-beta.4 this was `mpc_error` |
 | `hp_active` | Whether the heat pump is currently running |
 | `gas_active` | Whether the gas boiler is currently active |
 | `cic_day` / `cic_night` | What the CiC selects actually hold right now |
@@ -536,16 +550,36 @@ Optional and off by default. When enabled, the integration periodically writes t
 |---------|---------|-------------|
 | `ch_max_water_enabled` | `false` | Enable supply-temperature control |
 | `ch_max_water_entity` | empty | Target number entity; empty means auto-detection |
-| `ch_max_water_source` | `stooklijn` | Which advice to write: `stooklijn` or `mpc` |
+| `ch_max_water_source` | `stooklijn` | Which model controls it: `stooklijn`, `mpc` or `1r1c`, the same choice as for the [soundslider compensation](#soundslider-compensation) |
 | `ch_max_water_margin` | `2.0` | Degrees °C added to the advice before it is written as the ceiling (0–10) |
 | `ch_max_water_hysteresis` | `1.0` | Only write when the advice differs this many °C from the last written value |
 | `ch_max_water_interval` | `30` | Minutes between checks |
 
-The setting is a ceiling, not a target. The advice is the supply temperature the house needs, and the heat pump already throttles before it reaches its ceiling. A ceiling right at the advice therefore delivers too little and leaves no room to catch up when the room is below its setpoint, hence the margin. Only the MPC advice accounts for the room being below its setpoint (it catches up within an hour); the `stooklijn` advice depends on the outdoor temperature alone, so `mpc` is the better source for this control.
+The setting is a ceiling, not a target. The advice is the supply temperature the house needs, and the heat pump already throttles before it reaches its ceiling. A ceiling right at the advice therefore delivers too little and leaves no room to catch up when the room is below its setpoint, hence the margin. Only the `mpc` advice accounts for the room: it adds 10 × U × (setpoint − room), so the ceiling rises when the room falls behind and drops when it runs warm. The `stooklijn` advice depends on the outdoor temperature alone and cannot tell whether the room is warm enough.
+
+**Not with OpenQuatt in Power House mode.** There the maximum water temperature is a safety limiter, not a control input: OpenQuatt derates within 3 K of it and trips at +5 K. A ceiling at advice + margin would keep the heat pump derated. Use the [heat demand route](#driving-power-house-with-the-measured-house-model) instead.
 
 The last written value is shown by `sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling`, with the margin in its `margin_c` attribute.
 
 It stands down by itself while `sensor.quatt_warmteanalyse_warmtevraag` drives OpenQuatt's Power House, see [below](#driving-power-house-with-the-measured-house-model).
+
+## Steering effect
+
+`sensor.quatt_warmteanalyse_sturingseffect` measures what the knobs deliver, not how closely an advice matches what the controller did on its own. The error sensors (advice − actual supply) answer the second question, and a max supply temperature that does exactly what the CiC already did adds nothing. To choose between sources, this sensor keeps per day:
+
+| Measure | Why |
+|---------|-----|
+| Room − setpoint (mean), hours more than 0.3 K too cold / 0.5 K too warm | Comfort: the limit a knob must not cross |
+| kWh electricity per degree day, COP | The actual goal: lower supply, higher COP |
+| Compressor starts per heating hour | A max supply temperature that is too tight can cause short cycling |
+| Share of gas (hybrid) | A max supply temperature that is too tight can push the CiC to the boiler |
+| Share of heating time with the supply at the max supply temperature (within 1 K) | If the supply never reaches it, that knob limits nothing and a difference is not its doing |
+
+Every five minutes it records how the knobs stand, in the same words as the options: the max supply temperature (`uit`, `Stooklijn`, `MPC`, or `gepauzeerd (warmtevraag stuurt)` while the heat demand drives OpenQuatt Power House directly and this knob writes nothing), the soundslider compensation (`uit`, `Stooklijn`, `MPC`), and the heat demand link to OpenQuatt (`aan`/`uit`). That combination is the state, for example `max. aanvoertemp: MPC · soundslider: uit · warmtevraag OpenQuatt: uit`. With every knob off it measures the reference.
+
+A day counts in the comparison when it has at least 20 measured hours, at least one degree day (base: the balance point of the house), and one setting for at least 80% of the time. The attribute `per_instelling` then shows the averages per setting, summed before dividing so a cold day weighs more than a mild one; `dagen` has the last 14 days and `vandaag` the running day. The card "Sturingseffect" on the System tab shows the comparison.
+
+It is not an A/B test: weather and behaviour differ per week. Compare settings over several weeks each. The sensor controls nothing.
 
 ## OpenQuatt readiness
 
@@ -702,10 +736,11 @@ Helper curves: the **COP curve** (efficiency per outdoor temperature) and the **
 |---|---|
 | Stooklijn advice (supply temperature) | Heat-loss regression, without a room term |
 | **MPC advice** | Heat-loss regression + catch-up term (10 × U × shortfall), capped by the freeze curve |
-| Heat demand (Power House input) | Heat-loss regression |
+| Heat demand (Power House input) | Heat-loss regression only, never a room correction: Power House corrects for the room itself (Kp · error), so adding one here would count it twice |
 | Quatt advies / Power House calibration | Heat-loss regression |
-| Supply-temperature control | Stooklijn advice or MPC advice (your choice) |
-| Sound level compensation | MPC advice |
+| Supply-temperature control | Stooklijn, MPC or 1R1C advice (your choice; default Stooklijn) |
+| Soundslider compensation | Stooklijn, MPC or 1R1C advice (your choice; default MPC) |
+| 1R1C advice (source `1r1c`) | **1R1C** + the MPC catch-up term; MPC advice until the model is online |
 | Look-ahead: power and supply temperature per hour | The same formula as the MPC advice |
 | Look-ahead: room temperature and buffer | **1R1C** |
 | Look-ahead: room temperature (2R2C) | **2R2C**, shown only |

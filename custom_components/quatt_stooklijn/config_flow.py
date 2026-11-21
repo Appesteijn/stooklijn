@@ -10,6 +10,9 @@ from homeassistant.core import callback
 from homeassistant.helpers.selector import (
     EntitySelector,
     EntitySelectorConfig,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
 )
 
 from .const import (
@@ -56,6 +59,7 @@ from .const import (
     CONF_SOUND_LEVEL_ENABLED,
     CONF_SOUND_LEVEL_MAX_DAY,
     CONF_SOUND_LEVEL_MAX_NIGHT,
+    CONF_SOUND_LEVEL_SOURCE,
     CONF_SOUND_NIGHT_START_HOUR,
     CONF_SOUND_NIGHT_END_HOUR,
     CONF_POWER_ENTITY,
@@ -86,6 +90,7 @@ from .const import (
     DEFAULT_ROOM_SETPOINT,
     DEFAULT_HOT_WATER_TEMP_THRESHOLD,
     DEFAULT_SOUND_LEVEL_MAX,
+    DEFAULT_SOUND_LEVEL_SOURCE,
     DEFAULT_SOUND_NIGHT_START_HOUR,
     DEFAULT_SOUND_NIGHT_END_HOUR,
     DEFAULT_WEATHER_ENTITY,
@@ -113,6 +118,7 @@ from .discovery import (
     async_discover_quatt_entities,
     async_entity_exists,
 )
+from .advice_sources import ADVICE_SOURCE_OPTIONS
 from .sources import async_source_entity
 
 
@@ -124,6 +130,23 @@ def _entity(domain: str | list[str], *, multiple: bool = False) -> EntitySelecto
     foutmelding geaccepteerd.
     """
     return EntitySelector(EntitySelectorConfig(domain=domain, multiple=multiple))
+
+
+def _advice_source() -> SelectSelector:
+    """Keuze welk model een knop aanstuurt, met leesbare labels.
+
+    De waarden ("stooklijn", "mpc") blijven ongewijzigd zodat bestaande
+    instellingen blijven werken; de labels komen uit de vertaling
+    (selector.advice_source). Dezelfde lijst voor elke knop die de Quatt
+    beïnvloedt — zie advice_sources.
+    """
+    return SelectSelector(
+        SelectSelectorConfig(
+            options=ADVICE_SOURCE_OPTIONS,
+            translation_key="advice_source",
+            mode=SelectSelectorMode.LIST,
+        )
+    )
 
 
 def _prefill(key: str, value):
@@ -263,6 +286,7 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # de geluidsinstellingen bewaard en verdwenen de entity-velden.
             self._data.update(user_input)
             self._data.setdefault(CONF_SOUND_LEVEL_ENABLED, False)
+            self._data.setdefault(CONF_SOUND_LEVEL_SOURCE, DEFAULT_SOUND_LEVEL_SOURCE)
             self._data.setdefault(CONF_SOUND_LEVEL_MAX_DAY, DEFAULT_SOUND_LEVEL_MAX)
             self._data.setdefault(CONF_SOUND_LEVEL_MAX_NIGHT, DEFAULT_SOUND_LEVEL_MAX)
             self._data.setdefault(
@@ -322,6 +346,11 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_SOUND_LEVEL_ENABLED,
                     default=False,
                 ): bool,
+                # Welk advies de compensatie volgt (advice_sources).
+                vol.Optional(
+                    CONF_SOUND_LEVEL_SOURCE,
+                    default=DEFAULT_SOUND_LEVEL_SOURCE,
+                ): _advice_source(),
                 # Maximaal geluidsniveau dat de compensatie mag instellen.
                 # Voorkomt dat de HP te hard gaat draaien (bijv. 's nachts).
                 vol.Optional(
@@ -552,6 +581,10 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         default=data.get(CONF_SOUND_LEVEL_ENABLED, False),
                     ): bool,
                     vol.Optional(
+                        CONF_SOUND_LEVEL_SOURCE,
+                        default=data.get(CONF_SOUND_LEVEL_SOURCE, DEFAULT_SOUND_LEVEL_SOURCE),
+                    ): _advice_source(),
+                    vol.Optional(
                         CONF_SOUND_LEVEL_MAX_DAY,
                         default=data.get(CONF_SOUND_LEVEL_MAX_DAY, DEFAULT_SOUND_LEVEL_MAX),
                     ): vol.In(SOUND_LEVEL_OPTIONS),
@@ -579,7 +612,7 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(
                         CONF_CH_MAX_WATER_SOURCE,
                         default=data.get(CONF_CH_MAX_WATER_SOURCE, DEFAULT_CH_MAX_WATER_SOURCE),
-                    ): vol.In(["stooklijn", "mpc"]),
+                    ): _advice_source(),
                     # Graden bovenop het advies. Het advies is wat het huis
                     # nodig heeft; een plafond precies daarop knijpt de
                     # regelaar, die al vóór het plafond terugmoduleert.

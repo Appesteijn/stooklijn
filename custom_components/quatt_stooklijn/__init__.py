@@ -276,6 +276,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # dan detecteert hij zelf (zie discovery.async_resolve_setting_entity).
             number_entity=merged_config.get(CONF_CH_MAX_WATER_ENTITY, ""),
             source=merged_config.get(CONF_CH_MAX_WATER_SOURCE, DEFAULT_CH_MAX_WATER_SOURCE),
+            entry_id=entry.entry_id,
             hysteresis=merged_config.get(CONF_CH_MAX_WATER_HYSTERESIS, DEFAULT_CH_MAX_WATER_HYSTERESIS),
             interval_minutes=merged_config.get(CONF_CH_MAX_WATER_INTERVAL, DEFAULT_CH_MAX_WATER_INTERVAL),
             margin=merged_config.get(CONF_CH_MAX_WATER_MARGIN, DEFAULT_CH_MAX_WATER_MARGIN),

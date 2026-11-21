@@ -32,17 +32,18 @@
           "return_temp_entity": "Rücklauftemperatur-Sensor (°C)",
           "weather_entity": "Wettervorhersage-Entität (für MPC-Prognose)",
           "indoor_temp_entity": "Raumtemperatur-Sensor (°C, für Solar-Kalibrierung)",
-          "sound_level_enabled": "Schallpegel-Kompensation aktivieren (begrenzt Wärmepumpenleistung über CiC-Schallpegel)",
-          "sound_level_max_day": "Maximaler Schallpegel tagsüber",
-          "sound_level_max_night": "Maximaler Schallpegel nachts",
-          "sound_night_start_hour": "Nacht beginnt um (Stunde, 0–23, HA Ortszeit, z.B. 23)",
-          "sound_night_end_hour": "Nacht endet um (Stunde, 0–23, HA Ortszeit, z.B. 7)",
+          "sound_level_enabled": "Soundslider-Kompensation aktivieren (verschiebt den Soundslider deiner Quatt und damit die Leistung)",
+          "sound_level_source": "Soundslider-Kompensation: welches Modell steuert",
+          "sound_level_max_day": "Soundslider: höchste Stufe tagsüber",
+          "sound_level_max_night": "Soundslider: höchste Stufe nachts",
+          "sound_night_start_hour": "Soundslider: Nacht beginnt um (Stunde, 0–23, z.B. 23) — wie die Nachtzeiten in der Quatt-App",
+          "sound_night_end_hour": "Soundslider: Nacht endet um (Stunde, 0–23, z.B. 7) — wie die Nachtzeiten in der Quatt-App",
           "otgw_enabled": "OTGW-Kompensation aktivieren (erfordert OpenTherm Gateway)",
           "otgw_room_temp_override": "OTGW Raumtemperatur-Override Entität",
           "otgw_max_offset": "OTGW maximaler Offset (°C, max 3.0)",
           "ch_max_water_enabled": "Vorlauftemperatur-Begrenzung aktivieren (schreibt max. Vorlauftemp. an Quatt)",
           "ch_max_water_entity": "Quatt max. Vorlauftemperatur Entität",
-          "ch_max_water_source": "Steuerquelle (Heizkurve oder MPC)",
+          "ch_max_water_source": "Max. Vorlauftemperatur: welches Modell steuert",
           "ch_max_water_margin": "Aufschlag über der Empfehlung (°C)",
           "ch_max_water_hysteresis": "Minimale Änderung vor Schreibaktion (°C)",
           "ch_max_water_interval": "Schreibintervall (Minuten)",
@@ -79,17 +80,18 @@
           "compressor_2_entity": "Verdichterfrequenz-Sensor WP2 (Hz) — nur beim Duo; bei einem Solo leer lassen",
           "performance_baseline_date": "Datum der Änderung (YYYY-MM-DD) — friert die Effizienznorm auf alles davor ein; leer = letzte 30 Heiztage",
           "quatt_cloud_enabled": "Quatt-Cloud-API verwenden — aus = nur lokal (Recorder + eigene Speicher). Die aufgebaute Historie bleibt, nur neue Stundendaten entfallen. Sinnvoll vor allem mit einer zweiten lokalen Quelle wie OpenQuatt.",
-          "sound_level_enabled": "Schallpegel-Kompensation aktivieren (begrenzt Wärmepumpenleistung über CiC-Schallpegel)",
-          "sound_level_max_day": "Maximaler Schallpegel tagsüber",
-          "sound_level_max_night": "Maximaler Schallpegel nachts",
-          "sound_night_start_hour": "Nacht beginnt um (Stunde, 0–23, HA Ortszeit, z.B. 23)",
-          "sound_night_end_hour": "Nacht endet um (Stunde, 0–23, HA Ortszeit, z.B. 7)",
+          "sound_level_enabled": "Soundslider-Kompensation aktivieren (verschiebt den Soundslider deiner Quatt und damit die Leistung)",
+          "sound_level_source": "Soundslider-Kompensation: welches Modell steuert",
+          "sound_level_max_day": "Soundslider: höchste Stufe tagsüber",
+          "sound_level_max_night": "Soundslider: höchste Stufe nachts",
+          "sound_night_start_hour": "Soundslider: Nacht beginnt um (Stunde, 0–23, z.B. 23) — wie die Nachtzeiten in der Quatt-App",
+          "sound_night_end_hour": "Soundslider: Nacht endet um (Stunde, 0–23, z.B. 7) — wie die Nachtzeiten in der Quatt-App",
           "otgw_enabled": "OTGW-Kompensation aktivieren (erfordert OpenTherm Gateway)",
           "otgw_room_temp_override": "OTGW Raumtemperatur-Override Entität",
           "otgw_max_offset": "OTGW maximaler Offset (°C, max 3.0)",
           "ch_max_water_enabled": "Vorlauftemperatur-Begrenzung aktivieren (schreibt max. Vorlauftemp. an Quatt)",
           "ch_max_water_entity": "Quatt max. Vorlauftemperatur Entität",
-          "ch_max_water_source": "Steuerquelle (Heizkurve oder MPC)",
+          "ch_max_water_source": "Max. Vorlauftemperatur: welches Modell steuert",
           "ch_max_water_margin": "Aufschlag über der Empfehlung (°C)",
           "ch_max_water_hysteresis": "Minimale Änderung vor Schreibaktion (°C)",
           "ch_max_water_interval": "Schreibintervall (Minuten)",
@@ -244,7 +246,7 @@
         "name": "Rücklauftemperatur"
       },
       "sound_level": {
-        "name": "Geräuschpegel"
+        "name": "Soundslider"
       },
       "source_overview": {
         "name": "Datenquellen"
@@ -263,6 +265,12 @@
       },
       "price_shift": {
         "name": "Preisverschiebung Ersparnis (Schatten)"
+      },
+      "steering_effect": {
+        "name": "Steuerungseffekt"
+      },
+      "rc_recommended_supply_temp": {
+        "name": "1R1C empfohlene Vorlauftemperatur"
       }
     },
     "binary_sensor": {
@@ -272,7 +280,7 @@
     },
     "switch": {
       "sound_level_compensation": {
-        "name": "Geräuschpegel-Kompensation"
+        "name": "Soundslider-Kompensation"
       }
     },
     "text": {
@@ -304,6 +312,15 @@
     "supply_sensor_offset": {
       "title": "Vorlauftemperatursensor weicht ab",
       "description": "Die Vorlauftemperatur ({supply_entity}) liegt {offset} K neben dem Wasserausgang der Wärmepumpe ({reference_entity}), gemessen über {hours} Stunden stabilen Heizbetriebs. Zwischen diesen beiden Punkten ändert sich die Wassertemperatur kaum, der Sensor weicht also ab. Die Vorlaufempfehlung und die Fehlersensoren erscheinen dadurch um denselben Betrag verschoben.\n\nNutzt du OpenQuatt? Führe die Kalibrierung der Wassersensoren aus und prüfe **Water Supply Temperature Calibration Status**. Ohne OpenQuatt: prüfe die Montage des Vorlaufsensors.\n\nDiese Meldung verschwindet von selbst, sobald die Abweichung unter {clear} K liegt."
+    }
+  },
+  "selector": {
+    "advice_source": {
+      "options": {
+        "stooklijn": "Heizkurve — nur Außentemperatur (aus deinen Heiztagen)",
+        "mpc": "MPC — Heizkurve plus Raumkorrektur (höher, wenn der Raum unter dem Sollwert liegt, niedriger darüber); nutzt nicht das lernende Hausmodell",
+        "1r1c": "Hausmodell (1R1C) — das lernende Hausmodell (Wärmeverlust, Sonne, interne Gewinne) plus Raumkorrektur; MPC, solange das Modell noch lernt"
+      }
     }
   }
 }

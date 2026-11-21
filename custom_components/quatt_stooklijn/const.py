@@ -311,6 +311,10 @@ CONF_SOUND_LEVEL_MAX_DAY = "sound_level_max_day"
 CONF_SOUND_LEVEL_MAX_NIGHT = "sound_level_max_night"
 CONF_SOUND_NIGHT_START_HOUR = "sound_night_start_hour"
 CONF_SOUND_NIGHT_END_HOUR = "sound_night_end_hour"
+# Welk advies de compensatie volgt; zie advice_sources. "mpc" is wat hij tot
+# v0.10.7-beta.4 altijd deed, dus de standaard verandert niets.
+CONF_SOUND_LEVEL_SOURCE = "sound_level_source"
+DEFAULT_SOUND_LEVEL_SOURCE = "mpc"
 SOUND_LEVEL_OPTIONS = ["building87", "silent", "library", "normal"]
 DEFAULT_SOUND_LEVEL_MAX = "normal"  # standaard: geen beperking
 DEFAULT_SOUND_NIGHT_START_HOUR = 23

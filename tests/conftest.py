@@ -231,6 +231,18 @@ def _stub_ha():
     dt_mod.get_default_time_zone = lambda: timezone.utc
     if not hasattr(dt_mod, "utc_from_timestamp"):
         dt_mod.utc_from_timestamp = lambda ts: datetime.fromtimestamp(ts, timezone.utc)
+    if not hasattr(dt_mod, "as_local"):
+        dt_mod.as_local = lambda d: d.astimezone(dt_mod.get_default_time_zone())
+    if not hasattr(dt_mod, "start_of_local_day"):
+        from datetime import date as _date, time as _time
+
+        def _start_of_local_day(d=None):
+            if d is None:
+                d = dt_mod.now()
+            day = d if not isinstance(d, datetime) and isinstance(d, _date) else d.date()
+            return datetime.combine(day, _time.min, tzinfo=dt_mod.get_default_time_zone())
+
+        dt_mod.start_of_local_day = _start_of_local_day
 
     # voluptuous stub
     vol = sys.modules["voluptuous"]
@@ -290,6 +302,10 @@ def _stub_ha():
     sel_mod = sys.modules["homeassistant.helpers.selector"]
     sel_mod.EntitySelectorConfig = lambda **kw: kw
     sel_mod.EntitySelector = lambda config=None: {"selector": "entity", "config": config}
+    sel_mod.SelectSelectorConfig = lambda **kw: kw
+    sel_mod.SelectSelector = lambda config=None: {"selector": "select", "config": config}
+    from types import SimpleNamespace
+    sel_mod.SelectSelectorMode = SimpleNamespace(DROPDOWN="dropdown", LIST="list")
 
 
 # Run stubs before any component imports

@@ -43,6 +43,7 @@ from .analysis.thermal_model import (
     OnlineRCModel,
     advice_demand,
     advice_forward_without_model,
+    rc_advice_demand,
     simulate_advice_forward,
     simulate_coast_time,
     simulate_forward,
@@ -452,6 +453,8 @@ async def async_setup_entry(
     # Coast-time sensor deelt het RC-model + forecast van de MPC-sensor.
     entities.append(QuattCoastTimeSensor(coordinator, entry, mpc_sensor))
     entities.append(QuattStoredHeatSensor(coordinator, entry, mpc_sensor))
+    # Aanvoeradvies volgens het 1R1C: de stuurbron "1r1c" (advice_sources).
+    entities.append(QuattRcAdviceSensor(coordinator, entry, mpc_sensor))
     # Deelt hetzelfde model en meetlogboek; scoort alleen, stuurt niets aan.
     benchmark_sensor = QuattModelBenchmarkSensor(coordinator, entry, mpc_sensor)
     entities.append(benchmark_sensor)
@@ -497,8 +500,15 @@ async def async_setup_entry(
     entities.extend(
         QuattSourceMirrorSensor(hass, entry, registry, spec) for spec in MIRROR_SPECS
     )
-    entities.append(QuattCompressorStartsSensor(hass, entry))
+    starts_sensor = QuattCompressorStartsSensor(hass, entry)
+    entities.append(starts_sensor)
     entities.append(QuattSourceOverviewSensor(hass, entry, registry))
+    # Wat de knoppen opleveren, per instelling: comfort, verbruik, starts, gas.
+    # Altijd aan, ook zonder knop: "alles uit" is de referentie.
+    from .steering_effect import QuattSteeringEffectSensor
+    entities.append(
+        QuattSteeringEffectSensor(hass, coordinator, entry, mpc_sensor, starts_sensor)
+    )
 
     async_add_entities(entities)
 
@@ -786,22 +796,41 @@ class QuattSupplyTempSensor(
         flow_lph = get_float_state(self.hass, self._flow_entity)
 
         heat_demand_w = None
+        heat_demand_raw = None
         if (
             self.coordinator.data is not None
             and self.coordinator.data.heat_loss_hp.slope is not None
+            and self.coordinator.data.heat_loss_hp.intercept is not None
             and t_outdoor is not None
         ):
             from .analysis.utils import calc_heat_demand
-            heat_demand_w = round(
-                calc_heat_demand(
-                    self.coordinator.data.heat_loss_hp.slope,
-                    self.coordinator.data.heat_loss_hp.intercept,
-                    t_outdoor,
-                ),
-                0,
+            heat_demand_raw = calc_heat_demand(
+                self.coordinator.data.heat_loss_hp.slope,
+                self.coordinator.data.heat_loss_hp.intercept,
+                t_outdoor,
             )
+            heat_demand_w = round(heat_demand_raw, 0)
+
+        # Waarom de state er wel of niet staat, met dezelfde waarden als de
+        # MPC-sensor. Een knop die op dit advies stuurt (zie advice_sources)
+        # moet "boven het balanspunt, niets te stoken" kunnen onderscheiden van
+        # "er ontbreekt een meting": het eerste betekent dat de aanvoer te warm
+        # is, het tweede dat er niets bekend is.
+        if (
+            self.coordinator.data is None
+            or self.coordinator.data.heat_loss_hp.slope is None
+            or self.coordinator.data.heat_loss_hp.intercept is None
+            or t_outdoor is None
+            or t_return is None
+        ):
+            status = MPC_ADVICE_NO_INPUT
+        elif heat_demand_raw is not None and heat_demand_raw <= 0:
+            status = MPC_ADVICE_NO_DEMAND
+        else:
+            status = MPC_ADVICE_OK
 
         return {
+            MPC_ADVICE_STATUS_ATTR: status,
             "outdoor_temp": t_outdoor,
             "return_temp": t_return,
             "flow_lph": flow_lph,
@@ -1802,6 +1831,50 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             MPC_SUPPLY_TEMP_MIN, MPC_SUPPLY_TEMP_MAX,
         ), MPC_ADVICE_OK
 
+    def rc_advice(self) -> dict:
+        """Het aanvoeradvies volgens het lerende huismodel (1R1C).
+
+        Voor de stuurbron "1r1c" (zie advice_sources). Zolang het model niet
+        online is (``is_converged``), valt het terug op het MPC-advies, en zegt
+        ``terugval`` dat. Een knop die op deze bron staat stuurt dan gewoon door,
+        en het sturingseffect telt zulke uren apart.
+
+        Geeft ``{"value", "status", "terugval", "demand"}``.
+        """
+        model = self.thermal_model
+        if model is None or not model.is_converged:
+            value, status = self._current_advice()
+            return {"value": value, "status": status, "terugval": True, "demand": None}
+
+        t_outdoor = get_float_state(self.hass, self._outdoor_entity)
+        t_return = get_float_state(self.hass, self._return_temp_entity)
+        flow_lph = get_float_state(self.hass, self._flow_entity)
+        if t_outdoor is None or t_return is None:
+            return {"value": None, "status": MPC_ADVICE_NO_INPUT, "terugval": False, "demand": None}
+        effective_flow = _effective_flow(self.coordinator, flow_lph)
+        if effective_flow < MIN_FLOW_LPH:
+            return {"value": None, "status": MPC_ADVICE_NO_INPUT, "terugval": False, "demand": None}
+
+        t_setpoint, _ = self._resolve_room_setpoint()
+        demand = rc_advice_demand(
+            model,
+            t_outdoor,
+            get_float_state(self.hass, self._indoor_temp_entity),
+            t_setpoint,
+            self._get_current_solar_radiation_wm2(),
+            MPC_CATCHUP_FACTOR,
+            self._capacity_w(t_outdoor),
+        )
+        if demand is None:
+            return {"value": None, "status": MPC_ADVICE_NO_INPUT, "terugval": False, "demand": None}
+        if demand.total_w <= 0:
+            return {"value": None, "status": MPC_ADVICE_NO_DEMAND, "terugval": False, "demand": demand}
+        value = supply_temp_for(
+            demand.capped_w, t_return, effective_flow,
+            MPC_SUPPLY_TEMP_MIN, MPC_SUPPLY_TEMP_MAX,
+        )
+        return {"value": value, "status": MPC_ADVICE_OK, "terugval": False, "demand": demand}
+
     def _advice_demand(self, t_outdoor: float) -> AdviceDemand | None:
         """Het vermogen waar het aanvoeradvies op rekent, of None zonder huismodel.
 
@@ -2337,6 +2410,80 @@ class QuattStoredHeatSensor(
                 self.hass,
                 candidate_entities(
                     self.hass, self._entry.entry_id, (ROLE_INDOOR_TEMP,)
+                ),
+                self._handle_state_change,
+            )
+        )
+
+    async def _handle_state_change(self, event) -> None:
+        self.async_write_ha_state()
+
+
+class QuattRcAdviceSensor(
+    CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity
+):
+    """Aanvoeradvies volgens het lerende huismodel (1R1C): de stuurbron "1r1c".
+
+    Zelfde opbouw als het MPC-advies — basis plus inhaalterm, begrensd op de
+    capaciteit, omgerekend met retour en debiet — maar de basis komt uit het
+    1R1C in plaats van uit de rechte lijn door de stookdagen. Zie
+    ``rc_advice_demand`` voor de rekensom en waarom deze bron bestaat.
+
+    Zolang het model niet online is, geeft hij het MPC-advies door, met
+    ``terugval: true``. Zo valt een knop op deze bron nooit stil.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "rc_recommended_supply_temp"
+    _attr_native_unit_of_measurement = "°C"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:home-thermometer-outline"
+
+    def __init__(
+        self,
+        coordinator: QuattStooklijnCoordinator,
+        entry: ConfigEntry,
+        mpc_sensor: QuattMpcSensor,
+    ) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._mpc = mpc_sensor
+        self._attr_unique_id = f"{entry.entry_id}_rc_recommended_supply_temp"
+        self._attr_device_info = get_device_info(entry.entry_id)
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            "quatt_warmteanalyse_1r1c_aanbevolen_aanvoertemperatuur",
+            hass=coordinator.hass,
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        return self._mpc.rc_advice()["value"]
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        advice = self._mpc.rc_advice()
+        demand = advice["demand"]
+        return {
+            MPC_ADVICE_STATUS_ATTR: advice["status"],
+            # True: het huismodel is nog niet online en dit is het MPC-advies.
+            "terugval": advice["terugval"],
+            "stationair_w": round(demand.stationary_w) if demand else None,
+            "inhaal_w": round(demand.catchup_w) if demand else None,
+            "vraag_w": round(demand.capped_w) if demand else None,
+            "begrensd": bool(demand.capped) if demand else False,
+        }
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                candidate_entities(
+                    self.hass, self._entry.entry_id,
+                    (ROLE_OUTDOOR_TEMP, ROLE_RETURN_TEMP, ROLE_FLOW_RATE,
+                     ROLE_INDOOR_TEMP, ROLE_ROOM_SETPOINT),
                 ),
                 self._handle_state_change,
             )
@@ -4640,6 +4787,15 @@ class QuattCompressorStartsSensor(SensorEntity):
             ROLE_COMPRESSOR_2: CycleTracker(),
         }
         self._loaded = False
+
+    def starts_between(self, since: datetime, until: datetime) -> int | None:
+        """Starts van beide units samen in [since, until); None vóór het laden.
+
+        Voor het sturingseffect, dat per kalenderdag telt.
+        """
+        if not getattr(self, "_loaded", False):
+            return None
+        return sum(t.starts_between(since, until) for t in self._trackers.values())
 
     # -- bron --------------------------------------------------------------
 

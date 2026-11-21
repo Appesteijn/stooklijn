@@ -833,6 +833,61 @@ def advice_demand(
     )
 
 
+def rc_advice_demand(
+    model: OnlineRCModel,
+    t_outdoor: float,
+    t_indoor: float | None,
+    t_setpoint: float,
+    q_solar_wm2: float | None,
+    catchup_factor: float,
+    capacity_w: float | None,
+) -> AdviceDemand | None:
+    """Het vermogen volgens het lerende huismodel (1R1C), voor één moment.
+
+    De stationaire vraag is wat het 1R1C zelf zegt dat er nodig is om de kamer
+    op het setpoint te houden (dT/dt = 0 bij T_binnen = setpoint):
+    ``U · (setpoint − T_buiten) − g · Q_zon − P_c``, niet onder nul. Daarbij
+    dezelfde inhaalterm en capaciteitsgrens als ``advice_demand``, zodat het
+    verschil tussen de bronnen alleen in de basis zit: geleerde U, de zon van
+    nu, de constante warmtewinst, en een setpoint dat 's nachts lager mag zijn.
+
+    Waarom deze bron bestaat: dat het 1R1C slechter stuurt dan de rechte lijn
+    is in november 2026 alleen op één huis vastgesteld, met een 1R1C waarvan P_c
+    nog vrij meegroeide met C (sinds v0.10.7-beta.2 vastgezet). Als kiesbare
+    bron, gemeten met het sturingseffect, toetst het zich op meer huizen.
+
+    Een mogelijke valkuil, nog niet gemeten: P_c komt uit het balanspunt, en
+    dat is op daggemiddelden gefit en bevat de gemiddelde zon al. De zonterm
+    erbovenop kan de zon deels dubbel tellen. Bij de rechte lijn maakte dat de
+    zonuren 300 W slechter (zie ``QuattMpcSensor._advice_demand``).
+
+    None als het model geen parameters heeft. Of het model betrouwbaar is
+    (``is_converged``), beslist de aanroeper.
+    """
+    p = model.raw_params
+    if p is None:
+        return None
+    u_wk = float(p["U"])
+    stationary = max(
+        0.0,
+        u_wk * (t_setpoint - t_outdoor)
+        - float(p["g"]) * (q_solar_wm2 or 0.0)
+        - float(p["P_c"]),
+    )
+    catchup = 0.0
+    if t_indoor is not None and stationary > 0:
+        catchup = catchup_factor * u_wk * (t_setpoint - t_indoor)
+    total = stationary + catchup
+    capped = min(total, capacity_w) if capacity_w is not None else total
+    return AdviceDemand(
+        stationary_w=stationary,
+        catchup_w=catchup,
+        total_w=total,
+        capped_w=capped,
+        capacity_w=capacity_w,
+    )
+
+
 def supply_temp_for(
     q_w: float,
     t_return: float,

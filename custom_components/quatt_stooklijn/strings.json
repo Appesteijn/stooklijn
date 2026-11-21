@@ -36,17 +36,18 @@
           "return_temp_entity": "Return temperature sensor (°C)",
           "weather_entity": "Weather forecast entity (for MPC forecast)",
           "indoor_temp_entity": "Indoor temperature sensor (°C, for solar gain calibration)",
-          "sound_level_enabled": "Enable sound level compensation (limits heat pump power via CiC sound level)",
-          "sound_level_max_day": "Maximum sound level during the day",
-          "sound_level_max_night": "Maximum sound level at night",
-          "sound_night_start_hour": "Night start hour (0–23, HA local time, e.g. 23)",
-          "sound_night_end_hour": "Night end hour (0–23, HA local time, e.g. 7)",
+          "sound_level_enabled": "Enable soundslider compensation (moves the soundslider of your Quatt, and with it the heat pump power)",
+          "sound_level_source": "Soundslider compensation: which model controls it",
+          "sound_level_max_day": "Soundslider: highest setting during the day",
+          "sound_level_max_night": "Soundslider: highest setting at night",
+          "sound_night_start_hour": "Soundslider: night starts at (hour, 0–23, e.g. 23) — same as the night times in the Quatt app",
+          "sound_night_end_hour": "Soundslider: night ends at (hour, 0–23, e.g. 7) — same as the night times in the Quatt app",
           "otgw_enabled": "Enable OTGW compensation (requires OpenTherm Gateway)",
           "otgw_room_temp_override": "OTGW room temperature override entity",
           "otgw_max_offset": "OTGW maximum offset (°C, max 3.0)",
           "ch_max_water_enabled": "Enable supply temperature control (writes max. supply temp to Quatt)",
           "ch_max_water_entity": "Quatt max. supply temperature entity",
-          "ch_max_water_source": "Control source (stooklijn or MPC)",
+          "ch_max_water_source": "Max supply temperature: which model controls it",
           "ch_max_water_margin": "Margin above the advice (°C)",
           "ch_max_water_hysteresis": "Minimum change before writing (°C)",
           "ch_max_water_interval": "Write interval (minutes)",
@@ -87,17 +88,18 @@
           "compressor_2_entity": "Compressor frequency sensor HP2 (Hz) — Duo only; leave empty on a Solo",
           "performance_baseline_date": "Change marker date (YYYY-MM-DD) — freezes the efficiency norm on everything before it; empty = last 30 heating days",
           "quatt_cloud_enabled": "Use Quatt cloud API — off = local only (recorder + own stores). The built-up history is kept; only new hourly detail stops. Best if you have a second local source such as OpenQuatt.",
-          "sound_level_enabled": "Enable sound level compensation (limits heat pump power via CiC sound level)",
-          "sound_level_max_day": "Maximum sound level during the day",
-          "sound_level_max_night": "Maximum sound level at night",
-          "sound_night_start_hour": "Night start hour (0–23, HA local time, e.g. 23)",
-          "sound_night_end_hour": "Night end hour (0–23, HA local time, e.g. 7)",
+          "sound_level_enabled": "Enable soundslider compensation (moves the soundslider of your Quatt, and with it the heat pump power)",
+          "sound_level_source": "Soundslider compensation: which model controls it",
+          "sound_level_max_day": "Soundslider: highest setting during the day",
+          "sound_level_max_night": "Soundslider: highest setting at night",
+          "sound_night_start_hour": "Soundslider: night starts at (hour, 0–23, e.g. 23) — same as the night times in the Quatt app",
+          "sound_night_end_hour": "Soundslider: night ends at (hour, 0–23, e.g. 7) — same as the night times in the Quatt app",
           "otgw_enabled": "Enable OTGW compensation (requires OpenTherm Gateway)",
           "otgw_room_temp_override": "OTGW room temperature override entity",
           "otgw_max_offset": "OTGW maximum offset (°C, max 3.0)",
           "ch_max_water_enabled": "Enable supply temperature control (writes max. supply temp to Quatt)",
           "ch_max_water_entity": "Quatt max. supply temperature entity",
-          "ch_max_water_source": "Control source (stooklijn or MPC)",
+          "ch_max_water_source": "Max supply temperature: which model controls it",
           "ch_max_water_margin": "Margin above the advice (°C)",
           "ch_max_water_hysteresis": "Minimum change before writing (°C)",
           "ch_max_water_interval": "Write interval (minutes)",
@@ -252,7 +254,7 @@
         "name": "Return temperature"
       },
       "sound_level": {
-        "name": "Sound level"
+        "name": "Soundslider"
       },
       "source_overview": {
         "name": "Data sources"
@@ -271,6 +273,12 @@
       },
       "price_shift": {
         "name": "Price shift savings (shadow)"
+      },
+      "steering_effect": {
+        "name": "Steering effect"
+      },
+      "rc_recommended_supply_temp": {
+        "name": "1R1C recommended supply temperature"
       }
     },
     "binary_sensor": {
@@ -280,7 +288,7 @@
     },
     "switch": {
       "sound_level_compensation": {
-        "name": "Sound level compensation"
+        "name": "Soundslider compensation"
       }
     },
     "text": {
@@ -312,6 +320,15 @@
     "supply_sensor_offset": {
       "title": "Supply temperature sensor is off",
       "description": "The supply temperature ({supply_entity}) reads {offset} K compared with the water outlet of the heat pump ({reference_entity}), measured over {hours} hours of steady heating. Between those two points the water temperature hardly changes, so the sensor is off. The supply advice and the error sensors appear shifted by the same amount.\n\nUsing OpenQuatt? Run the water sensor calibration and check **Water Supply Temperature Calibration Status**. Without OpenQuatt, check how the supply sensor is mounted.\n\nThis notice disappears on its own once the difference drops below {clear} K."
+    }
+  },
+  "selector": {
+    "advice_source": {
+      "options": {
+        "stooklijn": "Heating curve — outdoor temperature only (from your heating days)",
+        "mpc": "MPC — heating curve plus room correction (higher when the room is below setpoint, lower when above); does not use the learning house model",
+        "1r1c": "House model (1R1C) — the learning house model (heat loss, sun, internal gains) plus room correction; uses MPC until the model is online"
+      }
     }
   }
 }

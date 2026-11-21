@@ -377,7 +377,7 @@ class TestGeenWarmtevraag:
             return None  # geen ketel
 
         with patch("custom_components.quatt_stooklijn.switch.get_float_state", side_effect=floats), \
-             patch.object(sw, "_mpc_reading", return_value=reading), \
+             patch.object(sw, "_advice_reading", return_value=reading), \
              patch.object(sw, "_is_night", return_value=False), \
              patch("custom_components.quatt_stooklijn.switch.datetime") as mock_dt:
             mock_dt.now.return_value = self.T0 + timedelta(minutes=minutes)
@@ -443,48 +443,100 @@ class TestGeenWarmtevraag:
         assert sw._current_level_idx == 2
 
 
-class TestMpcReading:
-    """Waarde en reden komen uit dezelfde state."""
+class TestAdviesBron:
+    """De compensatie volgt het gekozen advies (advice_sources, v0.10.7-beta.5).
 
-    def _sw_met_state(self, state):
+    Tot beta.4 las hij altijd het MPC-advies. Waarde en reden komen uit dezelfde
+    state; de bron bepaalt welke sensor dat is.
+    """
+
+    ENT = {
+        "mpc_recommended_supply_temp": "sensor.mpc",
+        "recommended_supply_temp": "sensor.stooklijn",
+    }
+
+    def _sw(self, states, source=None):
+        from custom_components.quatt_stooklijn.const import CONF_SOUND_LEVEL_SOURCE
         sw = _make_switch()
-        sw.hass.states.get = lambda entity_id: state
+        if source is not None:
+            hass = sw.hass
+            sw._entry.options[CONF_SOUND_LEVEL_SOURCE] = source
+            sw = QuattSoundLevelSwitch(hass, MagicMock(), sw._entry)
+            sw.hass = hass
+            sw.async_write_ha_state = MagicMock()
+        sw.hass.states.get = lambda entity_id: states.get(entity_id)
         return sw
 
-    def _lees(self, sw):
+    @staticmethod
+    def _state(value, status):
+        return MagicMock(state=value, attributes={"advies_status": status})
+
+    def test_standaard_is_mpc(self):
+        sw = self._sw({"sensor.mpc": self._state("34.0", "advies"),
+                       "sensor.stooklijn": self._state("31.0", "advies")})
+        assert sw._advice_source == "mpc"
         with patch(
-            "custom_components.quatt_stooklijn.switch.resolve_own_entity_id",
-            return_value="sensor.mpc",
-        ), patch(
-            "custom_components.quatt_stooklijn.switch.get_float_state",
-            side_effect=lambda hass, eid: (
-                float(sw.hass.states.get(eid).state)
-                if sw.hass.states.get(eid).state not in ("unknown", "unavailable")
-                else None
-            ),
+            "custom_components.quatt_stooklijn.advice_sources.resolve_own_entity_id",
+            side_effect=lambda hass, platform, entry_id, suffix: self.ENT[suffix],
         ):
-            return sw._mpc_reading()
+            assert sw._advice_reading() == (34.0, "advies")
+
+    def test_stooklijn_als_bron(self):
+        sw = self._sw({"sensor.mpc": self._state("34.0", "advies"),
+                       "sensor.stooklijn": self._state("31.0", "advies")}, source="stooklijn")
+        assert sw._advice_source == "stooklijn"
+        with patch(
+            "custom_components.quatt_stooklijn.advice_sources.resolve_own_entity_id",
+            side_effect=lambda hass, platform, entry_id, suffix: self.ENT[suffix],
+        ):
+            assert sw._advice_reading() == (31.0, "advies")
+
+    def test_onbekende_bron_valt_terug_op_mpc(self):
+        sw = self._sw({}, source="2r2c")
+        assert sw._advice_source == "mpc"
+
+    def _lees_mpc(self, state):
+        sw = self._sw({"sensor.mpc": state})
+        with patch(
+            "custom_components.quatt_stooklijn.advice_sources.resolve_own_entity_id",
+            side_effect=lambda hass, platform, entry_id, suffix: self.ENT[suffix],
+        ):
+            return sw._advice_reading()
 
     def test_geen_vraag(self):
-        state = MagicMock(state="unknown", attributes={"advies_status": "geen_vraag"})
-        assert self._lees(self._sw_met_state(state)) == (None, "geen_vraag")
+        assert self._lees_mpc(self._state("unknown", "geen_vraag")) == (None, "geen_vraag")
 
     def test_advies(self):
-        state = MagicMock(state="34.0", attributes={"advies_status": "advies"})
-        assert self._lees(self._sw_met_state(state)) == (34.0, "advies")
+        assert self._lees_mpc(self._state("34.0", "advies")) == (34.0, "advies")
 
     def test_unavailable_negeert_oud_attribuut(self):
         """Een unavailable sensor zegt niets over de vraag, ook al hangt er nog een attribuut."""
-        state = MagicMock(state="unavailable", attributes={"advies_status": "geen_vraag"})
-        assert self._lees(self._sw_met_state(state)) == (None, None)
+        assert self._lees_mpc(self._state("unavailable", "geen_vraag")) == (None, None)
 
     def test_sensor_bestaat_niet(self):
-        sw = _make_switch()
+        sw = self._sw({})
         with patch(
-            "custom_components.quatt_stooklijn.switch.resolve_own_entity_id",
+            "custom_components.quatt_stooklijn.advice_sources.resolve_own_entity_id",
             return_value=None,
         ):
-            assert sw._mpc_reading() == (None, None)
+            assert sw._advice_reading() == (None, None)
+
+    def test_attributen_noemen_de_bron(self):
+        sw = self._sw({"sensor.stooklijn": self._state("31.0", "advies")}, source="stooklijn")
+        with patch(
+            "custom_components.quatt_stooklijn.advice_sources.resolve_own_entity_id",
+            side_effect=lambda hass, platform, entry_id, suffix: self.ENT[suffix],
+        ), patch(
+            "custom_components.quatt_stooklijn.switch.get_float_state",
+            side_effect=lambda hass, eid: 33.0 if eid == sw._supply_entity else None,
+        ), patch.object(sw, "_is_night", return_value=False):
+            attrs = sw.extra_state_attributes
+        assert attrs["advies_bron"] == "stooklijn"
+        assert attrs["advies_entiteit"] == "sensor.stooklijn"
+        assert attrs["advies"] == 31.0
+        assert attrs["advies_status"] == "advies"
+        assert attrs["advies_fout"] == -2.0
+        assert "mpc_error" not in attrs
 
 
 # ---------------------------------------------------------------------------
@@ -590,7 +642,7 @@ class TestTerugkoppeling:
     def test_attributen_tonen_cic_stand(self):
         sw = self._switch(cic_day="building87", cic_night="normal")
         with patch("custom_components.quatt_stooklijn.switch.get_float_state", return_value=None), \
-             patch.object(sw, "_mpc_reading", return_value=(None, None)), \
+             patch.object(sw, "_advice_reading", return_value=(None, None)), \
              patch.object(sw, "_is_night", return_value=False):
             attrs = sw.extra_state_attributes
         assert attrs["cic_day"] == "building87"

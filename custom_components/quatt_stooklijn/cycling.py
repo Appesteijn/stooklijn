@@ -155,6 +155,10 @@ class CycleTracker:
     def starts_since(self, since: datetime) -> int:
         return sum(1 for r in self.runs if r.start >= since)
 
+    def starts_between(self, since: datetime, until: datetime) -> int:
+        """Starts met ``since <= start < until``, bijvoorbeeld één kalenderdag."""
+        return sum(1 for r in self.runs if since <= r.start < until)
+
     def starts_in_last(self, hours: float, now: datetime) -> int:
         return self.starts_since(now - timedelta(hours=hours))
 
