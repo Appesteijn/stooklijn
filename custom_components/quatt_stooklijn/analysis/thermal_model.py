@@ -512,9 +512,27 @@ class OnlineRCModel:
         q_hp = numerator / (dt_hours * theta[2])
         return max(0.0, q_hp)
 
+    def _n_updates_min(self) -> int:
+        """Updates van de traagste parameter die het model zelf leert.
+
+        Met anker leert θ₄ niet: hij staat bij elke update bevroren, dus zijn
+        teller loopt niet op. Telt hij mee, dan haalt een model dat met anker
+        begint (nieuwe installatie, of minder dan RLS_MIN_UPDATES uur oud bij
+        het aanzetten) nooit de drempel, en blijft het voorgoed op de
+        batch-terugval (v0.10.7-beta.2).
+        """
+        counts = self._rls.n_updates_per_param
+        if getattr(self, "_p_c_anchor", None) is not None:
+            counts = np.delete(counts, _P_C)
+        return int(counts.min())
+
     @property
     def is_converged(self) -> bool:
-        return self._rls.is_converged and self._params_sane()
+        return bool(
+            self._rls.n_updates >= RLS_MIN_UPDATES
+            and self._n_updates_min() >= RLS_MIN_UPDATES
+            and self._params_sane()
+        )
 
     def _params_sane(self) -> bool:
         """Check if learned parameters are within physically plausible bounds."""
@@ -567,8 +585,9 @@ class OnlineRCModel:
             "tau_hours": round(tau, 1) if tau else None,
             "n_updates": self._rls.n_updates,
             # Convergentie kijkt naar de traagste parameter; n_updates alleen
-            # loopt ook door in uren waarin C bevroren is.
-            "n_updates_min": int(self._rls.n_updates_per_param.min()),
+            # loopt ook door in uren waarin C bevroren is. Een vastgezette
+            # P_c telt niet mee (zie _n_updates_min).
+            "n_updates_min": self._n_updates_min(),
             "converged": self.is_converged,
             "u_prior_wk": round(self._u_prior, 1) if self._u_prior else None,
             "u_anchored": self._u_anchored,

@@ -2772,6 +2772,13 @@ views:
                 state_attr('switch.quatt_warmteanalyse_geluidsniveau_compensatie',
                 'boiler_heat_w') %}
 
+                {% set swe = 'switch.quatt_warmteanalyse_geluidsniveau_compensatie' %}
+
+                {% set cic = state_attr(swe, 'cic_night') if state_attr(swe,
+                'period') == 'nacht' else state_attr(swe, 'cic_day') %}
+
+                {% set corr = state_attr(swe, 'corrections') | int(0) %}
+
                 | | Status |
 
                 |:--|:--|
@@ -2783,6 +2790,10 @@ views:
                 | Gas actief | {% if gas %}Ja ({{ boiler }} W){% else %}Nee{% endif %} |
 
                 | Geluidsniveau | **{{ level | default('—') }}** |
+
+                | CiC ({{ state_attr(swe, 'period') | default('—', true) }}) | {{ cic | default('—', true) }}{% if cic and level and cic != level %} ⚠️{% endif %} |
+
+                | Teruggezet | {{ corr }}×{% if corr %} — {{ state_attr(swe, 'last_correction') }}{% endif %} |
 
                 | MPC fout | {% if mpc_err is not none %}{{ mpc_err }}°C{%
                 else %}*n/a*{% endif %} |

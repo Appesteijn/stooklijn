@@ -3,6 +3,30 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.3 — 2026-11-21
+
+- **Het huismodel komt weer online op een nieuwe installatie.** Sinds
+  v0.10.7-beta.2 staat de constante warmtewinst vast op de
+  warmteverliesanalyse, en leert het model hem dus niet meer zelf. De
+  convergentiecheck telde hem toch mee als parameter die 48 updates nodig had.
+  Een model dat met die vaste waarde begon (een nieuwe installatie, of een
+  model dat bij de update nog geen 48 bruikbare uren had) bleef daardoor
+  voorgoed op `batch_fallback` staan. Nu tellen alleen de parameters die het
+  model zelf leert. Een model dat al `online` stond merkte hier niets van. Het
+  MPC-advies rekent met het batchmodel en was niet geraakt.
+- **Geluidsniveaucompensatie controleert wat de CiC werkelijk heeft.** De
+  compensatie schreef alleen bij een stap en las de selects nooit terug.
+  Binnen de dode band gebeurt er soms urenlang niets, en een afwijking bleef
+  dan staan: een schrijfactie die niet aankwam, of een herstart (het niveau
+  komt uit de vorige state, de CiC kan intussen iets anders hebben). Gemeld
+  op Tweakers: de integratie stond op `library`, de CiC een hele nacht op
+  `building87`, en de kamer zakte een halve graad. Nu leest elke cyclus
+  beide selects terug. Wijkt er een twee cycli achter elkaar af, dan wordt
+  hij teruggezet; na een herstart meteen. Nieuwe attributen `cic_day`,
+  `cic_night`, `corrections` en `last_correction`. Let op: een niveau dat je
+  in de Quatt-app wijzigt terwijl de compensatie aan staat, wordt nu binnen
+  tien minuten teruggezet. Zet de compensatie uit om het met de hand te doen.
+
 ## v0.10.7-beta.2 — 2026-11-20
 
 Betaversie waarin het huismodel de kamer niet meer te warm voorspelt.

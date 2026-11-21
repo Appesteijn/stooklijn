@@ -491,6 +491,8 @@ Every 5 minutes the switch goes through these conditions in order and acts on th
 
 The level changes by at most one step per cycle, which limits how fast it can move. If the MPC advice has no value for more than 10 minutes, the level is reset to the configured maximum.
 
+Before those conditions, each cycle reads back both CiC selects (`day_max_sound_level`, `night_max_sound_level`). If one differs from what the compensation wants for two cycles in a row, it is set back. Right after a restart this happens in the first cycle. This also overrides a level changed in the Quatt app while the compensation is on: to set it by hand, switch the compensation off first.
+
 ### Day/night limits
 
 Configure separate maximum sound levels for day and night in the integration options. The switch automatically applies the right maximum based on the current time. When the period changes, the level is lowered to the new maximum if needed.
@@ -518,6 +520,8 @@ The switch exposes these attributes for monitoring:
 | `mpc_error` | Difference between MPC advice and actual supply temp (°C) |
 | `hp_active` | Whether the heat pump is currently running |
 | `gas_active` | Whether the gas boiler is currently active |
+| `cic_day` / `cic_night` | What the CiC selects actually hold right now |
+| `corrections` / `last_correction` | How often a select was set back since start, and the last time (with old → new value) |
 | `boiler_heat_w` | Current boiler heat output (W) |
 
 **Sound levels** (low → high): `building87` → `silent` → `library` → `normal`

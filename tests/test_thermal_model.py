@@ -1205,3 +1205,51 @@ class TestPcAnker:
         assert m._rls.theta[3] == 0.0
         assert m.raw_params["C"] == pytest.approx(C, rel=0.15)
         assert m.raw_params["U"] == pytest.approx(U, rel=0.1)
+
+
+class TestConvergentieMetAnker:
+    """Een vastgezette P_c mag de convergentie niet tegenhouden.
+
+    In v0.10.7-beta.2 stond θ₄ met anker bij elke update bevroren, dus zijn
+    teller bleef op nul. De convergentiecheck nam het minimum over alle vier
+    parameters, en een nieuw model haalde ``online`` daardoor nooit.
+    """
+
+    @staticmethod
+    def _stook(m: OnlineRCModel, uren: int, P: float = 970.0) -> None:
+        """Synthetisch huis U 285, C 12.000, blokstoken (2 van de 3 uur aan)."""
+        t0 = datetime(2026, 11, 1, tzinfo=timezone.utc)
+        t_in = 20.0
+        for h in range(uren):
+            q = 3000.0 if h % 3 else 0.0
+            m.update(t_in, 5.0, q, 0.0, t0 + timedelta(hours=h))
+            t_in += (285.0 * (5.0 - t_in) + q + P) / 12000.0
+
+    def test_nieuw_model_met_anker_convergeert(self):
+        m = OnlineRCModel()
+        m.initialise_from_batch(285.0)
+        m.set_p_c_anchor(970.0)
+        self._stook(m, 200)
+        assert m._rls.n_updates_per_param[3] == 0
+        assert m.params["n_updates_min"] >= RLS_MIN_UPDATES
+        assert m.is_converged
+
+    def test_met_anker_telt_alleen_de_geleerde_parameters(self):
+        """Niet te vroeg: C leert alleen in stookuren en blijft de traagste."""
+        m = OnlineRCModel()
+        m.initialise_from_batch(285.0)
+        m.set_p_c_anchor(970.0)
+        self._stook(m, 60)  # ~40 stookuren: genoeg updates, te weinig voor C
+        assert m._rls.n_updates >= RLS_MIN_UPDATES
+        assert m.params["n_updates_min"] == m._rls.n_updates_per_param[2]
+        assert m.params["n_updates_min"] < RLS_MIN_UPDATES
+        assert not m.is_converged
+
+    def test_zonder_anker_telt_theta4_wel_mee(self):
+        m = OnlineRCModel()
+        m.initialise_from_batch(285.0)
+        m._rls.n_updates_per_param[3] = 0  # θ₄ heeft nog niets geleerd
+        self._stook(m, 200)
+        m._rls.n_updates_per_param[3] = 10
+        assert m.params["n_updates_min"] == 10
+        assert not m.is_converged

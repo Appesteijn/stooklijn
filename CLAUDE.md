@@ -66,6 +66,9 @@ C staan en komt P_c zelf op ~1.050 W. Ook 's nachts, dus het is geen zon.
   is iets anders dan het bevriezen hierboven: er is niets met een regressor
   die nooit nul is. De startwaarde (`seed_constant_gain`) blijft alleen voor
   installaties zonder balanspunt.
+- Met anker telt θ₄ **niet** mee voor de convergentie (`_n_updates_min`). Zijn
+  teller loopt niet op, en in v0.10.7-beta.2 bleef een nieuw model daardoor
+  voorgoed op `batch_fallback` (`TestConvergentieMetAnker`).
 
 ## Op vijfminutendata niet één stap vooruit fitten
 

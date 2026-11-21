@@ -82,6 +82,10 @@ _MPC_UNIQUE_SUFFIX = "mpc_recommended_supply_temp"
 
 _GAS_THRESHOLD_W = 200.0  # W: boven deze waarde is de gasketel actief
 _DEAD_BAND = 2.0           # °C: geen actie binnen deze marge rond MPC-advies
+# Aantal opeenvolgende cycli dat een CiC-select moet afwijken voordat de
+# compensatie hem terugzet. Eén cyclus marge, zodat een waarde die net is
+# geschreven en via de Quatt-cloud nog onderweg is niet dubbel wordt gestuurd.
+_MISMATCH_CYCLES = 2
 
 
 async def async_setup_entry(
@@ -127,6 +131,14 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         self._last_mpc_available: datetime | None = None
         self._hp_inactive_since: datetime | None = None
         self._last_is_night: bool | None = None
+        # Terugkoppeling: per select hoeveel cycli hij al afwijkt van wat de
+        # compensatie wil. Na een herstart is het interne niveau hersteld uit
+        # de vorige state, maar is niet bekend wat de CiC nu heeft; daarom
+        # direct gelijktrekken bij de eerste cyclus.
+        self._mismatch_cycles: dict[str, int] = {}
+        self._synced_since_start = False
+        self._corrections = 0
+        self._last_correction: str | None = None
 
         merged = {**entry.data, **entry.options}
 
@@ -270,6 +282,9 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             )
             await self._async_apply_level()
 
+        # 0. Klopt wat de CiC heeft nog met wat wij denken?
+        await self._async_verify_selects()
+
         # 1. HP actief?
         flow = get_float_state(self.hass, self._flow_entity)
         if flow is None or flow < MIN_FLOW_LPH:
@@ -389,11 +404,12 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
     def _night_sound_entity(self) -> str | None:
         return async_source_entity(self.hass, self._entry.entry_id, ROLE_SOUND_NIGHT)
 
-    async def _async_apply_level(self) -> None:
-        """Schrijf het huidige geluidsniveau naar de actieve periode-select.
+    def _desired_selects(self) -> list[tuple[str | None, str]]:
+        """Wat elke CiC-select volgens de compensatie nu hoort te zijn.
 
-        De inactieve select wordt teruggezet naar zijn geconfigureerde maximum,
-        zodat bij periode-overgang de CIC een schone waarde aantreft.
+        De actieve periode-select krijgt het huidige niveau (begrensd op het
+        maximum van die periode), de inactieve zijn geconfigureerde maximum,
+        zodat bij een periode-overgang de CiC een schone waarde aantreft.
         """
         day_entity = self._day_sound_entity
         night_entity = self._night_sound_entity
@@ -403,7 +419,66 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         else:
             active_entity, active_idx = day_entity, min(self._current_level_idx, self._max_day_idx)
             idle_entity, idle_idx = night_entity, self._max_night_idx
-        for entity_id, idx in ((active_entity, active_idx), (idle_entity, idle_idx)):
+        return [
+            (active_entity, _SOUND_LEVELS[active_idx]),
+            (idle_entity, _SOUND_LEVELS[idle_idx]),
+        ]
+
+    def _select_state(self, entity_id: str | None) -> str | None:
+        """Huidige stand van een CiC-select, of None als die niet te lezen is."""
+        if not entity_id or self.hass is None:
+            return None
+        state = self.hass.states.get(entity_id)
+        value = getattr(state, "state", None)
+        return value if isinstance(value, str) and value in _SOUND_LEVELS else None
+
+    async def _async_verify_selects(self) -> None:
+        """Zet een CiC-select terug als hij afwijkt van wat de compensatie wil.
+
+        De compensatie schrijft alleen bij een stap. Binnen de dode band kan dat
+        uren niet gebeuren, en zonder terugkoppeling bleef een afwijking zo
+        lang staan: een schrijfactie die niet aankwam, een herstart (het niveau
+        komt uit de vorige state, de CiC kan intussen iets anders hebben), of
+        een wijziging in de Quatt-app. Gemeld op Tweakers (21-11-2026): de
+        integratie stond op ``library``, de CiC een hele nacht op
+        ``building87``, en de kamer zakte van 20,5 naar 20,0 °C.
+
+        Een onleesbare select (unavailable, onbekende optie) telt niet als
+        afwijking: dan is er niets om op te vertrouwen.
+        """
+        first = not self._synced_since_start
+        self._synced_since_start = True
+        for entity_id, wanted in self._desired_selects():
+            actual = self._select_state(entity_id)
+            if actual is None or actual == wanted:
+                self._mismatch_cycles.pop(entity_id, None)
+                continue
+            count = self._mismatch_cycles.get(entity_id, 0) + 1
+            self._mismatch_cycles[entity_id] = count
+            if not first and count < _MISMATCH_CYCLES:
+                continue
+            _LOGGER.warning(
+                "Geluidsniveau: %s staat op '%s', compensatie wil '%s'%s; teruggezet",
+                entity_id,
+                actual,
+                wanted,
+                " (eerste cyclus na start)" if first else f" ({count} cycli)",
+            )
+            await self.hass.services.async_call(
+                "select",
+                "select_option",
+                {"entity_id": entity_id, "option": wanted},
+            )
+            self._mismatch_cycles.pop(entity_id, None)
+            self._corrections += 1
+            self._last_correction = (
+                f"{dt_util.now().strftime('%Y-%m-%d %H:%M')} {entity_id}: "
+                f"{actual} → {wanted}"
+            )
+
+    async def _async_apply_level(self) -> None:
+        """Schrijf het huidige geluidsniveau naar beide selects (zie _desired_selects)."""
+        for entity_id, option in self._desired_selects():
             if not entity_id:
                 # Geen select gevonden: overslaan in plaats van de service met
                 # een lege entity-ID aanroepen.
@@ -412,8 +487,10 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             await self.hass.services.async_call(
                 "select",
                 "select_option",
-                {"entity_id": entity_id, "option": _SOUND_LEVELS[idx]},
+                {"entity_id": entity_id, "option": option},
             )
+            # Net geschreven: de verificatie begint voor deze select opnieuw.
+            self._mismatch_cycles.pop(entity_id, None)
         _LOGGER.debug(
             "Geluidsniveau ingesteld: dag=%s, nacht=%s",
             _SOUND_LEVELS[min(self._current_level_idx, self._max_day_idx)],
@@ -435,6 +512,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
                     "select_option",
                     {"entity_id": entity_id, "option": _SOUND_LEVELS[max_idx]},
                 )
+                self._mismatch_cycles.pop(entity_id, None)
             _LOGGER.debug(
                 "Geluidsniveau gereset: dag=%s, nacht=%s",
                 _SOUND_LEVELS[self._max_day_idx],
@@ -515,4 +593,10 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             "hp_active": flow is not None and flow >= MIN_FLOW_LPH,
             "gas_active": boiler_heat is not None and boiler_heat > _GAS_THRESHOLD_W,
             "boiler_heat_w": round(boiler_heat) if boiler_heat is not None else None,
+            # Wat de CiC werkelijk heeft, naast wat de compensatie wil
+            # (effective_day/effective_night), plus hoe vaak er is bijgestuurd.
+            "cic_day": self._select_state(self._day_sound_entity) if self.hass else None,
+            "cic_night": self._select_state(self._night_sound_entity) if self.hass else None,
+            "corrections": self._corrections,
+            "last_correction": self._last_correction,
         }

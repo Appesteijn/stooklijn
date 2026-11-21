@@ -485,3 +485,114 @@ class TestMpcReading:
             return_value=None,
         ):
             assert sw._mpc_reading() == (None, None)
+
+
+# ---------------------------------------------------------------------------
+# Terugkoppeling: CiC-select wijkt af van wat de compensatie wil
+# ---------------------------------------------------------------------------
+
+class TestTerugkoppeling:
+    """De compensatie leest beide CiC-selects terug en zet een afwijking recht.
+
+    Aanleiding (Tweakers, 21-11-2026): de integratie stond op ``library``, de
+    CiC een hele nacht op ``building87``. Zonder terugkoppeling schrijft de
+    compensatie alleen bij een stap, en binnen de dode band gebeurt dat niet.
+    """
+
+    def _switch(self, cic_day, cic_night, level="library"):
+        sw = _make_switch()
+        sw._current_level_idx = _SOUND_LEVELS.index(level)
+        stand = {_DAY_SOUND_ENTITY: cic_day, _NIGHT_SOUND_ENTITY: cic_night}
+
+        def get(entity_id):
+            st = MagicMock()
+            st.state = stand.get(entity_id)
+            return st
+
+        sw.hass.states.get = MagicMock(side_effect=get)
+        sw._stand = stand
+        return sw
+
+    def _verify(self, sw, night=False):
+        with patch.object(sw, "_is_night", return_value=night):
+            _run(sw._async_verify_selects())
+
+    def _writes(self, sw):
+        return {
+            c.args[2]["entity_id"]: c.args[2]["option"]
+            for c in sw.hass.services.async_call.call_args_list
+        }
+
+    def test_na_start_direct_gelijkgetrokken(self):
+        """Herstart: niveau hersteld als library, CiC staat op building87."""
+        sw = self._switch(cic_day="building87", cic_night="normal")
+        self._verify(sw)
+        assert self._writes(sw) == {_DAY_SOUND_ENTITY: "library"}
+        assert sw._corrections == 1
+        assert "building87 → library" in sw._last_correction
+
+    def test_klopt_dan_geen_schrijfactie(self):
+        sw = self._switch(cic_day="library", cic_night="normal")
+        self._verify(sw)
+        self._verify(sw)
+        sw.hass.services.async_call.assert_not_called()
+
+    def test_na_start_pas_na_twee_cycli(self):
+        """Eén cyclus marge: een net geschreven waarde kan nog onderweg zijn."""
+        sw = self._switch(cic_day="library", cic_night="normal")
+        self._verify(sw)  # eerste cyclus: klopt
+        sw._stand[_DAY_SOUND_ENTITY] = "building87"
+        self._verify(sw)
+        sw.hass.services.async_call.assert_not_called()
+        self._verify(sw)
+        assert self._writes(sw) == {_DAY_SOUND_ENTITY: "library"}
+
+    def test_afwijking_die_vanzelf_verdwijnt_telt_niet_door(self):
+        sw = self._switch(cic_day="library", cic_night="normal")
+        self._verify(sw)
+        sw._stand[_DAY_SOUND_ENTITY] = "building87"
+        self._verify(sw)
+        sw._stand[_DAY_SOUND_ENTITY] = "library"
+        self._verify(sw)
+        sw._stand[_DAY_SOUND_ENTITY] = "building87"
+        self._verify(sw)
+        sw.hass.services.async_call.assert_not_called()
+
+    def test_nacht_select_gecorrigeerd_in_de_nacht(self):
+        """'s Nachts: nacht-select krijgt het niveau, dag-select zijn maximum."""
+        sw = self._switch(cic_day="normal", cic_night="building87")
+        self._verify(sw, night=True)
+        assert self._writes(sw) == {_NIGHT_SOUND_ENTITY: "library"}
+
+    def test_inactieve_select_terug_naar_maximum(self):
+        sw = self._switch(cic_day="library", cic_night="building87")
+        self._verify(sw)
+        assert self._writes(sw) == {_NIGHT_SOUND_ENTITY: "normal"}
+
+    def test_onleesbare_select_niet_aangeraakt(self):
+        sw = self._switch(cic_day="unavailable", cic_night=None)
+        self._verify(sw)
+        self._verify(sw)
+        sw.hass.services.async_call.assert_not_called()
+        assert sw._corrections == 0
+
+    def test_eigen_schrijfactie_reset_de_teller(self):
+        sw = self._switch(cic_day="library", cic_night="normal")
+        self._verify(sw)
+        sw._stand[_DAY_SOUND_ENTITY] = "building87"
+        self._verify(sw)  # teller 1
+        with patch.object(sw, "_is_night", return_value=False):
+            _run(sw._async_apply_level())
+        sw.hass.services.async_call.reset_mock()
+        self._verify(sw)  # teller opnieuw 1: nog niet corrigeren
+        sw.hass.services.async_call.assert_not_called()
+
+    def test_attributen_tonen_cic_stand(self):
+        sw = self._switch(cic_day="building87", cic_night="normal")
+        with patch("custom_components.quatt_stooklijn.switch.get_float_state", return_value=None), \
+             patch.object(sw, "_mpc_reading", return_value=(None, None)), \
+             patch.object(sw, "_is_night", return_value=False):
+            attrs = sw.extra_state_attributes
+        assert attrs["cic_day"] == "building87"
+        assert attrs["cic_night"] == "normal"
+        assert attrs["corrections"] == 0
