@@ -58,6 +58,7 @@ def _stub_ha():
     import enum
     const_mod = sys.modules["homeassistant.const"]
     const_mod.EntityCategory = enum.Enum("EntityCategory", ["DIAGNOSTIC", "CONFIG"])
+    const_mod.EVENT_HOMEASSISTANT_STOP = "homeassistant_stop"
 
     # Provide key classes/sentinels
     core = sys.modules["homeassistant.core"]

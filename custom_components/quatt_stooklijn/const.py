@@ -359,6 +359,13 @@ DEFAULT_CH_MAX_WATER_INTERVAL = 30          # minuten
 # stooklijnadvies op ons eigen huis gemiddeld 1,75 K onder de werkelijke aanvoer.
 DEFAULT_CH_MAX_WATER_MARGIN = 2.0           # °C
 CH_MAX_WATER_MARGIN_MAX = 10.0              # °C
+# Zonder advies zo lang, dan gaat het plafond terug naar de waarde van vóór de
+# eerste schrijfactie. Een laag plafond uit zacht weer mag niet de vorst in
+# blijven staan omdat de adviessensor wegviel.
+CH_MAX_WATER_ADVICE_TIMEOUT = 3600          # seconden
+# Hoe vaak een openstaand herstel opnieuw geprobeerd wordt als de bijsturing
+# uit staat (bijv. omdat de knop bij het uitschakelen onbereikbaar was).
+CH_MAX_WATER_RESTORE_INTERVAL = 5           # minuten
 
 
 # --- Compressorstarts ------------------------------------------------------

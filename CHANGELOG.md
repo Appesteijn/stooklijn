@@ -22,6 +22,20 @@ commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
   als onbekend, slaat het huismodel zo'n uur over en schrijft het
   meetlogboek hem niet weg. Een huismodel dat al door een NaN geraakt was,
   begint opnieuw vanaf de warmteverliesanalyse.
+- **De max. aanvoertemperatuur gaat terug naar je eigen instelling.** Voor de
+  eerste aanpassing onthoudt de integratie wat er stond. Die waarde komt terug
+  als je de bijsturing uitzet, bij het stoppen van Home Assistant, als het
+  advies langer dan een uur wegblijft, als de warmtevraag OpenQuatt
+  rechtstreeks gaat aansturen, en voor de oude regelaar als er van CiC naar
+  OpenQuatt gewisseld wordt. Tot nu toe bleef het laatste plafond in al die
+  gevallen staan, ook een laag plafond uit zacht weer tot in de vorst. Heb je
+  de waarde intussen zelf veranderd (bijvoorbeeld in de Quatt-app), dan blijft
+  jouw waarde staan. Na een herstart staat het plafond tot de eerste
+  aanpassing (standaard 30 minuten) op je eigen instelling.
+- **Na uitschakelen meldt de adviessensor niet meer "wordt automatisch
+  bijgestuurd".** De bijsturing bleef na uitschakelen intern geregistreerd.
+- **Een regelaar die geen minimum of maximum doorgeeft, krijgt geen
+  plafond meer.** Er werd dan 20 °C geschreven.
 
 ## v0.10.7-beta.6 — 2026-11-21
 

@@ -69,13 +69,29 @@ def _hass(states):
     return hass
 
 
-def _controller(hass, configured=""):
+class FakeStore:
+    """Store die in het geheugen leeft; ``data`` is wat er op schijf zou staan."""
+
+    def __init__(self, data=None):
+        self.data = data
+
+    async def async_load(self):
+        return self.data
+
+    async def async_save(self, data):
+        import copy
+        self.data = copy.deepcopy(data)
+
+
+def _controller(hass, configured="", store=None, **kw):
     return ChMaxWaterController(
         hass=hass,
         number_entity=configured,
         source="mpc",
         hysteresis=1.0,
         interval_minutes=15,
+        store=store if store is not None else FakeStore(),
+        **kw,
     )
 
 
@@ -460,3 +476,279 @@ class TestInstellingSensorNaHerstart:
         sensor = self._sensor(self._ctrl(), None)
         await sensor.async_added_to_hass()
         assert sensor.native_value is None
+
+
+# --------------------------------------------------------------------------- #
+#  Herstel en watchdog (v0.10.7-beta.7)                                       #
+# --------------------------------------------------------------------------- #
+
+
+class _Knop:
+    """Een hass waarin ``number.set_value`` de knop echt verzet."""
+
+    def __init__(self, states, entries=None):
+        self.states_dict = states
+        self.hass = MagicMock()
+        self.hass._test_entity_registry = er.FakeRegistry(entries or _registry_entries())
+        self.hass.states.get = lambda entity_id: self.states_dict.get(entity_id)
+        self.calls: list[tuple[str, float]] = []
+
+        async def _call(domain, service, data, blocking=False):
+            entity_id, value = data["entity_id"], data["value"]
+            self.calls.append((entity_id, value))
+            old = self.states_dict[entity_id]
+            self.states_dict[entity_id] = _State(str(value), **old.attributes)
+
+        self.hass.services.async_call = AsyncMock(side_effect=_call)
+
+    def zet(self, entity_id, value):
+        """Iemand verzet de knop zelf (Quatt-app, dashboard)."""
+        old = self.states_dict[entity_id]
+        self.states_dict[entity_id] = _State(str(value), **old.attributes)
+
+    def waarde(self, entity_id):
+        return float(self.states_dict[entity_id].state)
+
+
+def _cic_op(waarde=55, advies="38.0"):
+    states = {CIC_NUMBER: _State(str(waarde), min=40, max=70, step=1)}
+    if advies is not None:
+        states[MPC_SOURCE] = _State(advies)
+    return _Knop(states)
+
+
+def _zonder_advies_sinds(ctrl, minuten):
+    from datetime import datetime, timedelta, timezone
+    ctrl._advice_seen_at = datetime.now(timezone.utc) - timedelta(minutes=minuten)
+
+
+class TestHerstel:
+    """Het plafond gaat terug naar de eigen waarde van de knop.
+
+    Tot v0.10.7-beta.7 bleef het laatste plafond staan bij uitschakelen,
+    herladen, een HA-stop of een weggevallen advies: een plafond van 40 °C
+    uit zacht weer bleef dan de vorst in staan.
+    """
+
+    @pytest.mark.asyncio
+    async def test_bewaart_de_oorspronkelijke_waarde_voor_de_eerste_schrijfactie(self):
+        knop, store = _cic_op(55), FakeStore()
+        await _controller(knop.hass, store=store)._async_tick(None)
+        assert knop.waarde(CIC_NUMBER) == 40          # 38 + 2 marge
+        assert store.data == {"entities": {CIC_NUMBER: {"original": 55.0, "written": 40}}}
+
+    @pytest.mark.asyncio
+    async def test_uitschakelen_zet_terug_en_daarna_schrijft_hij_niets_meer(self):
+        knop, store = _cic_op(55), FakeStore()
+        ctrl = _controller(knop.hass, store=store)
+        await ctrl._async_tick(None)
+        await ctrl.async_shutdown("test")
+        assert knop.waarde(CIC_NUMBER) == 55
+        assert store.data == {"entities": {}}
+        knop.calls.clear()
+        await ctrl._async_tick(None)                  # timer nog niet weg
+        assert knop.calls == []
+
+    @pytest.mark.asyncio
+    async def test_niet_terugzetten_als_iemand_de_knop_zelf_verzette(self):
+        knop = _cic_op(55)
+        ctrl = _controller(knop.hass)
+        await ctrl._async_tick(None)
+        knop.zet(CIC_NUMBER, 50)                      # in de Quatt-app
+        knop.calls.clear()
+        await ctrl.async_shutdown("test")
+        assert knop.calls == []
+        assert knop.waarde(CIC_NUMBER) == 50
+
+    @pytest.mark.asyncio
+    async def test_geen_schrijfactie_als_de_huidige_waarde_onbekend_is(self):
+        knop = _cic_op(55)
+        knop.states_dict[CIC_NUMBER] = _State("unknown", min=40, max=70, step=1)
+        ctrl = _controller(knop.hass)
+        ctrl._resolve_number_entity = lambda: CIC_NUMBER
+        await ctrl._async_tick(None)
+        assert knop.calls == []
+
+    @pytest.mark.asyncio
+    async def test_bestemmingswissel_zet_de_oude_knop_terug(self):
+        knop = _cic_op(55)
+        ctrl = _controller(knop.hass)
+        await ctrl._async_tick(None)
+        assert knop.waarde(CIC_NUMBER) == 40
+        knop.states_dict[OQ_NUMBER] = _State("60.0", min=25, max=75, step=0.5)
+        await ctrl._async_tick(None)
+        assert knop.waarde(CIC_NUMBER) == 55
+        assert knop.waarde(OQ_NUMBER) == 40.0
+
+    @pytest.mark.asyncio
+    async def test_onbereikbare_knop_blijft_open_en_wordt_later_hersteld(self):
+        """Bijsturing uit terwijl de CiC onbereikbaar was: de restore-only
+        controller maakt het af zodra de knop terug is."""
+        knop, store = _cic_op(55), FakeStore()
+        ctrl = _controller(knop.hass, store=store)
+        await ctrl._async_tick(None)
+        knop.states_dict[CIC_NUMBER] = _State("unavailable", min=40, max=70, step=1)
+        await ctrl.async_shutdown("test")
+        assert CIC_NUMBER in store.data["entities"]
+
+        knop.states_dict[CIC_NUMBER] = _State("40", min=40, max=70, step=1)
+        herstel = _controller(knop.hass, store=store, restore_only=True)
+        await herstel._async_tick(None)
+        assert knop.waarde(CIC_NUMBER) == 55
+        assert store.data == {"entities": {}}
+
+    @pytest.mark.asyncio
+    async def test_restore_only_schrijft_nooit_een_plafond(self):
+        knop = _cic_op(55)
+        await _controller(knop.hass, restore_only=True)._async_tick(None)
+        assert knop.calls == []
+
+    @pytest.mark.asyncio
+    async def test_ha_stop_zet_terug(self):
+        knop = _cic_op(55)
+        ctrl = _controller(knop.hass)
+        remove = ctrl.async_setup()
+        event, handler = knop.hass.bus.async_listen_once.call_args.args
+        assert event == "homeassistant_stop"
+        await ctrl._async_tick(None)
+        await handler(None)
+        assert knop.waarde(CIC_NUMBER) == 55
+        # Na het afvuren de listener niet nog eens verwijderen (ValueError in HA).
+        remove_stop = knop.hass.bus.async_listen_once.return_value
+        remove()
+        remove_stop.assert_not_called()
+
+    def test_remove_voor_de_stop_meldt_de_listener_af(self):
+        knop = _cic_op(55)
+        remove = _controller(knop.hass).async_setup()
+        remove()
+        knop.hass.bus.async_listen_once.return_value.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_hangende_knop_houdt_het_afsluiten_niet_op(self, monkeypatch):
+        import custom_components.quatt_stooklijn.ch_max_water as mod
+        knop = _cic_op(55)
+        ctrl = _controller(knop.hass)
+        await ctrl._async_tick(None)
+
+        async def _hangt(*a, **kw):
+            import asyncio
+            await asyncio.sleep(10)
+
+        knop.hass.services.async_call = AsyncMock(side_effect=_hangt)
+        monkeypatch.setattr(mod, "RESTORE_TIMEOUT_S", 0.01)
+        await ctrl.async_shutdown("test")             # mag niet blijven hangen
+        assert CIC_NUMBER in ctrl._saved             # later opnieuw proberen
+
+
+class TestWatchdog:
+    @pytest.mark.asyncio
+    async def test_zet_terug_als_het_advies_een_uur_wegblijft(self):
+        knop = _cic_op(55)
+        ctrl = _controller(knop.hass)
+        await ctrl._async_tick(None)
+        del knop.states_dict[MPC_SOURCE]
+        _zonder_advies_sinds(ctrl, 30)
+        await ctrl._async_tick(None)
+        assert knop.waarde(CIC_NUMBER) == 40          # nog niet
+        _zonder_advies_sinds(ctrl, 61)
+        await ctrl._async_tick(None)
+        assert knop.waarde(CIC_NUMBER) == 55
+
+    @pytest.mark.asyncio
+    async def test_loopt_ook_na_een_herstart_zonder_advies(self):
+        """Het soundslider-probleem uit de analyse: na een herstart zonder
+        advies startte de watchdog nooit. Hier telt hij vanaf de start."""
+        knop, store = _cic_op(40, advies=None), FakeStore(
+            {"entities": {CIC_NUMBER: {"original": 55.0, "written": 40.0}}}
+        )
+        ctrl = _controller(knop.hass, store=store)    # na herstart
+        _zonder_advies_sinds(ctrl, 61)
+        await ctrl._async_tick(None)
+        assert knop.waarde(CIC_NUMBER) == 55
+
+    @pytest.mark.asyncio
+    async def test_schrijft_weer_als_het_advies_terugkomt(self):
+        knop = _cic_op(55)
+        ctrl = _controller(knop.hass)
+        await ctrl._async_tick(None)
+        advies = knop.states_dict.pop(MPC_SOURCE)
+        _zonder_advies_sinds(ctrl, 61)
+        await ctrl._async_tick(None)
+        assert knop.waarde(CIC_NUMBER) == 55
+        knop.states_dict[MPC_SOURCE] = advies
+        await ctrl._async_tick(None)
+        assert knop.waarde(CIC_NUMBER) == 40
+
+
+class TestGeenMinMax:
+    def test_zonder_min_geen_schrijfactie(self):
+        """Een terugval op 0 °C schreef 20 °C naar een knop die dat niet kan."""
+        hass = _hass({CIC_NUMBER: _State("55", max=70, step=1)})
+        assert _controller(hass)._clamp(18.0, CIC_NUMBER) is None
+
+
+class TestKoppelingZetTerug:
+    @pytest.mark.asyncio
+    async def test_plafond_gaat_terug_als_de_warmtevraag_gaat_sturen(self):
+        """Een plafond van eerder zou de vraag knijpen die we net zelf stellen."""
+        entries = [
+            *_registry_entries(),
+            er.RegistryEntry(entity_id=OQ_SELECT,
+                             unique_id=f"{OQ_MAC}/0/select/External Heat Demand Source",
+                             platform="esphome"),
+            er.RegistryEntry(entity_id=PROXY_FALLBACK_ENTITY, unique_id=PROXY_UNIQUE_ID,
+                             platform="template"),
+        ]
+        knop = _Knop({
+            OQ_NUMBER: _State("60.0", min=25, max=75, step=0.5),
+            MPC_SOURCE: _State("32.0"),
+            OQ_SELECT: _State("Disabled"),
+            SOURCE_SELECTOR_ENTITY: _State(HEAT_DEMAND_ENTITY),
+            PROXY_FALLBACK_ENTITY: _State("3200"),
+            HEAT_DEMAND_ENTITY: _State("3200"),
+        }, entries)
+        ctrl = _controller(knop.hass)
+        await ctrl._async_tick(None)
+        assert knop.waarde(OQ_NUMBER) == 34.0
+        knop.states_dict[OQ_SELECT] = _State("HA input")
+        await ctrl._async_tick(None)
+        assert knop.waarde(OQ_NUMBER) == 60.0
+
+
+class TestUnloadRuimtOp:
+    """Na unload stond de controller nog in hass.data: de adviessensor meldde
+    "wordt automatisch bijgestuurd" terwijl er niets meer stuurde, en
+    hass.data[DOMAIN] werd nooit leeg, dus de services bleven aangemeld."""
+
+    def _hass(self, data):
+        from custom_components.quatt_stooklijn.const import DOMAIN
+        hass = MagicMock()
+        hass.data = {DOMAIN: data}
+        hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+        return hass
+
+    @pytest.mark.asyncio
+    async def test_unload_zet_terug_en_ruimt_alles_op(self):
+        from custom_components.quatt_stooklijn import async_unload_entry
+        from custom_components.quatt_stooklijn.const import DOMAIN
+        ctrl = MagicMock()
+        ctrl.async_shutdown = AsyncMock()
+        hass = self._hass({
+            "e1": MagicMock(), "e1_sources": 1, "e1_supply_check": 2,
+            "e1_ch_max_water": ctrl, "e1_sound_level": "building87",
+        })
+        entry = MagicMock(entry_id="e1")
+        assert await async_unload_entry(hass, entry) is True
+        ctrl.async_shutdown.assert_awaited_once()
+        assert hass.data[DOMAIN] == {}
+        assert hass.services.async_remove.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_andere_entry_blijft_staan(self):
+        from custom_components.quatt_stooklijn import async_unload_entry
+        from custom_components.quatt_stooklijn.const import DOMAIN
+        hass = self._hass({"e1": MagicMock(), "e1_sound_level": "x", "e2": MagicMock()})
+        await async_unload_entry(hass, MagicMock(entry_id="e1"))
+        assert list(hass.data[DOMAIN]) == ["e2"]
+        hass.services.async_remove.assert_not_called()

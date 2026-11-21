@@ -14,6 +14,7 @@ from .supply_check import SupplySensorCheck
 from .dashboard import DashboardManager
 from .sources import ENTITY_PREFIX, MIRROR_SPECS, OVERVIEW_SLUG, SourceRegistry
 from .const import (
+    CH_MAX_WATER_RESTORE_INTERVAL,
     CONF_CH_MAX_WATER_ENABLED,
     CONF_CH_MAX_WATER_ENTITY,
     CONF_CH_MAX_WATER_SOURCE,
@@ -283,6 +284,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         hass.data[DOMAIN][f"{entry.entry_id}_ch_max_water"] = controller
         entry.async_on_unload(controller.async_setup())
+    else:
+        # Bijsturing uit: alleen een openstaand herstel afmaken (een knop die
+        # bij het uitschakelen onbereikbaar was). Bewust níét in hass.data:
+        # daar betekent de sleutel "wordt automatisch bijgestuurd".
+        restorer = ChMaxWaterController(
+            hass=hass,
+            number_entity="",
+            source=DEFAULT_CH_MAX_WATER_SOURCE,
+            entry_id=entry.entry_id,
+            hysteresis=DEFAULT_CH_MAX_WATER_HYSTERESIS,
+            interval_minutes=CH_MAX_WATER_RESTORE_INTERVAL,
+            restore_only=True,
+        )
+        entry.async_on_unload(restorer.async_setup())
 
     # Register service (once for the domain)
     if not hass.services.has_service(DOMAIN, SERVICE_RUN_ANALYSIS):
@@ -351,6 +366,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop(entry.entry_id)
         hass.data[DOMAIN].pop(f"{entry.entry_id}_sources", None)
         hass.data[DOMAIN].pop(f"{entry.entry_id}_supply_check", None)
+        # Zonder deze twee bleef hass.data[DOMAIN] nooit leeg (de services
+        # werden nooit afgemeld), en meldde de adviessensor na uitschakelen
+        # nog "wordt automatisch bijgestuurd".
+        hass.data[DOMAIN].pop(f"{entry.entry_id}_sound_level", None)
+        controller = hass.data[DOMAIN].pop(f"{entry.entry_id}_ch_max_water", None)
+        if controller is not None:
+            # Het plafond gaat terug naar de waarde van vóór de bijsturing,
+            # ook bij een herlaad: de nieuwe controller schrijft daarna zelf.
+            await controller.async_shutdown("bijsturing uitgeschakeld of herladen")
 
     # Remove service if no entries left
     if not hass.data[DOMAIN]:
