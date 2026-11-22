@@ -248,6 +248,12 @@ class RLSEstimator:
         op een kleine positieve ondergrens; θ blijft staan. Een P met NaN of
         inf begint opnieuw op de startonzekerheid. Geeft True als er iets is
         hersteld.
+
+        Getoetst op de correlatiematrix, niet op P zelf. De parameters liggen
+        ordes van grootte uit elkaar (P[2,2] ~1e-9, met anker P[3,3] tot 1000),
+        en een drempel relatief aan de grootste eigenwaarde las een gezonde,
+        rijpe P als kapot: bij elke herstart een melding, en P[2,2] ~15%
+        verschoven (gemeld 22-11-2026, kleinste eigenwaarde 6,75e-10).
         """
         P = self.P
         if not np.all(np.isfinite(P)):
@@ -255,16 +261,28 @@ class RLSEstimator:
             _LOGGER.warning("RC model: covariantie bevatte NaN/inf, opnieuw begonnen")
             return True
         P = (P + P.T) / 2.0
-        w, V = np.linalg.eigh(P)
-        floor = max(float(w.max()), 0.0) * 1e-12
-        if w.min() > floor:
+        repaired = False
+        d = np.diag(P).copy()
+        for i in np.flatnonzero(d <= 0):
+            # Een variantie van nul of minder kan niet: die parameter leert
+            # opnieuw, zonder kruistermen.
+            P[i, :] = 0.0
+            P[:, i] = 0.0
+            P[i, i] = d[i] = RLS_INITIAL_COV
+            repaired = True
+        s = np.sqrt(d)
+        R = P / np.outer(s, s)
+        w, V = np.linalg.eigh(R)
+        if w.min() > 1e-12 and not repaired:
             self.P = P
             return False
-        w_clipped = np.maximum(w, max(floor, 1e-30))
-        self.P = (V * w_clipped) @ V.T
+        if w.min() <= 1e-12:
+            R = (V * np.maximum(w, 1e-9)) @ V.T
+            P = R * np.outer(s, s)
+        self.P = (P + P.T) / 2.0
         _LOGGER.warning(
             "RC model: covariantie was niet positief-definiet (kleinste "
-            "eigenwaarde %.3g), hersteld", float(w.min()),
+            "eigenwaarde correlatie %.3g), hersteld", float(w.min()),
         )
         return True
 

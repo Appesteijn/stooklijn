@@ -56,9 +56,11 @@ gaat eerst de dekvloer in, en het 1R1C kan die vertraging niet uitdrukken;
 in de nabootsing bleef C ook met uurgemiddelde en ketel een factor 3 te hoog
 of werd hij negatief. 5-minutendata helpt daar niet bij een fit van één stap
 vooruit (C 70.700 tegen 69.400 uit uurdata, echt 23.000). Dat is werk voor
-het 2R2C. Een model dat zo ontspoort (C ≤ 0) begint opnieuw vanaf de
-warmteverliesanalyse (`OnlineRCModel.is_broken`), bij het laden en na elke
-uurupdate.
+het 2R2C. Een model dat zo ontspoort (C ≤ 0, of NaN in θ) begint opnieuw
+(`OnlineRCModel.is_broken`), bij het laden en na elke uurupdate. Tijdens bedrijf
+vanaf de warmteverliesanalyse; bij het laden nog niet, want de analyse draait
+pas na de platforms. Dan zijn het de standaardwaarden, en komen de ankers bij
+de eerste analyse (`_handle_coordinator_update`).
 
 Geschiedenis: dit stond al vast voor de knikdetectie, maar raakte zoek. In
 v0.10.3 rekende de modelvergelijking "bewust op uurgemiddelden". Dat is op
@@ -93,8 +95,10 @@ C staan en komt P_c zelf op ~1.050 W. Ook 's nachts, dus het is geen zon.
   wordt daardoor `dt·(Q + P_c)`, en die is nooit nul**, ook niet in de uren
   waarin θ₃ bevroren staat. Tot 21-11-2026 stond hier dat er met anker
   "niets is met een regressor die nooit nul is"; voor θ₃ klopte dat niet. Zie
-  de volgende sectie. De startwaarde (`seed_constant_gain`) blijft alleen voor
-  installaties zonder balanspunt.
+  de volgende sectie. `seed_constant_gain` heeft sinds `a5f558f` geen
+  aanroeper meer: een installatie zonder balanspunt krijgt geen anker en leert
+  P_c vanaf nul (en dus te traag, zie hierboven). Bewust zo gelaten tot er zo'n
+  installatie is om op te meten.
 - Met anker telt θ₄ **niet** mee voor de convergentie (`_n_updates_min`). Zijn
   teller loopt niet op, en in v0.10.7-beta.2 bleef een nieuw model daardoor
   voorgoed op `batch_fallback` (`TestConvergentieMetAnker`).
@@ -143,7 +147,10 @@ maar flakkert ±0,015 K, ongeveer evenveel als de kamer per vijf minuten
 opwarmt. Een eenstapsfit leest die ruis als snelle dynamiek. Op een
 synthetisch huis met blokverwarming kwam τ_snel daardoor op 1,1 u uit in
 plaats van 3,6 u. Fit daarom over `FIT_HORIZON_HOURS` (6 u) vooruit. De tabel
-staat in `analysis/thermal_model_2r2c.py`, de test in `TestFithorizon`.
+staat in `analysis/thermal_model_2r2c.py`, de test in `TestFithorizon`. Dat de
+poort (`fit_and_score`) de horizon ook echt doorgeeft, bewaakt
+`TestPoortBedrading`; de standaardwaarde van `fit()` is 1, dus een vergeten
+argument valt stil terug op de eenstapsfit.
 
 ## De vooruitblik rekent elk uur zoals het advies
 
@@ -160,7 +167,8 @@ af, en een aangenomen C zit bij een zwaar huis al gauw een factor 2 mis.
 
 Een negatieve g betekent vrijwel altijd dat de hele 1R1C-fit niet klopt, niet
 alleen de zonnewinst. Laat `G_MIN = 0` in `_params_sane` het model dus naar de
-batch-terugval sturen, ook als U en C binnen hun grenzen liggen.
+batch-terugval sturen, ook als U en C binnen hun grenzen liggen. Bewaakt door
+`TestNegatieveZonnewinst` (tot 22-11-2026 slaagden alle tests met `G_MIN = -5`).
 
 Uitgezocht op 21-11-2026 (Tweakers: g = −1,96 na 73 uur, U 257 en C 13.280,
 model op de terugval). Op een nagebootst novemberhuis (80 jonge modellen, 14

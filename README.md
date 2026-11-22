@@ -84,7 +84,7 @@ them verbatim when you ask for a change. Dutch and English are used interchangea
 
 ## Requirements
 
-- Home Assistant 2024.1.0 or newer
+- Home Assistant 2024.8.0 or newer (the options page uses form sections)
 - At least one source for the measurements — either works, and they can be mixed:
   - [Quatt integration](https://github.com/marcoboers/home-assistant-quatt) (local polling of the CIC), and/or
   - [OpenQuatt](https://github.com/OpenQuatt/OpenQuatt) (ESPHome firmware reading the heat pump locally)

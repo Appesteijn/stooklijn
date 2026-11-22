@@ -43,7 +43,7 @@ from .analysis.steering_effect import (
     counts_for_comparison,
     summarize,
 )
-from .ch_max_water import HEAT_DEMAND_ENTITY
+from .ch_max_water import heat_demand_entity
 from .const import (
     CONF_CH_MAX_WATER_ENABLED,
     CONF_SOUND_LEVEL_ENABLED,
@@ -205,9 +205,10 @@ class QuattSteeringEffectSensor(SensorEntity):
 
     def _demand_link_active(self) -> bool:
         """Stuurt de warmtevraag OpenQuatt Power House nu rechtstreeks aan?"""
-        if not async_entity_has_value(self.hass, HEAT_DEMAND_ENTITY):
+        entity_id = heat_demand_entity(self.hass, self._entry.entry_id)
+        if not async_entity_has_value(self.hass, entity_id):
             return False
-        return async_heat_demand_link(self.hass, HEAT_DEMAND_ENTITY).active
+        return async_heat_demand_link(self.hass, entity_id).active
 
     def _ceiling_state(self, cfg: dict, demand: bool) -> tuple[str, float | None]:
         """Stand van de max. aanvoertemperatuur, en wat er nu op de regelaar staat."""

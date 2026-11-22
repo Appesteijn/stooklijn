@@ -1265,3 +1265,26 @@ class TestConvergentieMetAnker:
         m._rls.n_updates_per_param[3] = 10
         assert m.params["n_updates_min"] == 10
         assert not m.is_converged
+
+
+class TestNegatieveZonnewinst:
+    """CLAUDE.md: een negatieve g stuurt het model naar de terugval, ook met U
+    en C binnen hun grenzen. Met ``G_MIN = -5`` slaagden alle tests
+    (analyse 21-11-2026); niets dwong dat af."""
+
+    @staticmethod
+    def _model(g: float) -> OnlineRCModel:
+        U, C = 280.0, 10000.0
+        m = OnlineRCModel()
+        m._rls.theta = np.array([U / C, g / C, 1.0 / C, 0.0])
+        m._rls.n_updates = 500
+        m._rls.n_updates_per_param[:] = 500
+        return m
+
+    def test_negatieve_g_is_niet_bruikbaar(self):
+        m = self._model(-0.5)
+        assert 30 < m.raw_params["U"] < 800 and 500 < m.raw_params["C"] < 30000
+        assert not m.is_converged
+
+    def test_positieve_g_wel(self):
+        assert self._model(0.5).is_converged

@@ -3,6 +3,50 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.8 — nog niet uitgebracht
+
+- **De soundslider zet je eigen geluidsniveaus terug.** Bij het inschakelen
+  onthoudt de integratie wat er in de Quatt-app stond voor dag en nacht. Die
+  stand komt terug als je de compensatie uitzet, bij herladen en bij het
+  stoppen van Home Assistant. Tot nu toe gingen beide selects naar het
+  ingestelde maximum. De compensatie gaat ook nooit boven je eigen stand: een
+  nachtlimiet uit de app blijft gelden (die verdween tot nu toe bij het
+  inschakelen). Stond de compensatie al aan bij het bijwerken, dan geldt het
+  oude gedrag tot de eerste keer dat Home Assistant netjes stopt.
+- **Herladen met de soundslider uit laat de niveaus staan.** Elke opgeslagen
+  optie herlaadt de integratie, en dat zette de niveaus terug, ook met de
+  switch uit.
+- **De soundslider-watchdog werkt ook na een herstart.** Kwam er na een
+  herstart geen advies, dan bleef een laag niveau tot een etmaal staan.
+- **Geen herhaalde schrijfacties meer.** Na een time-out schreef de
+  soundslider elke vijf minuten beide selects opnieuw, ook als ze al goed
+  stonden. Nu alleen als er echt iets verandert.
+- **Een bevroren sensor stuurt de soundslider niet meer.** Aanvoer, debiet en
+  advies die een half uur niets gemeld hebben, tellen als onbekend.
+- **Twee Quatt-installaties in één Home Assistant:** soundslider en max.
+  aanvoertemperatuur schrijven nu naar de CiC van de eigen installatie, niet
+  naar de eerste die gevonden wordt.
+- **Max. aanvoertemperatuur: minder schrijfacties.** Ruis in het advies rond
+  een afrondingsgrens gaf tot 48 schrijfacties per etmaal. De hysterese kijkt
+  nu naar hoeveel het advies echt verandert.
+- **Het optiescherm stelt geen CiC-knop meer voor bij de max.
+  aanvoertemperatuur.** Wie opsloeg, legde die vast, en met OpenQuatt erbij
+  werd er dan naar een knop geschreven die niets doet. Leeg betekent: de
+  integratie kiest zelf, met OpenQuatt voorop. Wie al een knop had opgeslagen,
+  houdt die; maak het veld leeg om de automatische keuze te krijgen.
+- **Een hernoemde warmtevraag-sensor wordt herkend.** De max.
+  aanvoertemperatuur stapt opzij zodra de warmtevraag OpenQuatt aanstuurt; dat
+  werkte alleen met de standaardnaam van de sensor.
+- **Modelvergelijking:** een meetfout die geen getal is, telt niet meer als
+  "beter op weggehouden data".
+- **Geen valse melding "covariantie hersteld" meer bij een herstart.** De
+  controle uit beta.7 las een gezond, rijp huismodel soms als kapot en paste
+  het dan een beetje aan. Nu wordt alleen een echt ongeldig model hersteld.
+- **Een advies dat geen getal is, schrijft geen maximum meer.** De max.
+  aanvoertemperatuur kon dan op het maximum van de knop (70 °C) komen.
+- **Minimaal Home Assistant 2024.8.** Het optiescherm met secties (beta.6)
+  werkt niet op oudere versies; de opgegeven minimumversie was nog 2024.1.
+
 ## v0.10.7-beta.7 — 2026-11-21
 
 - **Een nieuw huismodel leert stabiel, ook als het in het stookseizoen

@@ -62,6 +62,7 @@ def _make_switch(max_day="normal", max_night="normal") -> QuattSoundLevelSwitch:
     sw.hass = hass
     sw.hass.services.async_call = AsyncMock()
     sw.async_write_ha_state = MagicMock()
+    sw._store = MagicMock(async_load=AsyncMock(return_value=None), async_save=AsyncMock())
     return sw
 
 

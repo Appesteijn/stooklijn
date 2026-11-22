@@ -281,6 +281,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hysteresis=merged_config.get(CONF_CH_MAX_WATER_HYSTERESIS, DEFAULT_CH_MAX_WATER_HYSTERESIS),
             interval_minutes=merged_config.get(CONF_CH_MAX_WATER_INTERVAL, DEFAULT_CH_MAX_WATER_INTERVAL),
             margin=merged_config.get(CONF_CH_MAX_WATER_MARGIN, DEFAULT_CH_MAX_WATER_MARGIN),
+            anchor_config=merged_config,
         )
         hass.data[DOMAIN][f"{entry.entry_id}_ch_max_water"] = controller
         entry.async_on_unload(controller.async_setup())

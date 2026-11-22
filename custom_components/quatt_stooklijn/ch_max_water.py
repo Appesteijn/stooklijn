@@ -56,14 +56,16 @@ from .discovery import (
     async_heat_demand_link,
     async_resolve_setting_entity,
 )
-from .helpers import get_float_state
+from .helpers import get_float_state, resolve_own_entity_id
 
 _LOGGER = logging.getLogger(__name__)
 
 # De warmtevraag-sensor uit dezelfde integratie. Wijst de OpenQuatt-bronhelper
 # hiernaar, dan loopt de aansturing via de vermogensvraag en heeft deze
-# controller niets meer te zoeken — zie ``_demand_link_active``.
+# controller niets meer te zoeken — zie ``_demand_link_active``. Dit is de
+# vastgepinde id; opgezocht wordt op unique_id (``heat_demand_entity``).
 HEAT_DEMAND_ENTITY = "sensor.quatt_warmteanalyse_warmtevraag"
+HEAT_DEMAND_UNIQUE_SUFFIX = "heat_demand"
 
 STORAGE_VERSION = 1
 
@@ -76,6 +78,20 @@ WRITE_TIMEOUT_S = 30.0
 
 def storage_key(entry_id: str | None) -> str:
     return f"{DOMAIN}.ch_max_water_{entry_id or 'default'}"
+
+
+def heat_demand_entity(hass: HomeAssistant, entry_id: str | None) -> str:
+    """De warmtevraag-sensor van deze entry, op unique_id opgezocht.
+
+    Tot v0.10.7-beta.8 een vaste entity-ID. Een hernoemde sensor, of de sensor
+    van een tweede entry, werd dan niet herkend: deze controller schreef door
+    terwijl de warmtevraag Power House al aanstuurde.
+    """
+    if entry_id:
+        found = resolve_own_entity_id(hass, "sensor", entry_id, HEAT_DEMAND_UNIQUE_SUFFIX)
+        if isinstance(found, str):
+            return found
+    return HEAT_DEMAND_ENTITY
 
 
 class ChMaxWaterController:
@@ -105,6 +121,7 @@ class ChMaxWaterController:
         entry_id: str | None = None,
         store: Store | None = None,
         restore_only: bool = False,
+        anchor_config: dict | None = None,
     ) -> None:
         self._hass = hass
         # Om de adviessensor op unique_id te vinden (advice_sources). Zonder
@@ -122,9 +139,18 @@ class ChMaxWaterController:
         # onder het advies leggen, precies het probleem dat ze oplost.
         self._margin = max(0.0, min(CH_MAX_WATER_MARGIN_MAX, float(margin)))
         self._restore_only = restore_only
+        # De metingen van de entry (vermogen, debiet, …): die zeggen bij wélke
+        # CiC deze installatie hoort. Zonder dit anker koos de detectie bij twee
+        # CiC's in één HA de eerste uit het register, ook die van de buren.
+        self._anchor_config = dict(anchor_config or {})
 
         self._last_written: float | None = None
         self._last_written_at: datetime | None = None
+        # Het onafgeronde doel (advies + marge) bij de laatste schrijfactie.
+        # De hysterese vergelijkt hierop: na afronden op de stap van de knop
+        # sprong 0,2 K ruis rond een afrondingsgrens een hele graad, en met
+        # stap 1 en hysterese 1,0 gaf dat 48 schrijfacties per etmaal.
+        self._last_target: float | None = None
         self._target_entity: str | None = None
         # Eén logregel per keer dat de koppeling actief wórdt, niet elke tick.
         self._demand_link_logged = False
@@ -265,11 +291,12 @@ class ChMaxWaterController:
         # waarde terug (bestemmingswissel CiC <-> OpenQuatt).
         await self._async_restore("bestemming gewisseld", exclude=entity_id)
 
-        clamped = self._clamp(recommended + self._margin, entity_id)
+        target = recommended + self._margin
+        clamped = self._clamp(target, entity_id)
         if clamped is None:
             return
 
-        if not self._should_write(clamped):
+        if not self._should_write(clamped, target):
             _LOGGER.debug(
                 "ChMaxWater: geen schrijfactie (plafond=%.1f, geschreven=%.1f, hysteresis=%.1f)",
                 clamped,
@@ -278,7 +305,7 @@ class ChMaxWaterController:
             )
             return
 
-        await self._write(clamped, entity_id)
+        await self._write(clamped, entity_id, target)
 
     # ------------------------------------------------------------------
 
@@ -290,9 +317,10 @@ class ChMaxWaterController:
         er via die route niets, en zou terugtreden beide wegen tegelijk
         stilleggen.
         """
-        if not async_entity_has_value(self._hass, HEAT_DEMAND_ENTITY):
+        entity_id = heat_demand_entity(self._hass, self._entry_id)
+        if not async_entity_has_value(self._hass, entity_id):
             return False
-        return async_heat_demand_link(self._hass, HEAT_DEMAND_ENTITY).active
+        return async_heat_demand_link(self._hass, entity_id).active
 
     def _read_recommended(self) -> float | None:
         """Lees de aanbevolen aanvoertemperatuur van de gekozen bron."""
@@ -307,7 +335,7 @@ class ChMaxWaterController:
         """
         resolved = async_resolve_setting_entity(
             self._hass,
-            {CONF_CH_MAX_WATER_ENTITY: self._configured_entity},
+            {**self._anchor_config, CONF_CH_MAX_WATER_ENTITY: self._configured_entity},
             CONF_CH_MAX_WATER_ENTITY,
             ROLE_CH_MAX_WATER,
         )
@@ -340,6 +368,7 @@ class ChMaxWaterController:
                 resolved,
             )
             self._last_written = None
+            self._last_target = None
 
         self._target_entity = resolved
         return resolved
@@ -371,13 +400,22 @@ class ChMaxWaterController:
 
         return clamped
 
-    def _should_write(self, new_value: float) -> bool:
-        """True als de afwijking ten opzichte van de laatste schrijfactie groot genoeg is."""
+    def _should_write(self, new_value: float, target: float | None = None) -> bool:
+        """True als het plafond genoeg veranderd is om te schrijven.
+
+        Met ``target`` (het onafgeronde doel) telt de beweging van het advies,
+        niet die van de afgeronde waarde; zie ``_last_target``. Een plafond dat
+        na afronden gelijk blijft, wordt nooit opnieuw geschreven.
+        """
         if self._last_written is None:
             return True
+        if new_value == self._last_written:
+            return False
+        if target is not None and self._last_target is not None:
+            return abs(target - self._last_target) >= self._hysteresis
         return abs(new_value - self._last_written) >= self._hysteresis
 
-    async def _write(self, value: float, entity_id: str) -> None:
+    async def _write(self, value: float, entity_id: str, target: float | None = None) -> None:
         """Schrijf de waarde naar de gekozen number entity via HA service."""
         saved = await self._async_saved()
         record = saved.get(entity_id)
@@ -411,6 +449,7 @@ class ChMaxWaterController:
             return
         self._last_written = value
         self._last_written_at = dt_util.now()
+        self._last_target = target
         record["written"] = value
         await self._async_save()
         _LOGGER.info(
@@ -500,5 +539,6 @@ class ChMaxWaterController:
             if entity_id == self._target_entity:
                 self._last_written = None
                 self._last_written_at = None
+                self._last_target = None
         if changed:
             await self._async_save()

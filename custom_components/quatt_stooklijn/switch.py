@@ -16,22 +16,34 @@ Logica (elke 5 min):
 5. Binnen dead band → geen actie
 
 Niveauvolgorde (zwak → sterk): building87 → silent → library → normal
-Reset naar geconfigureerd dag/nacht-max bij: switch off, HA shutdown, HP inactief.
+Reset naar geconfigureerd dag/nacht-max bij: HP inactief, advies te lang weg,
+een fout in de cyclus.
+
+Terug naar de eigen stand van de gebruiker (sinds v0.10.7-beta.8) bij
+uitschakelen, herladen en het stoppen van Home Assistant. Die stand wordt per
+select bewaard op een schoon moment: bij inschakelen, of bij de eerste start na
+een nette stop. Het maximum per periode komt nooit boven die eigen stand: een
+nachtlimiet uit de Quatt-app blijft zo gelden. Ontbreekt een bewaarde stand
+(bijvoorbeeld bij een upgrade terwijl de compensatie aan stond), dan gaat de
+select zoals voorheen naar het ingestelde maximum.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
 from homeassistant.components.switch import ENTITY_ID_FORMAT, SwitchEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -53,6 +65,7 @@ from .const import (
     MPC_ADVICE_NO_DEMAND,
     SOUND_CYCLE_SECONDS,
     SOUND_ADVICE_TIMEOUT,
+    SOUND_INPUT_MAX_AGE,
     SIGNAL_SOUND_LEVEL,
 )
 from .coordinator import QuattStooklijnCoordinator
@@ -89,6 +102,20 @@ _DEAD_BAND = 2.0           # °C: geen actie binnen deze marge rond het advies
 # compensatie hem terugzet. Eén cyclus marge, zodat een waarde die net is
 # geschreven en via de Quatt-cloud nog onderweg is niet dubbel wordt gestuurd.
 _MISMATCH_CYCLES = 2
+
+_STORAGE_VERSION = 1
+#: Terugzetten bij het stoppen van HA mag het afsluiten niet ophouden.
+_RESTORE_TIMEOUT_S = 10.0
+_PERIODS = ("day", "night")
+
+
+# Het type vastgelegd bij het importeren: tests vervangen ``switch.datetime``
+# door een mock om de klok te sturen, en dan breekt ``isinstance``.
+_DATETIME_TYPE = datetime
+
+
+def storage_key(entry_id: str) -> str:
+    return f"{DOMAIN}.sound_level_{entry_id}"
 
 
 async def async_setup_entry(
@@ -131,7 +158,10 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
 
         self._is_on = True  # standaard aan: config-optie = feature actief
         self._current_level_idx: int = _NORMAL_IDX
-        self._last_mpc_available: datetime | None = None
+        # Vanaf de start, niet pas na het eerste advies: begon dit op None,
+        # dan liep de watchdog na een herstart zonder advies nooit, en bleef
+        # een hersteld laag niveau tot een etmaal staan.
+        self._last_mpc_available: datetime | None = datetime.now(timezone.utc)
         self._hp_inactive_since: datetime | None = None
         self._last_is_night: bool | None = None
         # Terugkoppeling: per select hoeveel cycli hij al afwijkt van wat de
@@ -148,12 +178,19 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         # Maximaal geluidsniveau (= max vermogen) dat compensatie mag instellen
         max_day = merged.get(CONF_SOUND_LEVEL_MAX_DAY, DEFAULT_SOUND_LEVEL_MAX)
         max_night = merged.get(CONF_SOUND_LEVEL_MAX_NIGHT, DEFAULT_SOUND_LEVEL_MAX)
-        self._max_day_idx = (
+        self._cfg_max_day_idx = (
             _SOUND_LEVELS.index(max_day) if max_day in _SOUND_LEVELS else _NORMAL_IDX
         )
-        self._max_night_idx = (
+        self._cfg_max_night_idx = (
             _SOUND_LEVELS.index(max_night) if max_night in _SOUND_LEVELS else _NORMAL_IDX
         )
+
+        # De eigen stand van de gebruiker per periode, en of de selects daar nu
+        # (voor zover bekend) op staan. Zie de moduledocstring.
+        self._store: Store | None = None
+        self._saved: dict | None = None
+        self._may_capture = False
+        self._stopped = False
 
         # Nachtvenster in HA-lokale tijd — geconfigureerd in HA, onafhankelijk van
         # Quatt-sensoren (die na zomertijd een verkeerde UTC-offset kunnen meegeven).
@@ -184,6 +221,27 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             return current_minutes >= night_start or current_minutes < night_end
         else:
             return night_start <= current_minutes < night_end
+
+    @property
+    def _max_day_idx(self) -> int:
+        return self._capped(self._cfg_max_day_idx, "day")
+
+    @property
+    def _max_night_idx(self) -> int:
+        return self._capped(self._cfg_max_night_idx, "night")
+
+    def _capped(self, cfg_idx: int, period: str) -> int:
+        """Het ingestelde maximum, maar nooit boven de eigen stand van de gebruiker.
+
+        Een nachtlimiet uit de Quatt-app verdween anders bij het inschakelen:
+        de inactieve select ging naar het ingestelde maximum (standaard
+        ``normal``).
+        """
+        record = (self._saved or {}).get(period)
+        original = record.get("original") if isinstance(record, dict) else None
+        if original in _SOUND_LEVELS:
+            return min(cfg_idx, _SOUND_LEVELS.index(original))
+        return cfg_idx
 
     def _effective_max_idx(self) -> int:
         """Max niveau-index voor de huidige dagperiode."""
@@ -221,26 +279,42 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         return self._is_on
 
     async def async_turn_on(self, **kwargs) -> None:
+        if not self._is_on:
+            # Uit → aan: de selects staan op wat de gebruiker had.
+            self._may_capture = True
         self._is_on = True
+        self._stopped = False
         self._last_mpc_available = datetime.now(timezone.utc)
         self.async_write_ha_state()
         _LOGGER.info("Geluidsniveau compensatie ingeschakeld")
 
     async def async_turn_off(self, **kwargs) -> None:
         self._is_on = False
-        await self._async_reset_level()
+        await self._async_restore_originals("uitgeschakeld")
         self.async_write_ha_state()
         _LOGGER.info("Geluidsniveau compensatie uitgeschakeld")
 
     async def async_added_to_hass(self) -> None:
         """Herstel vorige state en registreer periodieke cyclus."""
-        if (last_state := await self.async_get_last_state()) is not None:
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
             self._is_on = last_state.state == "on"
             # Herstel geluidsniveau-index uit opgeslagen attributen
             attrs = last_state.attributes or {}
             saved_level = attrs.get("current_level")
             if saved_level in _SOUND_LEVELS:
                 self._current_level_idx = _SOUND_LEVELS.index(saved_level)
+
+        saved = await self._async_saved()
+        # Alleen een schoon moment levert de eigen stand op: de optie net
+        # aangezet (geen vorige state), de switch stond uit, of de vorige
+        # stop heeft alles netjes teruggezet. Stond de compensatie aan zonder
+        # nette stop, dan staan de selects op wat wíj schreven.
+        self._may_capture = (
+            last_state is None
+            or last_state.state != "on"
+            or bool(saved.get("at_original"))
+        )
 
         self.async_on_remove(
             async_track_time_interval(
@@ -250,14 +324,37 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             )
         )
 
+        fired = False
+
+        async def _on_stop(_event) -> None:
+            nonlocal fired
+            fired = True
+            if self._is_on:
+                await self._async_restore_originals("Home Assistant stopt")
+            self._stopped = True
+
+        remove_stop = self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _on_stop)
+
+        def _remove_stop() -> None:
+            if not fired:
+                remove_stop()
+
+        self.async_on_remove(_remove_stop)
+
     async def async_will_remove_from_hass(self) -> None:
-        await self._async_reset_level()
+        # Alleen als de compensatie aan stond: tot v0.10.7-beta.8 zette elke
+        # herlaad (elke opgeslagen optie) de niveaus terug, ook met de switch
+        # uit, en overschreef zo wat de gebruiker zelf had ingesteld.
+        if self._is_on and not self._stopped:
+            await self._async_restore_originals("herladen")
+        self._stopped = True
 
     async def _async_compensation_cycle(self, _now=None) -> None:
         """Voer één compensatiecyclus uit."""
-        if not self._is_on:
+        if not self._is_on or self._stopped:
             return
         try:
+            await self._async_capture_originals()
             await self._async_do_compensation()
         except Exception:
             _LOGGER.exception("Geluidsniveau compensatie cyclus gefaald, reset")
@@ -294,7 +391,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         await self._async_verify_selects()
 
         # 1. HP actief?
-        flow = get_float_state(self.hass, self._flow_entity)
+        flow = self._fresh_float(self._flow_entity)
         if flow is None or flow < MIN_FLOW_LPH:
             now = datetime.now(timezone.utc)
             if self._hp_inactive_since is None:
@@ -312,7 +409,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         self._hp_inactive_since = None
 
         # 2. Gas actief? → stap omhoog zodat HP meer kan leveren
-        boiler_heat = get_float_state(self.hass, self._boiler_heat_entity)
+        boiler_heat = self._fresh_float(self._boiler_heat_entity)
         if boiler_heat is not None and boiler_heat > _GAS_THRESHOLD_W:
             if self._current_level_idx < effective_max:
                 self._current_level_idx += 1
@@ -334,7 +431,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
 
         # 3. Terugkoppeling op het gekozen advies
         advised, status = self._advice_reading()
-        actual_supply = get_float_state(self.hass, self._supply_entity)
+        actual_supply = self._fresh_float(self._supply_entity)
         # Geen advies omdat het huis warm genoeg is, is geen storing maar een
         # antwoord: de aanvoer is dan hoger dan nodig. Dat telde t/m v0.10.5 als
         # uitval, en na tien minuten zette de watchdog het niveau dan op het
@@ -408,11 +505,22 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
         een herstart later zijn dan wij, en een naam die dan leeg was zou blijven
         hangen tot de volgende herstart.
         """
-        return async_source_entity(self.hass, self._entry.entry_id, ROLE_SOUND_DAY)
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_SOUND_DAY, config=self._config
+        )
 
     @property
     def _night_sound_entity(self) -> str | None:
-        return async_source_entity(self.hass, self._entry.entry_id, ROLE_SOUND_NIGHT)
+        return async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_SOUND_NIGHT, config=self._config
+        )
+
+    @property
+    def _config(self) -> dict:
+        """De entry-config: de metingen erin verankeren de selects aan de eigen
+        CiC. Zonder config won bij twee CiC's in één HA de eerste uit het
+        register (``async_config_quatt_hubs``)."""
+        return {**self._entry.data, **self._entry.options}
 
     def _desired_selects(self) -> list[tuple[str | None, str]]:
         """Wat elke CiC-select volgens de compensatie nu hoort te zijn.
@@ -474,12 +582,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
                 wanted,
                 " (eerste cyclus na start)" if first else f" ({count} cycli)",
             )
-            await self.hass.services.async_call(
-                "select",
-                "select_option",
-                {"entity_id": entity_id, "option": wanted},
-            )
-            self._mismatch_cycles.pop(entity_id, None)
+            await self._async_set_select(entity_id, wanted)
             self._corrections += 1
             self._last_correction = (
                 f"{dt_util.now().strftime('%Y-%m-%d %H:%M')} {entity_id}: "
@@ -494,13 +597,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
                 # een lege entity-ID aanroepen.
                 _LOGGER.debug("Geluidsniveau: select niet gevonden, overgeslagen")
                 continue
-            await self.hass.services.async_call(
-                "select",
-                "select_option",
-                {"entity_id": entity_id, "option": option},
-            )
-            # Net geschreven: de verificatie begint voor deze select opnieuw.
-            self._mismatch_cycles.pop(entity_id, None)
+            await self._async_set_select(entity_id, option)
         _LOGGER.debug(
             "Geluidsniveau ingesteld: dag=%s, nacht=%s",
             _SOUND_LEVELS[min(self._current_level_idx, self._max_day_idx)],
@@ -517,12 +614,7 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             ):
                 if not entity_id:
                     continue
-                await self.hass.services.async_call(
-                    "select",
-                    "select_option",
-                    {"entity_id": entity_id, "option": _SOUND_LEVELS[max_idx]},
-                )
-                self._mismatch_cycles.pop(entity_id, None)
+                await self._async_set_select(entity_id, _SOUND_LEVELS[max_idx])
             _LOGGER.debug(
                 "Geluidsniveau gereset: dag=%s, nacht=%s",
                 _SOUND_LEVELS[self._max_day_idx],
@@ -536,8 +628,145 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
 
         Zie advice_sources.read_advice: per aanroep opgezocht op unique_id,
         zodat een hernoemde sensor of een tweede config-entry blijft werken.
+        Een advies dat te lang niets gerapporteerd heeft, telt als uitval.
         """
+        entity_id = advice_entity_id(self.hass, self._entry.entry_id, self._advice_source)
+        if self._stale(entity_id):
+            return None, None
         return read_advice(self.hass, self._entry.entry_id, self._advice_source)
+
+    # ------------------------------------------------------------------
+    # Invoer, schrijven en de eigen stand van de gebruiker
+
+    def _stale(self, entity_id: str | None) -> bool:
+        """Heeft deze entity langer dan ``SOUND_INPUT_MAX_AGE`` niets gemeld?
+
+        ``last_reported`` loopt ook door als de waarde gelijk blijft (een
+        integratie die blijft melden), ``last_updated`` alleen bij een
+        wijziging; de eerste die er is telt. Zonder tijdstempel: niet oud.
+        """
+        if not entity_id or self.hass is None:
+            return False
+        state = self.hass.states.get(entity_id)
+        stamp = getattr(state, "last_reported", None)
+        if not isinstance(stamp, _DATETIME_TYPE):
+            stamp = getattr(state, "last_updated", None)
+        if not isinstance(stamp, _DATETIME_TYPE):
+            return False
+        age = (dt_util.utcnow() - stamp).total_seconds()
+        return age > SOUND_INPUT_MAX_AGE
+
+    def _fresh_float(self, entity_id: str | None) -> float | None:
+        """``get_float_state``, maar None voor een bevroren sensor."""
+        if not entity_id or self._stale(entity_id):
+            return None
+        return get_float_state(self.hass, entity_id)
+
+    async def _async_set_select(self, entity_id: str, option: str) -> None:
+        """Zet een select, maar alleen als hij er nog niet op staat.
+
+        Na een time-out of een terugkerende fout zette ``_async_reset_level``
+        elke cyclus beide selects opnieuw, ook als ze al op het maximum
+        stonden: 572 aanroepen per etmaal.
+        """
+        self._mismatch_cycles.pop(entity_id, None)
+        if self._select_state(entity_id) == option:
+            return
+        await self.hass.services.async_call(
+            "select",
+            "select_option",
+            {"entity_id": entity_id, "option": option},
+        )
+        saved = await self._async_saved()
+        if saved.get("at_original"):
+            saved["at_original"] = False
+            await self._async_save()
+
+    def _get_store(self) -> Store:
+        if self._store is None:
+            self._store = Store(self.hass, _STORAGE_VERSION, storage_key(self._entry.entry_id))
+        return self._store
+
+    async def _async_saved(self) -> dict:
+        if self._saved is None:
+            data = None
+            try:
+                data = await self._get_store().async_load()
+            except Exception:
+                _LOGGER.warning("Geluidsniveau: opgeslagen eigen stand onleesbaar", exc_info=True)
+            self._saved = {}
+            if isinstance(data, dict):
+                for period in _PERIODS:
+                    rec = data.get(period)
+                    if (isinstance(rec, dict) and rec.get("original") in _SOUND_LEVELS
+                            and isinstance(rec.get("entity"), str)):
+                        self._saved[period] = {"entity": rec["entity"], "original": rec["original"]}
+                self._saved["at_original"] = bool(data.get("at_original"))
+        return self._saved
+
+    async def _async_save(self) -> None:
+        try:
+            await self._get_store().async_save(dict(self._saved or {}))
+        except Exception:
+            _LOGGER.warning("Geluidsniveau: eigen stand opslaan mislukt", exc_info=True)
+
+    async def _async_capture_originals(self) -> None:
+        """Bewaar de eigen stand van beide selects, alleen op een schoon moment."""
+        if not self._may_capture:
+            return
+        saved = await self._async_saved()
+        changed = False
+        for period, entity_id in (("day", self._day_sound_entity),
+                                  ("night", self._night_sound_entity)):
+            current = self._select_state(entity_id)
+            if current is None:
+                continue
+            saved[period] = {"entity": entity_id, "original": current}
+            changed = True
+        self._may_capture = False
+        if changed:
+            _LOGGER.info(
+                "Geluidsniveau: eigen stand bewaard (dag=%s, nacht=%s)",
+                (saved.get("day") or {}).get("original"),
+                (saved.get("night") or {}).get("original"),
+            )
+            await self._async_save()
+
+    async def _async_restore_originals(self, reason: str) -> None:
+        """Zet beide selects terug op de eigen stand van de gebruiker.
+
+        Zonder bewaarde stand: naar het ingestelde maximum, zoals voorheen.
+        Een select die niet te lezen is, blijft openstaan voor een volgende keer.
+        """
+        saved = await self._async_saved()
+        complete = True
+        for period, entity_id, cfg_idx in (
+            ("day", self._day_sound_entity, self._cfg_max_day_idx),
+            ("night", self._night_sound_entity, self._cfg_max_night_idx),
+        ):
+            record = saved.get(period)
+            target_entity = record["entity"] if record else entity_id
+            if not target_entity:
+                continue
+            option = record["original"] if record else _SOUND_LEVELS[cfg_idx]
+            if self._select_state(target_entity) is None:
+                complete = False
+                continue
+            try:
+                async with asyncio.timeout(_RESTORE_TIMEOUT_S):
+                    await self._async_set_select(target_entity, option)
+            except Exception as exc:  # incl. TimeoutError
+                _LOGGER.warning(
+                    "Geluidsniveau: terugzetten van %s mislukt (%s)",
+                    target_entity, exc or type(exc).__name__,
+                )
+                complete = False
+                continue
+            saved.pop(period, None)
+        self._current_level_idx = self._effective_max_idx()
+        saved["at_original"] = complete
+        await self._async_save()
+        _LOGGER.info("Geluidsniveau: eigen stand teruggezet (%s)", reason)
 
     @callback
     def async_write_ha_state(self) -> None:

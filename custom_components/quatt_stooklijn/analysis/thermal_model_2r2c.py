@@ -728,6 +728,10 @@ def fit_and_score(
         return _no("geen bruikbare testvensters", report=report)
 
     def _verdict() -> tuple[bool, str]:
+        # ``nan >= x`` is False: zonder deze regel las een NaN-fout als
+        # "beter op weggehouden data" (analyse 21-11-2026).
+        if not np.isfinite(rmse):
+            return False, "geen bruikbare testvensters"
         if persist is not None and rmse >= persist * (1.0 - margin):
             return False, "niet beter dan aannemen dat er niets verandert"
         if reference_rmse is not None and rmse >= reference_rmse * (1.0 - margin):

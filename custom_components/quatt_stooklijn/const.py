@@ -321,6 +321,10 @@ DEFAULT_SOUND_NIGHT_START_HOUR = 23
 DEFAULT_SOUND_NIGHT_END_HOUR = 7
 SOUND_CYCLE_SECONDS = 300   # 5 minuten — interval soundslider-compensatie
 SOUND_ADVICE_TIMEOUT = 600  # 10 minuten zonder advies — soundslider terug naar het maximum
+# Invoer (aanvoer, debiet, advies) die langer dan dit niets gerapporteerd heeft,
+# telt voor de soundslider als onbekend. Een bevroren maar beschikbare sensor
+# liet hem anders doorstappen op een oude waarde.
+SOUND_INPUT_MAX_AGE = 1800  # seconden
 
 CONDITION_SOLAR_FRACTION: dict[str, float] = {
     "clear-night":       0.0,

@@ -333,6 +333,35 @@ class TestOptiescherm:
         schema = _velden(_run(self._options().async_step_init())["data_schema"])
         assert schema[CONF_WEATHER_ENTITY]["config"]["domain"] == "weather"
 
+    def _suggestie(self, flow, key, monkeypatch):
+        """Wat het formulier voor ``key`` voorstelt (de stub van voluptuous
+        gooit de beschrijving weg, dus vastleggen via ``_prefill``)."""
+        import custom_components.quatt_stooklijn.config_flow as cf
+        gezien: dict = {}
+        echte = cf._prefill
+
+        def _vastleggen(k, value):
+            gezien[k] = value
+            return echte(k, value)
+
+        monkeypatch.setattr(cf, "_prefill", _vastleggen)
+        _run(flow.async_step_init())
+        return gezien[key]
+
+    def test_ch_max_water_knop_wordt_niet_voorgesteld(self, monkeypatch):
+        """De detectie stelde hier de CiC-knop voor (meetvolgorde: Quatt vóór
+        OpenQuatt). Opslaan pinde die vast, en met OpenQuatt erbij is schrijven
+        naar de CiC een stille no-op. Leeg = de controller kiest zelf."""
+        entries = [*_MODERN, _reg_entry(
+            "number.cic_max_water_temperature", "cic", "chMaxWaterTemperature")]
+        assert self._suggestie(
+            self._options(entries=entries), CONF_CH_MAX_WATER_ENTITY, monkeypatch) is None
+
+    def test_ch_max_water_eigen_instelling_blijft_staan(self, monkeypatch):
+        entries = [*_MODERN, _reg_entry("number.mijn_knop", "cic", "chMaxWaterTemperature")]
+        flow = self._options(data={CONF_CH_MAX_WATER_ENTITY: "number.mijn_knop"}, entries=entries)
+        assert self._suggestie(flow, CONF_CH_MAX_WATER_ENTITY, monkeypatch) == "number.mijn_knop"
+
     def test_ch_max_water_veld_filtert_op_number_domein(self):
         schema = _velden(_run(self._options().async_step_init())["data_schema"])
         assert schema[CONF_CH_MAX_WATER_ENTITY]["config"]["domain"] == "number"

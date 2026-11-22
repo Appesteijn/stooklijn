@@ -103,7 +103,6 @@ from .const import (
 )
 from .discovery import (
     ROLE_BOILER_HEAT,
-    ROLE_CH_MAX_WATER,
     ROLE_CONTROL_SETPOINT,
     ROLE_COMPRESSOR,
     ROLE_COMPRESSOR_2,
@@ -711,9 +710,15 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_CH_MAX_WATER_ENABLED,
                         default=data.get(CONF_CH_MAX_WATER_ENABLED, False),
                     ): bool,
+                    # Alleen wat expliciet is ingesteld. Een voorstel uit de
+                    # detectie is hier de CiC-knop (meetvolgorde: Quatt vóór
+                    # OpenQuatt), en wie opslaat pint die vast. Met OpenQuatt
+                    # erbij is schrijven naar de CiC een stille no-op (zie
+                    # async_resolve_setting_entity). Leeg = de controller kiest
+                    # elke tik zelf, met OpenQuatt voorop.
                     _prefill(
                         CONF_CH_MAX_WATER_ENTITY,
-                        _current(CONF_CH_MAX_WATER_ENTITY, ROLE_CH_MAX_WATER),
+                        _existing(data.get(CONF_CH_MAX_WATER_ENTITY)),
                     ): _entity("number"),
                     vol.Optional(
                         CONF_CH_MAX_WATER_SOURCE,

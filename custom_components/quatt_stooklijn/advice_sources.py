@@ -31,6 +31,8 @@ entity-ID: die breekt bij een hernoemde entiteit of een tweede config-entry.
 
 from __future__ import annotations
 
+import math
+
 from homeassistant.core import HomeAssistant
 
 from .const import MPC_ADVICE_STATUS_ATTR
@@ -87,6 +89,10 @@ def read_advice(
     try:
         value = float(state.state)
     except (TypeError, ValueError):
+        value = None
+    # "nan" en "inf" slagen in float(). Een advies "nan" werd in het
+    # waterplafond min(max, nan) = het maximum van de knop: 70 °C geschreven.
+    if value is not None and not math.isfinite(value):
         value = None
     return value, status
 

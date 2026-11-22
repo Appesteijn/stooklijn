@@ -207,3 +207,18 @@ class TestStooklijnStatus:
     def test_zonder_analyse_geen_invoer(self):
         attrs, _ = self._attrs(analyse=False, **{OUTDOOR: 5.0, RETURN: 28.0, FLOW: 800})
         assert attrs[MPC_ADVICE_STATUS_ATTR] == MPC_ADVICE_NO_INPUT
+
+
+
+class TestNaNAdvies:
+    """``read_advice`` liet "nan" door. In het waterplafond werd dat
+    min(max, nan) = het maximum van de knop: 70 °C (analyse 22-11-2026)."""
+
+    @pytest.mark.parametrize("raw", ["nan", "inf", "-inf"])
+    def test_niet_eindig_advies_is_geen_advies(self, raw):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+        from custom_components.quatt_stooklijn.advice_sources import read_advice
+        hass = MagicMock()
+        hass.states.get = lambda e: SimpleNamespace(state=raw, attributes={})
+        assert read_advice(hass, None, "mpc")[0] is None

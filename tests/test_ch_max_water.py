@@ -752,3 +752,125 @@ class TestUnloadRuimtOp:
         await async_unload_entry(hass, MagicMock(entry_id="e1"))
         assert list(hass.data[DOMAIN]) == ["e2"]
         hass.services.async_remove.assert_not_called()
+
+
+# --------------------------------------------------------------------------- #
+#  Restpunten uit de analyse van 21-11-2026                                   #
+# --------------------------------------------------------------------------- #
+
+
+class TestHystereseOpHetDoel:
+    """Met stap 1 en hysterese 1,0 gaf 0,2 K ruis rond een afrondingsgrens een
+    schrijfactie per sprong: 48 per etmaal."""
+
+    EIGEN = "number.eigen_knop"
+
+    def _knop(self):
+        return _Knop({
+            self.EIGEN: _State("50", min=20, max=60, step=1),
+            MPC_SOURCE: _State("36.4"),
+        })
+
+    @pytest.mark.asyncio
+    async def test_ruis_rond_een_afrondingsgrens_schrijft_niet(self):
+        knop = self._knop()
+        ctrl = _controller(knop.hass, configured=self.EIGEN)
+        await ctrl._async_tick(None)                  # 38,4 → 38
+        for advies in ("36.6", "36.4", "36.7", "36.3", "36.6"):   # 38,3 … 38,7
+            knop.states_dict[MPC_SOURCE] = _State(advies)
+            await ctrl._async_tick(None)
+        assert [v for _, v in knop.calls] == [38]
+
+    @pytest.mark.asyncio
+    async def test_echte_beweging_schrijft_wel(self):
+        knop = self._knop()
+        ctrl = _controller(knop.hass, configured=self.EIGEN)
+        await ctrl._async_tick(None)                  # doel 38,4
+        knop.states_dict[MPC_SOURCE] = _State("37.5")  # doel 39,5: +1,1
+        await ctrl._async_tick(None)
+        assert [v for _, v in knop.calls] == [38, 40]
+
+    @pytest.mark.asyncio
+    async def test_zelfde_afgeronde_waarde_nooit_opnieuw(self):
+        knop = self._knop()
+        ctrl = _controller(knop.hass, configured=self.EIGEN)
+        await ctrl._async_tick(None)                  # doel 38,4 → 38
+        knop.states_dict[MPC_SOURCE] = _State("35.1")  # doel 37,1: −1,3 maar → 37
+        await ctrl._async_tick(None)
+        knop.states_dict[MPC_SOURCE] = _State("36.0")  # doel 38,0 → 38
+        await ctrl._async_tick(None)
+        assert [v for _, v in knop.calls] == [38, 37]
+
+
+OWN_HUB, NEIGHBOR_HUB = "CIC-eigen", "CIC-buren"
+NEIGHBOR_NUMBER = "number.cic_buren_max_water_temperature"
+
+
+def _twee_cics():
+    def _e(hub, entity_id, key):
+        return er.RegistryEntry(entity_id=entity_id, unique_id=f"{hub}:cic:{key}",
+                                platform="quatt")
+    # De eigen CiC staat eerst in het register: die wint elke ongefilterde detectie.
+    entries = [
+        _e(OWN_HUB, "sensor.heatpump_total_power", "computedPower"),
+        _e(OWN_HUB, CIC_NUMBER, "chMaxWaterTemperature"),
+        _e(NEIGHBOR_HUB, "sensor.cic_buren_total_power", "computedPower"),
+        _e(NEIGHBOR_HUB, NEIGHBOR_NUMBER, "chMaxWaterTemperature"),
+    ]
+    return _Knop({
+        CIC_NUMBER: _State("55", min=40, max=70, step=1),
+        NEIGHBOR_NUMBER: _State("60", min=40, max=70, step=1),
+        "sensor.heatpump_total_power": _State("3000"),
+        "sensor.cic_buren_total_power": _State("2000"),
+        MPC_SOURCE: _State("38.0"),
+    }, entries)
+
+
+class TestTweeCics:
+    """De resolver kreeg alleen de eigen sleutel mee, geen anker: met twee
+    CiC's in één HA schreef de entry van de buren naar de eigen knop."""
+
+    @pytest.mark.asyncio
+    async def test_schrijft_naar_de_cic_van_de_eigen_metingen(self):
+        knop = _twee_cics()
+        ctrl = _controller(knop.hass, anchor_config={
+            "power_entity": "sensor.cic_buren_total_power"})
+        await ctrl._async_tick(None)
+        assert knop.calls == [(NEIGHBOR_NUMBER, 40)]
+
+    @pytest.mark.asyncio
+    async def test_zonder_anker_zoals_voorheen(self):
+        knop = _twee_cics()
+        await _controller(knop.hass)._async_tick(None)
+        assert knop.calls == [(CIC_NUMBER, 40)]
+
+
+class TestHernoemdeWarmtevraag:
+    """``HEAT_DEMAND_ENTITY`` was een vaste id. Hernoemd, of van een tweede
+    entry, zag de controller de koppeling niet en schreef hij door."""
+
+    @pytest.mark.asyncio
+    async def test_koppeling_herkend_op_unique_id(self):
+        from custom_components.quatt_stooklijn.const import DOMAIN
+        hernoemd = "sensor.mijn_warmtevraag"
+        entries = [
+            *_registry_entries(),
+            er.RegistryEntry(entity_id=OQ_SELECT,
+                             unique_id=f"{OQ_MAC}/0/select/External Heat Demand Source",
+                             platform="esphome"),
+            er.RegistryEntry(entity_id=PROXY_FALLBACK_ENTITY, unique_id=PROXY_UNIQUE_ID,
+                             platform="template"),
+            er.RegistryEntry(entity_id=hernoemd, unique_id="e1_heat_demand", platform=DOMAIN),
+        ]
+        knop = _Knop({
+            OQ_NUMBER: _State("60.0", min=25, max=75, step=0.5),
+            MPC_SOURCE: _State("32.0"),
+            OQ_SELECT: _State("HA input"),
+            SOURCE_SELECTOR_ENTITY: _State(hernoemd),
+            PROXY_FALLBACK_ENTITY: _State("3200"),
+            hernoemd: _State("3200"),
+        }, entries)
+        ctrl = _controller(knop.hass, entry_id="e1")
+        ctrl._read_recommended = lambda: 32.0
+        await ctrl._async_tick(None)
+        assert knop.calls == []

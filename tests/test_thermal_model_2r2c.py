@@ -463,3 +463,46 @@ class TestDrempelsVolgenDeStapgrootte:
         assert v.params is None and v.rmse is None
         assert v.persistence_rmse == pytest.approx(persistence_rmse(test, 12))
         assert v.to_dict()["persistence_rmse_k"] is not None
+
+
+class TestPoortBedrading:
+    """De poort zelf, niet ``fit()``: daar moet de fithorizon aankomen.
+
+    ``TestFithorizon`` toetst wat een horizon met de fit doet. Dat de poort hem
+    ook doorgeeft, bewaakte niets: met ``horizon_steps=1`` in
+    ``fit_and_score`` slaagden alle tests (analyse 21-11-2026). De
+    standaardwaarde van ``fit()`` is 1, dus een vergeten argument valt stil
+    terug op precies de eenstapsfit die CLAUDE.md uitsluit.
+    """
+
+    def _vang(self, monkeypatch):
+        import custom_components.quatt_stooklijn.analysis.thermal_model_2r2c as mod
+        gevangen = {}
+
+        def _fit(*args, **kw):
+            gevangen.update(kw)
+            raise ValueError("gevangen")
+
+        monkeypatch.setattr(mod, "fit", _fit)
+        return gevangen
+
+    @pytest.mark.parametrize("dt, horizon, start", [(1.0 / 12.0, 72, 3), (1.0, 6, 1)])
+    def test_poort_fit_over_zes_uur(self, monkeypatch, dt, horizon, start):
+        gevangen = self._vang(monkeypatch)
+        train = _genereer(WAAR, n=200)
+        test = _genereer(WAAR, n=200, seed=2)
+        v = fit_and_score(train, test, horizon=12, fit_dt_hours=dt, min_train_hours=0)
+        assert v.reason == "fit mislukt: gevangen"
+        assert gevangen["horizon_steps"] == horizon == steps_in(FIT_HORIZON_HOURS, dt)
+        assert gevangen["start_every"] == start
+
+    def test_nan_fout_wordt_niet_geaccepteerd(self, monkeypatch):
+        """``nan >= x`` is False: een NaN-fout las als "beter op weggehouden
+        data" en zette het 2R2C door de poort."""
+        import custom_components.quatt_stooklijn.analysis.thermal_model_2r2c as mod
+        monkeypatch.setattr(mod, "fit", lambda *a, **kw: (WAAR, {"converged": True}))
+        monkeypatch.setattr(mod, "rmse_at_horizon", lambda *a, **kw: float("nan"))
+        train = _genereer(WAAR, n=200)
+        test = _genereer(WAAR, n=200, seed=2)
+        v = fit_and_score(train, test, horizon=12, reference_rmse=0.6, min_train_hours=0)
+        assert not v.accepted

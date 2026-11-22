@@ -139,6 +139,30 @@ class TestHerstelBijLaden:
         rls = RLSEstimator.from_dict({"theta": [0.0266, 0.000287, 9.4e-05], "P": P.tolist()})
         np.testing.assert_allclose(rls.P, (P + P.T) / 2, rtol=0, atol=1e-18)
 
+    def test_rijpe_p_met_groot_anker_blok_blijft_staan(self, caplog):
+        """Vals alarm (22-11-2026): met het anker blijft P[3,3] op 1000, en een
+        drempel relatief aan de grootste eigenwaarde las de rijpe 3×3 (kleinste
+        eigenwaarde 6,75e-10) als kapot. Elke herstart een melding, en P[2,2]
+        ~15% verschoven."""
+        P = np.zeros((4, 4))
+        P[:3, :3] = [[7.3e-05, 9.6e-07, 3.2e-07], [9.6e-07, 7.9e-08, 3.0e-09],
+                     [3.2e-07, 3.0e-09, 2.1e-09]]
+        P[3, 3] = 1000.0
+        rls = RLSEstimator(n_params=4)
+        rls.P = P.copy()
+        with caplog.at_level("WARNING"):
+            assert rls.repair_covariance() is False
+        np.testing.assert_array_equal(rls.P, P)
+        assert "covariantie" not in caplog.text
+
+    def test_negatieve_variantie_leert_opnieuw(self):
+        rls = RLSEstimator.from_dict({
+            "theta": [0.03, 0.0003, 0.0001],
+            "P": [[1e-4, 1e-7, 0.0], [1e-7, -1e-8, 0.0], [0.0, 0.0, 1e-9]],
+        })
+        assert _min_eig(rls.P) > 0
+        assert rls.P[1, 1] == 1000.0 and rls.P[0, 1] == 0.0
+
     def test_p_met_nan_begint_opnieuw(self):
         rls = RLSEstimator.from_dict({
             "theta": [0.03, 0.0003, 0.0001],
