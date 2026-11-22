@@ -32,6 +32,7 @@ from custom_components.quatt_stooklijn.const import (
 from custom_components.quatt_stooklijn.sensor import QuattSupplyTempSensor
 from tests.test_room_setpoint import (
     FLOW,
+    INDOOR,
     OUTDOOR,
     RETURN,
     _analysis,
@@ -186,11 +187,12 @@ class TestOpties:
 class TestStooklijnStatus:
     """Het stooklijnadvies zegt nu ook waarom er geen advies is, zoals MPC."""
 
-    def _attrs(self, analyse=True, **states):
+    def _attrs(self, analyse=True, emitter=None, **states):
         sensor = QuattSupplyTempSensor.__new__(QuattSupplyTempSensor)
         sensor.hass = _hass_states(**states)
         sensor._entry = MagicMock(entry_id="e1", data={}, options={})
-        sensor.coordinator = MagicMock(data=_analysis() if analyse else None)
+        sensor.coordinator = MagicMock(data=_analysis() if analyse else None,
+                                       emitter=emitter)
         with _sources():
             return sensor.extra_state_attributes, sensor.native_value
 
@@ -208,6 +210,24 @@ class TestStooklijnStatus:
         attrs, waarde = self._attrs(**{OUTDOOR: 5.0, FLOW: 800})
         assert attrs[MPC_ADVICE_STATUS_ATTR] == MPC_ADVICE_NO_INPUT
         assert waarde is None
+
+    def test_stilstaande_pomp_rekent_met_het_afgiftemodel(self):
+        """Review 22-11: deze bron rekende met afgekoeld retourwater."""
+        from custom_components.quatt_stooklijn.analysis.emitter import EmitterModel
+        m = EmitterModel(k=200.0, n=1.3, flow_lph=800.0, hours=100, mae_k=0.3)
+        attrs, waarde = self._attrs(emitter=m, **{OUTDOOR: 5.0, RETURN: 15.0,
+                                                  FLOW: 0, INDOOR: 20.5})
+        assert attrs["aanvoer_uit"] == "afgiftemodel"
+        _, zonder = self._attrs(**{OUTDOOR: 5.0, RETURN: 15.0, FLOW: 0})
+        assert waarde > zonder
+
+    def test_draaiende_pomp_houdt_de_retour(self):
+        from custom_components.quatt_stooklijn.analysis.emitter import EmitterModel
+        m = EmitterModel(k=200.0, n=1.3, flow_lph=800.0, hours=100, mae_k=0.3)
+        met = self._attrs(emitter=m, **{OUTDOOR: 5.0, RETURN: 28.0, FLOW: 800})
+        zonder = self._attrs(**{OUTDOOR: 5.0, RETURN: 28.0, FLOW: 800})
+        assert met[0]["aanvoer_uit"] == "retour"
+        assert met[1] == zonder[1]
 
     def test_zonder_analyse_geen_invoer(self):
         attrs, _ = self._attrs(analyse=False, **{OUTDOOR: 5.0, RETURN: 28.0, FLOW: 800})

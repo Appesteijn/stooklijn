@@ -745,6 +745,22 @@ class QuattSupplyTempSensor(
             config=cfg, conf_key=CONF_RETURN_TEMP_ENTITY,
         )
 
+    def _emitter_when_pump_stopped(self, flow_lph: float | None):
+        """Het afgiftemodel als de pomp stilstaat, anders None (dan de retour)."""
+        emitter = getattr(self.coordinator, "emitter", None)
+        if emitter is None or (flow_lph is not None and flow_lph >= MIN_FLOW_LPH):
+            return None
+        return emitter
+
+    def _room_temp(self) -> float:
+        cfg = {**self._entry.data, **self._entry.options}
+        entity = async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_INDOOR_TEMP,
+            config=cfg, conf_key=CONF_INDOOR_TEMP_ENTITY,
+        )
+        t_room = get_float_state(self.hass, entity) if entity else None
+        return t_room if t_room is not None else 20.0
+
     async def async_added_to_hass(self) -> None:
         """Register state listeners for live input sensors."""
         await super().async_added_to_hass()
@@ -789,7 +805,14 @@ class QuattSupplyTempSensor(
             # Boven het balanspunt valt er niets te adviseren. Teruggeven van de
             # retourtemperatuur suggereert een advies dat er niet is.
             return None
-        t_supply = t_return + heat_demand_w / (1.16 * effective_flow)
+        emitter = self._emitter_when_pump_stopped(flow_lph)
+        if emitter is not None:
+            # Stilstaande pomp: de retour is afgekoeld water. Dan de aanvoer
+            # uit het afgiftemodel, zoals de MPC-tak (CLAUDE.md, "Aanvoer uit
+            # vermogen").
+            t_supply = emitter.supply(heat_demand_w, self._room_temp(), effective_flow)
+        else:
+            t_supply = t_return + heat_demand_w / (1.16 * effective_flow)
         # Dezelfde grenzen als de MPC-tak en _calc_heating_curve_breakpoints.
         # Zonder clamp schrijft één onzinnige retourtemperatuur — zoals tijdens
         # het bronwissel-venster bij een herstart — een advies van tientallen
@@ -847,6 +870,10 @@ class QuattSupplyTempSensor(
             "return_temp": t_return,
             "flow_lph": flow_lph,
             "heat_demand_w": heat_demand_w,
+            "aanvoer_uit": (
+                "afgiftemodel" if self._emitter_when_pump_stopped(flow_lph) is not None
+                else "retour"
+            ),
         }
 
 
