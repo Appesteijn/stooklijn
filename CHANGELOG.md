@@ -3,7 +3,7 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
-## v0.10.7-beta.9 — nog niet uitgebracht
+## v0.10.7-beta.9 — 2026-11-22
 
 **Nieuwe namen.** De stuurbronnen heten naar wat ze meenemen, en elke knop heeft
 overal dezelfde naam. Je instellingen blijven precies zoals ze waren; alleen wat
