@@ -2261,10 +2261,12 @@ views:
               naast de meting. Vertrouw vooral het verschil tussen de lijnen:
               verschuiven verandert de kamer met
               {{ '%+.2f' | format(k.afwijking_min_k) }} tot
-              {{ '%+.2f' | format(k.afwijking_max_k) }} K. De driftgrens rekent
+              {{ '%+.2f' | format(k.afwijking_max_k) }} K.
+              {% if ke.drift_k is number %}De driftgrens rekent
               {% if ke.driftmodel == '2r2c' %}met hetzelfde 2R2C{% else %}met het
               lerende huismodel (het 2R2C is nog niet goedgekeurd voor gebruik){% endif %}
-              op {{ '%+.2f' | format(ke.drift_k) }} K.
+              op {{ '%+.2f' | format(ke.drift_k) }} K.{% else %}Er is nog geen
+              huismodel voor de driftgrens.{% endif %}
               {% elif k %}
               Nog geen kamertemperatuur: {{ k.reden }}.
               {% endif %}
