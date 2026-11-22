@@ -127,6 +127,18 @@ Herstellingen na de review van 22-11:
   driftmodel en aanvoer-COP.
 - **Afgiftemodel:** een recorder die blijft falen geeft één waarschuwing, niet
   elk uur een traceback.
+- **Stooklijnpunten met het afgiftemodel** rekenen met de kamer waarbij het
+  model geleerd is, niet met vast 20 °C. Het advies voor de max.
+  watertemperatuur (ondergrens bij -10 °C) neemt het hoogste van afgiftemodel
+  en vaste retour: het afgiftemodel wordt daar doorgetrokken buiten wat het
+  gezien heeft.
+- **Bron Buitentemperatuur** heeft bij een stilstaande pomp geen retour nodig
+  en volgt de kamer en het kamerdoel.
+- **Event loop:** kamermediaan, 2R2C-begintoestand, kamerlijn en zonverwachting
+  kopiëren alleen het deel van het meetlogboek dat ze nodig hebben.
+- **Recorder:** `afgiftemodel` en `advies_voorspellend` op de MPC-sensor gaan
+  niet meer de geschiedenis in.
+- **Keuzehulp:** de bronnamen komen uit het attribuut `bron_namen`.
 
 ## v0.10.7-beta.8 — 2026-11-22
 
