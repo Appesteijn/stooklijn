@@ -237,6 +237,24 @@ class TestRekenwijze:
         assert [d["datum"] for d in sensor._days] == ["2026-10-06"]
 
 
+class TestVerdelingPerModel:
+    """Tweede review 22-11: binnen rekenwijze 3 verschillen dagen nog in
+    driftmodel en aanvoer-COP; het totaal telt ze op, de verdeling toont ze."""
+
+    def test_verdeling(self):
+        from custom_components.quatt_stooklijn.sensor import QuattPriceShiftSensor
+        dagen = [
+            {"besparing_eur": 0.10, "driftmodel": "1r1c", "cop_met_aanvoer": False},
+            {"besparing_eur": 0.05, "driftmodel": "2r2c", "cop_met_aanvoer": True},
+            {"besparing_eur": 0.02, "driftmodel": "2r2c", "cop_met_aanvoer": True},
+            {"besparing_eur": 0.01},
+        ]
+        v = QuattPriceShiftSensor._per_model(dagen)
+        assert v["drift=2r2c;aanvoer_cop=ja"] == {"dagen": 2, "besparing_eur": 0.07}
+        assert v["drift=1r1c;aanvoer_cop=nee"]["dagen"] == 1
+        assert v["drift=geen;aanvoer_cop=nee"]["besparing_eur"] == 0.01
+
+
 class TestMinimumvermogen:
     """Het geleerde minimum van de MPC-sensor gaat mee in de verschuiving."""
 

@@ -114,6 +114,19 @@ Herstellingen na de review van 22-11:
   afkoelfout die geen getal is keurt niet meer goed.
 - **Meetlogboek:** het tijdstip staat elke dag voluit, zodat een onleesbare
   regel niets verschuift; opmaken en inlezen gebeuren buiten de event loop.
+  Komt er tijdens het opslaan een monster bij, dan staat daarna weer een
+  uitgestelde opslag klaar (anders kon een herstart tot een uur kosten).
+- **Aanvoer-COP:** ook het verschoven vermogen wordt op het minimum geklemd;
+  een restje eronder kreeg anders een COP-bonus.
+- **Kaarten:** de prijsverschuiving geeft geen sjabloonfout meer zonder
+  driftgrens; de modelvergelijking zegt niet meer "In gebruik" na een verlopen
+  goedkeuring.
+- **Bron Buitentemperatuur** zonder kamersensor rekent met het kamerdoel in
+  plaats van een vaste 20 °C.
+- **Prijsverschuiving:** attribuut `per_model` verdeelt het seizoenstotaal naar
+  driftmodel en aanvoer-COP.
+- **Afgiftemodel:** een recorder die blijft falen geeft één waarschuwing, niet
+  elk uur een traceback.
 
 ## v0.10.7-beta.8 — 2026-11-22
 

@@ -5223,6 +5223,11 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             # Positief = verschuiven kost méér stroom (goedkoop maar koud uur).
             "extra_stroom_kwh": round(stroom_extra, 1),
             "laatste_dag": dagen[-1] if dagen else None,
+            # Binnen rekenwijze 3 verschilt per dag nog het driftmodel (geen,
+            # 1R1C of het goedgekeurde 2R2C) en of de aanvoer-COP meetelde.
+            # Het totaal telt die dagen op, net als vroeger de modelwissels
+            # van het 1R1C; deze verdeling laat zien waar het uit bestaat.
+            "per_model": self._per_model(dagen),
             "reden_geen_uitkomst": self._reason,
         }
         if self._preview is not None:
@@ -5230,6 +5235,20 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
                 k.lstrip("_"): v for k, v in self._preview.items()
             }
         return attrs
+
+
+    @staticmethod
+    def _per_model(dagen: list[dict]) -> dict[str, dict]:
+        out: dict[str, dict] = {}
+        for d in dagen:
+            sleutel = (
+                f"drift={d.get('driftmodel') or 'geen'};"
+                f"aanvoer_cop={'ja' if d.get('cop_met_aanvoer') else 'nee'}"
+            )
+            g = out.setdefault(sleutel, {"dagen": 0, "besparing_eur": 0.0})
+            g["dagen"] += 1
+            g["besparing_eur"] = round(g["besparing_eur"] + d.get("besparing_eur", 0.0), 4)
+        return out
 
 
 class QuattShiftPlanSensor(SensorEntity):
