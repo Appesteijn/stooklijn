@@ -3,6 +3,27 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.10 — nog niet uitgebracht
+
+Bevindingen na de installatie van beta.9:
+
+- **Veilige uitlooptijd: de kortste van beide huismodellen.** Met alleen het
+  2R2C gaf hij live 237 minuten tegen 145 bij het lerende huismodel; het 2R2C
+  koelde in de afkoeltoets ruim een kwart te traag af. Attribuut `per_model`
+  toont beide.
+- **Strengere afkoeltoets.** Naast de 0,10 K mag de fout hoogstens 15 % van
+  de gemeten daling zijn (met een ondergrens van 0,03 K). Op het testhuis
+  valt het 2R2C daardoor voorlopig terug op het lerende huismodel; de kaart
+  Modelvergelijking zegt waarom.
+- **Afgiftemodel:** na het leren werken de stooklijnpunten (Quatt-advies,
+  OpenQuatt-stooklijn) meteen bij; bleven tot de volgende analyse op de vaste
+  retour. Bij een eerste installatie leert het tien minuten na het opstarten
+  in plaats van na een uur.
+- **Afwijkingssensoren rekenen de gemelde afwijking van de aanvoersensor eraf**
+  (attribuut `aanvoer_correctie_k`). Op het testhuis was 0,88 K van een
+  afwijking van −1,4 °C een niet-gekalibreerde PT1000. Wat stuurt of leert
+  blijft op de ongecorrigeerde aanvoer: de regelaar meet met diezelfde sensor.
+
 ## v0.10.7-beta.9 — 2026-11-22
 
 **Nieuwe namen.** De stuurbronnen heten naar wat ze meenemen, en elke knop heeft
