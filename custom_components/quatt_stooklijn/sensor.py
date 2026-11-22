@@ -4922,22 +4922,32 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
     ) -> tuple[Any, dict]:
         """Kamertemperatuur volgens het 2R2C, plus de samenvatting ervan.
 
-        Alleen met een fit die de poort van de modelvergelijking haalde. Een
-        fout hier mag de dagmeting niet meenemen: dit is een grafiek, de
+        Alleen met een fit die de poort van de modelvergelijking haalde. Is
+        het 2R2C goedgekeurd voor gebruik, dan met dezelfde parameters als de
+        driftgrens (``params_use``), zodat de getoonde afwijking en de grens
+        uit één model komen. Anders de fit van de poort, ter informatie; de
+        driftgrens rekent dan met het 1R1C (``driftmodel``). Een fout hier
+        mag de dagmeting niet meenemen: dit is een grafiek, de
         besparingsteller loopt erlangs.
         """
         from .analysis.shift_room_temp import RoomForecast, forecast_room_temperature
         from .analysis.thermal_model_2r2c import TwoStateParams
 
         result = self._benchmark.result
+        approved = bool(
+            result is not None
+            and getattr(result, "approved", False)
+            and getattr(result, "params_use", None)
+        )
         if result is None:
             reden = "modelvergelijking nog niet gemeten"
-        elif not result.accepted or not result.params:
+        elif not approved and (not result.accepted or not result.params):
             reden = "2R2C voorspelt nog niet beter dan het huidige model"
         else:
             try:
                 kamer = forecast_room_temperature(
-                    TwoStateParams.from_dict(result.params),
+                    TwoStateParams.from_dict(
+                        result.params_use if approved else result.params),
                     self._mpc.highres_samples,
                     first_utc.timestamp(),
                     temps,
@@ -4953,6 +4963,7 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
                 verschil = [s - f for f, s in zip(kamer.flat, kamer.shifted)]
                 return kamer, {
                     "model": "2R2C",
+                    "goedgekeurd": approved,
                     "fout_12u_k": result.rmse_k,
                     "start_c": kamer.t_indoor0,
                     "massa_c": kamer.t_mass0,

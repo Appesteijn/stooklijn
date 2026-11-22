@@ -581,8 +581,9 @@ class TestKamertemperatuur:
         "g": 4.0, "P_int": 500.0, "alpha": 0.9,
     }
 
-    def _benchmark(self, accepted=True):
-        return MagicMock(accepted=accepted, params=self.PARAMS, rmse_k=0.28)
+    def _benchmark(self, accepted=True, params_use=None):
+        return MagicMock(accepted=accepted, params=self.PARAMS, rmse_k=0.28,
+                         approved=params_use is not None, params_use=params_use)
 
     def _logboek(self):
         ts = NU.astimezone(timezone.utc).replace(minute=0, second=0).timestamp()
@@ -613,6 +614,21 @@ class TestKamertemperatuur:
         assert r["_kamer"]["afwijking_min_k"] <= r["_kamer"]["afwijking_max_k"]
         assert all(u["kamer_vlak_c"] is not None for u in r["_uren"])
         assert r["_uren"][0]["kamer_vlak_c"] == 20.0
+
+    def test_goedgekeurd_voor_gebruik_rekent_met_dezelfde_parameters_als_de_drift(self):
+        """Review 22-11: de kamerlijn rekende met ``params``, de driftgrens met
+        ``params_use``; dan kan de getoonde afwijking buiten de grens vallen."""
+        anders = {**self.PARAMS, "Ci": 5000.0, "Hm": 2000.0}
+        uitslag = {}
+        for naam, bm in (("poort", self._benchmark()),
+                         ("gebruik", self._benchmark(params_use=anders))):
+            s = _sensor(options=NORMAAL_DAL, temps=STOOKDAG, benchmark=bm)
+            s._mpc.highres_samples = self._logboek()
+            uitslag[naam] = s._evaluate(NU)["_kamer"]
+        assert uitslag["poort"]["goedgekeurd"] is False
+        assert uitslag["gebruik"]["goedgekeurd"] is True
+        assert (uitslag["gebruik"]["afwijking_min_k"], uitslag["gebruik"]["afwijking_max_k"]) != (
+            uitslag["poort"]["afwijking_min_k"], uitslag["poort"]["afwijking_max_k"])
 
     def test_kapot_logboek_laat_de_meting_staan(self):
         s = _sensor(options=NORMAAL_DAL, temps=STOOKDAG, benchmark=self._benchmark())

@@ -2262,7 +2262,9 @@ views:
               verschuiven verandert de kamer met
               {{ '%+.2f' | format(k.afwijking_min_k) }} tot
               {{ '%+.2f' | format(k.afwijking_max_k) }} K. De driftgrens rekent
-              met het lerende huismodel op {{ '%+.2f' | format(ke.drift_k) }} K.
+              {% if ke.driftmodel == '2r2c' %}met hetzelfde 2R2C{% else %}met het
+              lerende huismodel (het 2R2C is nog niet goedgekeurd voor gebruik){% endif %}
+              op {{ '%+.2f' | format(ke.drift_k) }} K.
               {% elif k %}
               Nog geen kamertemperatuur: {{ k.reden }}.
               {% endif %}
