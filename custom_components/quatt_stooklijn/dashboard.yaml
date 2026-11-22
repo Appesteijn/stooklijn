@@ -2302,6 +2302,7 @@ views:
               {%- set s = 'sensor.quatt_warmteanalyse_sturingseffect' -%}
               {%- set r = state_attr(s, 'regelaar') -%}
               {%- set k = state_attr(s, 'knoppen') or {} -%}
+              {%- set nm = state_attr(s, 'bron_namen') or {} -%}
               {%- set mw = k.get('max_aanvoertemperatuur') or {} -%}
               {%- set sl = k.get('soundslider') or {} -%}
               {%- set wv = k.get('warmtevraag_naar_openquatt') -%}
@@ -2325,13 +2326,13 @@ views:
               - Draait OpenQuatt in **Power House**? Dan is de max. aanvoertemperatuur een veiligheidsbegrenzer (terugregelen binnen 3 K, uitschakelen bij +5 K). Zet hem dan uit en gebruik de warmtevraag naar OpenQuatt.
               {% endif -%}
               {% if mw.get('stand') in ['1r1c', '1r1c_terugval'] or sl.get('stand') in ['1r1c', '1r1c_terugval'] -%}
-              - **Huismodel + kamer** {% if state_attr(rc, 'terugval') %}leert nog: tot het model online is (ongeveer twee dagen stoken) stuurt het als *Buitentemperatuur + kamer*.{% else %}is online.{% endif %} Het is een bron om te meten, niet de aanbevolen keuze{% if ketel %}. De ketel springt bij: met vloerverwarming kan dit model dat niet volgen{% endif %}.
+              - **{{ nm.get('1r1c') }}** {% if state_attr(rc, 'terugval') %}leert nog: tot het model online is (ongeveer twee dagen stoken) stuurt het als *{{ nm.get('mpc') }}*.{% else %}is online.{% endif %} Het is een bron om te meten, niet de aanbevolen keuze{% if ketel %}. De ketel springt bij: met vloerverwarming kan dit model dat niet volgen{% endif %}.
               {% endif -%}
               {% if mw.get('stand') == 'stooklijn' or sl.get('stand') == 'stooklijn' -%}
-              - **Buitentemperatuur** weet niet of de kamer op temperatuur is. Alleen kiezen als kamertemperatuur of setpoint niet betrouwbaar gemeten wordt.
+              - **{{ nm.get('stooklijn') }}** weet niet of de kamer op temperatuur is. Alleen kiezen als kamertemperatuur of setpoint niet betrouwbaar gemeten wordt.
               {% endif -%}
               {% if not mw_aan and not sl_aan and not wv -%}
-              Alles staat uit: het sturingseffect meet nu de referentie. **Startpunt:** {% if r == 'cic' %}één knop aan, op *Buitentemperatuur + kamer*.{% elif r == 'openquatt_power_house' %}de warmtevraag naar OpenQuatt.{% elif r == 'openquatt' %}buiten Power House de max. aanvoertemperatuur op *Buitentemperatuur + kamer*; in Power House de warmtevraag naar OpenQuatt.{% else %}de knop die bij je regelaar past, op *Buitentemperatuur + kamer*.{% endif %}
+              Alles staat uit: het sturingseffect meet nu de referentie. **Startpunt:** {% if r == 'cic' %}één knop aan, op *{{ nm.get('mpc') }}*.{% elif r == 'openquatt_power_house' %}de warmtevraag naar OpenQuatt.{% elif r == 'openquatt' %}buiten Power House de max. aanvoertemperatuur op *{{ nm.get('mpc') }}*; in Power House de warmtevraag naar OpenQuatt.{% else %}de knop die bij je regelaar past, op *{{ nm.get('mpc') }}*.{% endif %}
               {%- endif %}
 
               *Welke bron op jouw huis het zuinigst stuurt, kan deze kaart niet zeggen. Laat elke instelling een paar weken staan, één wijziging tegelijk, en vergelijk op de kaart Sturingseffect.*

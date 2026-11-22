@@ -76,3 +76,12 @@ def test_entity_ids_blijven_vastgepind(slug):
     anders krijgt een nieuwe installatie een id die het dashboard niet kent."""
     bron = (COMP / "sensor.py").read_text() + (COMP / "switch.py").read_text()
     assert f'"{slug}"' in bron or f'f"{slug}"' in bron
+
+
+def test_dashboard_schrijft_de_bronnamen_niet_zelf_uit():
+    """Review 22-11: de keuzehulp noemde de bronnen met de hand. Een kaart leest
+    ze uit een attribuut (``bron_namen`` op het sturingseffect, ``bron_naam``)."""
+    tekst = (COMP / "dashboard.yaml").read_text()
+    for naam in SOURCE_NAMES.values():
+        for nadruk in (f"*{naam}*", f"**{naam}**"):
+            assert nadruk not in tekst, f"{nadruk!r} staat met de hand in het dashboard"

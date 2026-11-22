@@ -48,6 +48,7 @@ from .analysis.steering_effect import (
 )
 from .ch_max_water import heat_demand_entity
 from .const import (
+    SOURCE_NAMES,
     CONF_CH_MAX_WATER_ENABLED,
     CONF_CH_MAX_WATER_ENTITY,
     CONF_SOUND_LEVEL_ENABLED,
@@ -368,6 +369,9 @@ class QuattSteeringEffectSensor(SensorEntity):
             # Voor de keuzehulp op het tabblad Systeem.
             "regelaar": self._regelaar,
             "knoppen": self._knobs,
+            # De namen van alle bronnen, zodat de keuzehulp een bron kan noemen
+            # die nu niet aanstaat zonder een eigen tabel (CLAUDE.md).
+            "bron_namen": dict(SOURCE_NAMES),
             "ketel_springt_bij": self._boiler_assists(),
             "dagen_in_vergelijk": sum(1 for r in self._days if counts_for_comparison(r)),
             "drempels": {
