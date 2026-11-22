@@ -93,6 +93,7 @@ def _sensor(
     sensor._mpc = MagicMock()
     # Geen goedgekeurd 2R2C: de driftgrens rekent met de C van het 1R1C.
     sensor._mpc.house_model_2r2c = lambda: None
+    sensor._mpc.emitter = None
     sensor._benchmark = MagicMock()
     sensor._benchmark.result = benchmark
     def _fc(t, n_hours):

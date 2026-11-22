@@ -863,19 +863,28 @@ def _calc_heating_curve_breakpoints(
     t_return_nominal: float = ADVICE_NOMINAL_RETURN_TEMP,
     flow_nominal: float = NOMINAL_FLOW_LPH,
     outdoor_temps: tuple = ADVICE_BREAKPOINT_TEMPS,
+    emitter=None,
+    t_room: float = 20.0,
 ) -> list[dict]:
     """Bereken optimale aanvoertemperatuur bij standaard buitentemperaturen.
 
     Gebruikt het heat loss model om voor elke buitentemp de benodigde
     aanvoertemperatuur te berekenen. Hergebruikt door Quatt Advies en
     OpenQuatt sensoren.
+
+    Met ``emitter`` (afgiftemodel, geleerd uit de recorder) in plaats van een
+    vaste retour van 28 °C en 800 l/u. Die vaste retour lag op het gemeten huis
+    gemiddeld 1,8 K te hoog (november 2026).
     """
     from .analysis.utils import calc_heat_demand
 
     breakpoints = []
     for t_out in outdoor_temps:
         demand = calc_heat_demand(heat_loss_slope, heat_loss_intercept, t_out)
-        t_supply = t_return_nominal + demand / (1.16 * flow_nominal)
+        if emitter is not None:
+            t_supply = emitter.supply(max(0.0, demand), t_room)
+        else:
+            t_supply = t_return_nominal + demand / (1.16 * flow_nominal)
         t_supply = max(MPC_SUPPLY_TEMP_MIN, min(MPC_SUPPLY_TEMP_MAX, t_supply))
         breakpoints.append({
             "buiten_temp": t_out,
@@ -919,6 +928,38 @@ async def async_pv_hourly(
     return out
 
 
+async def async_hourly_means(
+    hass: HomeAssistant, entities: list[str], start_ts: float, end_ts: float
+) -> dict[str, dict[float, float]]:
+    """Uurgemiddelden van meerdere sensoren uit de recorder, in hun eigen eenheid.
+
+    ``{entity: {begin van het uur (UTC-seconden): gemiddelde}}``.
+    """
+    from homeassistant.components.recorder import get_instance
+    from homeassistant.components.recorder.statistics import statistics_during_period
+
+    start = dt_util.utc_from_timestamp(start_ts)
+    end = dt_util.utc_from_timestamp(end_ts + 3600)
+
+    def _fetch() -> dict:
+        return statistics_during_period(
+            hass, start_time=start, end_time=end,
+            statistic_ids=set(entities), period="hour", units=None, types={"mean"},
+        )
+
+    stats = await get_instance(hass).async_add_executor_job(_fetch)
+    out: dict[str, dict[float, float]] = {e: {} for e in entities}
+    for entity in entities:
+        for row in (stats or {}).get(entity, []):
+            begin, mean = row.get("start"), row.get("mean")
+            if begin is None or mean is None:
+                continue
+            if not isinstance(begin, (int, float)):
+                begin = begin.timestamp()
+            out[entity][float(begin)] = float(mean)
+    return out
+
+
 def _power_unit_factor(unit: str) -> float:
     """Omrekenfactor naar W voor een vermogenseenheid (W, kW, MW)."""
     u = unit.strip().lower()
@@ -946,6 +987,10 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     solar_lead_factor: float | None = None
     #: Het sturingseffect; levert de extra kolommen van het meetlogboek.
     steering: Any = None
+    #: Afgiftemodel (``analysis.emitter``), eens per etmaal geleerd uit de
+    #: recorder; None tot dat lukt.
+    emitter: Any = None
+    emitter_reason: str = "nog niet geleerd"
 
     _attr_has_entity_name = True
     _attr_translation_key = "mpc_recommended_supply_temp"
@@ -1757,8 +1802,62 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         self._refresh_u_prior()
         super()._handle_coordinator_update()
 
+    async def async_learn_emitter(self) -> None:
+        """Leer het afgiftemodel uit de uurgemiddelden van de recorder.
+
+        Eens per etmaal. Aanvoer, retour, debiet, warmte, kamer en buiten over
+        ``emitter.WINDOW_DAYS`` dagen. Mislukt het, dan blijft het vorige model
+        staan. Het model wordt ook op de coordinator gezet, voor de
+        stooklijnpunten van het Quatt-advies en de OpenQuatt-stooklijn.
+        """
+        from .analysis.emitter import WINDOW_DAYS, fit_emitter
+
+        now = dt_util.utcnow()
+        last = getattr(self, "_emitter_at", None)
+        if last is not None and now - last < timedelta(hours=24):
+            return
+        self._emitter_at = now
+        cfg = {**self._entry.data, **self._entry.options}
+        roles = (ROLE_SUPPLY_TEMP, ROLE_RETURN_TEMP, ROLE_FLOW_RATE, ROLE_TOTAL_POWER,
+                 ROLE_INDOOR_TEMP, ROLE_OUTDOOR_TEMP)
+        from .sources import ROLE_CONF_KEYS
+
+        entities = [
+            async_source_entity(self.hass, self._entry.entry_id, r,
+                                config=cfg, conf_key=ROLE_CONF_KEYS.get(r))
+            for r in roles
+        ]
+        if not all(entities):
+            self.emitter_reason = "aanvoer, retour, debiet of warmte niet ingesteld"
+            return
+        try:
+            series = await async_hourly_means(
+                self.hass, entities, now.timestamp() - WINDOW_DAYS * 86400, now.timestamp())
+            hours = sorted(set.intersection(*[set(v) for v in series.values()]))
+            cols = [[series[e][h] for h in hours] for e in entities]
+            cols[3] = [v * _power_unit_factor(self._unit(entities[3])) for v in cols[3]]
+            model, reason = await self.hass.async_add_executor_job(fit_emitter, *cols)
+        except Exception:
+            _LOGGER.warning("Afgiftemodel leren mislukt", exc_info=True)
+            return
+        self.emitter_reason = reason
+        if model is not None:
+            self.emitter = model
+            self.coordinator.emitter = model
+
+    def _unit(self, entity_id: str) -> str:
+        state = self.hass.states.get(entity_id)
+        return str((state.attributes.get("unit_of_measurement") if state else "") or "")
+
+    def _pump_running(self, flow_lph: float | None) -> bool:
+        return flow_lph is not None and flow_lph >= MIN_FLOW_LPH
+
     async def _async_hourly_update(self, _now=None) -> None:
         """Hourly: update thermal model with new measurement, then refresh forecast."""
+        try:
+            await self.async_learn_emitter()
+        except Exception:  # noqa: BLE001 — mag het uurwerk niet tegenhouden
+            _LOGGER.debug("Afgiftemodel overgeslagen", exc_info=True)
         # Update thermal model
         if self._thermal_loaded:
             self._refresh_u_prior()
@@ -1972,7 +2071,18 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         return supply_temp_for(
             demand.capped_w, t_return, effective_flow,
             MPC_SUPPLY_TEMP_MIN, MPC_SUPPLY_TEMP_MAX,
+            **self._emitter_args(flow_lph),
         ), MPC_ADVICE_OK
+
+    def _emitter_args(self, flow_lph: float | None) -> dict:
+        """Met een stilstaande pomp is de retour afgekoeld water: dan de
+        aanvoer uit het afgiftemodel, met de kamer van nu (of het setpoint)."""
+        if self.emitter is None or self._pump_running(flow_lph):
+            return {}
+        t_room = get_float_state(self.hass, self._indoor_temp_entity)
+        if t_room is None:
+            t_room = self._resolve_room_setpoint()[0]
+        return {"emitter": self.emitter, "t_room": t_room}
 
     def rc_advice(self) -> dict:
         """Het aanvoeradvies volgens het lerende huismodel (1R1C).
@@ -2015,6 +2125,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         value = supply_temp_for(
             demand.capped_w, t_return, effective_flow,
             MPC_SUPPLY_TEMP_MIN, MPC_SUPPLY_TEMP_MAX,
+            **self._emitter_args(flow_lph),
         )
         return {"value": value, "status": MPC_ADVICE_OK, "terugval": False, "demand": demand}
 
@@ -2137,6 +2248,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 supply_temp_min=MPC_SUPPLY_TEMP_MIN,
                 supply_temp_max=MPC_SUPPLY_TEMP_MAX,
                 max_hours=MPC_FORECAST_HOURS,
+                emitter=self.emitter,
+                pump_running=self._pump_running(flow_lph),
             )
             if model.is_converged and t_indoor is not None:
                 sim = simulate_advice_forward(
@@ -2223,6 +2336,10 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             ),
             "solar_forecast_fresh": self._solar_forecast_is_fresh,
             "zon_vooruitblik_factor": self.solar_lead_factor,
+            # Afgiftemodel: aanvoer uit vermogen en kamer, voor de uren vooruit
+            # en bij een stilstaande pomp. Zie analysis/emitter.py.
+            "afgiftemodel": self.emitter.to_dict() if self.emitter is not None else None,
+            "afgiftemodel_reden": self.emitter_reason,
             "stored_heat_kwh": stored_heat_kwh(
                 model.raw_params["C"] if model.raw_params else None,
                 get_float_state(self.hass, self._indoor_temp_entity),
@@ -3375,6 +3492,7 @@ def _calc_quatt_advice(
     max_water_auto: bool = False,
     manual_stookgrens: float | None = None,
     manual_vermogen: float | None = None,
+    emitter=None,
 ) -> dict[str, Any]:
     """Advies-attributen voor stookgrens, nominaal vermogen en stooklijnpunten.
 
@@ -3493,11 +3611,13 @@ def _calc_quatt_advice(
     # dus zijn eigen raster, anders landen de punten op de verkeerde knoppen.
     # De punten zelf blijven altijd beschikbaar, ook voor het max-wateradvies.
     if hl.slope is not None and hl.intercept is not None:
-        breakpoints = _calc_heating_curve_breakpoints(hl.slope, hl.intercept)
+        breakpoints = _calc_heating_curve_breakpoints(hl.slope, hl.intercept, emitter=emitter)
         attrs["stooklijn_punten"] = breakpoints
+        attrs["stooklijn_punten_bron"] = "afgiftemodel" if emitter is not None else "vaste retour"
         if openquatt:
             oq_points = _calc_heating_curve_breakpoints(
-                hl.slope, hl.intercept, outdoor_temps=OPENQUATT_BREAKPOINT_TEMPS
+                hl.slope, hl.intercept, outdoor_temps=OPENQUATT_BREAKPOINT_TEMPS,
+                emitter=emitter,
             )
             punten_str = ", ".join(
                 f"{bp['buiten_temp']}°C→{bp['aanvoer_temp']}°C"
@@ -3621,6 +3741,7 @@ class QuattAdviceSensor(
             data, setting, openquatt, max_water, auto,
             manual_stookgrens=_optional_float(cfg.get(CONF_CIC_ZERO_POWER_TEMP)),
             manual_vermogen=_optional_float(cfg.get(CONF_CIC_RATED_POWER)),
+            emitter=getattr(self.coordinator, "emitter", None),
         )
 
     @property
@@ -3697,6 +3818,7 @@ class QuattOpenQuattCurveSensor(
             data.heat_loss_hp.slope,
             data.heat_loss_hp.intercept,
             outdoor_temps=OPENQUATT_BREAKPOINT_TEMPS,
+            emitter=getattr(self.coordinator, "emitter", None),
         )
 
         attrs: dict[str, Any] = {"breakpoints": breakpoints}
@@ -4538,6 +4660,12 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             drift_response = lambda delta, dt, _p=p2: room_response(_p, delta, dt)  # noqa: E731
         self._drift_model = "2r2c" if drift_response is not None else (
             "1r1c" if c_whk else None)
+        # COP van de verschoven reeks met de hogere aanvoer van een voller uur.
+        emitter = getattr(self._mpc, "emitter", None)
+        supply_of = None
+        if emitter is not None:
+            t_room = self._mpc._resolve_room_setpoint()[0]
+            supply_of = lambda p, _e=emitter, _t=t_room: _e.supply(p, _t)  # noqa: E731
         ceiling = get_float_state(
             self.hass, openquatt.get(ROLE_PH_RATED_POWER) or ""
         ) if openquatt else None
@@ -4558,6 +4686,7 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             "ceiling_w": ceiling,
             "thermal_mass_wh_k": c_whk,
             "drift_response": drift_response,
+            "supply_of": supply_of,
             "max_drift_k": DEMAND_SHIFT_MAX_DRIFT_K,
             "max_overshoot_k": DEMAND_SHIFT_MAX_OVERSHOOT_K,
             "baseline": baseline,
@@ -4625,6 +4754,7 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             "stroom_verschoven_kwh": r_p.elec_shifted_kwh,
             "drift_k": r_p.worst_drift_k,
             "driftmodel": self._drift_model,
+            "cop_met_aanvoer": r_p.supply_cop_applied,
             "overshoot_k": r_p.peak_drift_k,
             "uren_boven_plafond": r_p.hours_above_ceiling,
             "minimumvermogen": r_p.min_power_applied,

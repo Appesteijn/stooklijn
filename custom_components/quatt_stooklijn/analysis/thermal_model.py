@@ -1006,13 +1006,26 @@ def rc_advice_demand(
 
 def supply_temp_for(
     q_w: float,
-    t_return: float,
+    t_return: float | None,
     flow_lph: float,
     supply_temp_min: float,
     supply_temp_max: float,
+    emitter=None,
+    t_room: float | None = None,
 ) -> float:
-    """Aanvoertemperatuur die ``q_w`` levert bij dit debiet, geklemd."""
-    t_supply = t_return + q_w / (1.16 * flow_lph)
+    """Aanvoertemperatuur die ``q_w`` levert bij dit debiet, geklemd.
+
+    Met ``emitter`` en ``t_room`` volgens het afgiftemodel
+    (``analysis.emitter``), anders uit de retour. Wie de retour van nu heeft
+    met een draaiende pomp, laat ``emitter`` weg: die retour is voor dit
+    moment nauwkeuriger (0,09 tegen 0,40 K gemiddelde afwijking, november 2026).
+    """
+    if emitter is not None and t_room is not None:
+        t_supply = emitter.supply(q_w, t_room, flow_lph)
+    elif t_return is not None:
+        t_supply = t_return + q_w / (1.16 * flow_lph)
+    else:
+        raise ValueError("geen retour en geen afgiftemodel")
     return round(max(supply_temp_min, min(supply_temp_max, t_supply)), 1)
 
 
@@ -1033,8 +1046,15 @@ def simulate_advice_forward(
     supply_temp_max: float = 55.0,
     max_hours: int | None = None,
     comfort_floor: float = 19.0,
+    emitter=None,
+    pump_running: bool = True,
 ) -> list[dict]:
     """De vooruitblik: per uur het advies, met het RC-model als kamer.
+
+    Met ``emitter`` (afgiftemodel) rekent elk uur na uur 0 de aanvoer uit het
+    afgiftemodel met de voorspelde kamer, in plaats van met de retour van nu;
+    uur 0 ook, als de pomp stilstaat. De retour van vier uur eerder zat op
+    het gemeten huis gemiddeld 0,61 K naast, het afgiftemodel 0,40 K.
 
     Elk uur rekent ``advice_demand`` met de verwachte buitentemperatuur en de
     kamertemperatuur die het model voor dat uur voorspelt, begrensd op wat de
@@ -1053,7 +1073,7 @@ def simulate_advice_forward(
     raw = model.raw_params
     c_whk = raw["C"] if raw else None
 
-    def stap(t_in: float, t_out: float) -> tuple[AdviceDemand, float, float | None]:
+    def stap(t_in: float, t_out: float, hour: int) -> tuple[AdviceDemand, float, float | None]:
         d = advice_demand(
             u_wk, balance_point, t_out, t_in, t_setpoint, catchup_factor,
             capacity_w(t_out),
@@ -1061,8 +1081,10 @@ def simulate_advice_forward(
         if d.total_w <= 0:
             return d, 0.0, None
         q = max(0.0, d.capped_w)
+        use_emitter = emitter is not None and (hour > 0 or not pump_running)
         supply = (
-            supply_temp_for(q, t_return, flow_lph, supply_temp_min, supply_temp_max)
+            supply_temp_for(q, t_return, flow_lph, supply_temp_min, supply_temp_max,
+                            emitter=emitter if use_emitter else None, t_room=t_in)
             if flow_lph > 0
             else None
         )
@@ -1076,8 +1098,8 @@ def simulate_advice_forward(
         t_out = forecast_t_outdoor[i]
         q_solar = forecast_q_solar[i]
 
-        d, q, supply = stap(t_in, t_out)
-        _d_ns, q_ns, supply_ns = stap(t_in_ns, t_out)
+        d, q, supply = stap(t_in, t_out, i)
+        _d_ns, q_ns, supply_ns = stap(t_in_ns, t_out, i)
 
         t_in_next = model.predict_t_indoor(t_in, t_out, q, q_solar)
         t_in_ns = model.predict_t_indoor(t_in_ns, t_out, q_ns, 0.0)
@@ -1111,8 +1133,12 @@ def advice_forward_without_model(
     supply_temp_min: float = 20.0,
     supply_temp_max: float = 55.0,
     max_hours: int | None = None,
+    emitter=None,
+    pump_running: bool = True,
 ) -> list[dict]:
     """De vooruitblik zonder geconvergeerd huismodel: per uur het advies.
+
+    ``emitter``: zie ``simulate_advice_forward``; de kamer is hier het setpoint.
 
     Dezelfde ``advice_demand`` als het advies van nu, zodat uur 0 (met de
     gemeten buitentemperatuur) hetzelfde getal is als de state. Tot
@@ -1143,8 +1169,12 @@ def advice_forward_without_model(
             t_setpoint, catchup_factor, capacity_w(t_out),
         )
         q = max(0.0, d.capped_w) if d.total_w > 0 else 0.0
+        use_emitter = emitter is not None and (i > 0 or not pump_running)
         supply = (
-            supply_temp_for(q, t_return, flow_lph, supply_temp_min, supply_temp_max)
+            supply_temp_for(q, t_return, flow_lph, supply_temp_min, supply_temp_max,
+                            emitter=emitter if use_emitter else None,
+                            t_room=(t_indoor_now if i == 0 and t_indoor_now is not None
+                                    else t_setpoint))
             if d.total_w > 0 and flow_lph > 0
             else None
         )

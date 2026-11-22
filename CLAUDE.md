@@ -234,3 +234,26 @@ allemaal september en oktober): gemeten −0,25 K; 1R1C fout −0,04, vrij 2R2C
   warmteverliesanalyse, niet met het 2R2C.
 - Een installatie die in de winter begint, heeft geen stookloze vensters; dan
   blijft het 1R1C staan tot het tussenseizoen. Dat is de bedoeling.
+
+## Aanvoer uit vermogen: het afgiftemodel, behalve nu met draaiende pomp
+
+`analysis/emitter.py`: `P = k·(T_gem − T_kamer)^n`, eens per etmaal uit de
+uurgemiddelden van de recorder. Gemeten op het testhuis (november 2026, getoetst
+op andere weken dan geleerd), benodigde aanvoer:
+
+| methode | gem. fout | gem. afwijking |
+|---|---|---|
+| retour van dit uur | +0,01 K | 0,09 K |
+| afgiftemodel | ±0,1 K | 0,42–0,45 K |
+| retour van vier uur eerder | −0,11 K | 0,61 K |
+| vaste retour 28 °C / 800 l/u | +1,79 K | 1,83 K |
+
+Dus: het advies van nu met draaiende pomp blijft op de gemeten retour; al het
+andere (uren vooruit, stilstaande pomp, stooklijnpunten) rekent met het
+afgiftemodel. De exponent wordt gekozen op de fout in de aanvoer, niet op
+log-vermogen.
+
+De COP op aanvoertemperatuur is uit de meting niet te leren: de aanvoer volgt
+de stooklijn (een fit op buiten én aanvoer gaf een verkeerd teken). De
+prijsverschuiving gebruikt daarom de verhouding van twee Carnot-waarden ten
+opzichte van de vlakke reeks (`cop_supply_factor`).

@@ -60,6 +60,23 @@ je leest is anders.
   testhuis: twaalf uur vooruit 0,26 K in beide splitsingen (huismodel 0,43),
   afkoeling met de pomp uit 0,13 K tegen 0,20 K. De kaart Modelvergelijking
   toont of het in gebruik is en waarom niet.
+- **Afgiftemodel: de aanvoer uit het vermogen, niet uit een geleende retour.**
+  Eens per etmaal geleerd uit 60 dagen uurgemiddelden van de recorder
+  (aanvoer, retour, debiet, warmte, kamer): `P = k·(T_water − T_kamer)^n`. Het
+  rekent de stooklijnpunten (Quatt-advies en OpenQuatt-stooklijn) in plaats van
+  een vaste retour van 28 °C en 800 l/u, de uren vooruit in de vooruitblik in
+  plaats van de retour van nu, en het advies als de pomp stilstaat (dan is de
+  retour afgekoeld water). Met draaiende pomp blijft het advies van nu op de
+  gemeten retour. Op het testhuis, november, getoetst op andere weken dan
+  geleerd: gemiddelde afwijking in de aanvoer 0,4 K, tegen 1,8 K te hoog met de
+  vaste retour en 0,6 K met de retour van vier uur eerder. Attributen
+  `afgiftemodel`, `afgiftemodel_reden`, `stooklijn_punten_bron`.
+- **Prijsverschuiving: de COP rekent met de hogere aanvoer van een voller uur.**
+  Met het afgiftemodel krijgt de verschoven reeks een COP volgens Carnot ten
+  opzichte van de vlakke reeks (`cop_met_aanvoer`). Warmte samenballen kost
+  aanvoertemperatuur; zonder deze correctie was de voorspelde besparing te
+  gunstig. Uit de meting zelf is dat niet te leren: de aanvoer volgt de
+  stooklijn en beweegt dus mee met buiten.
 
 ## v0.10.7-beta.8 — 2026-11-22
 

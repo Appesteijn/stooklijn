@@ -109,6 +109,9 @@ class DemandShiftResult:
     # uren samen minder vraagt dan één uur op het minimum en er geen draaiend
     # buuruur is om het bij te leggen.
     min_power_applied: bool = False
+    #: De COP van de verschoven reeks is gecorrigeerd voor de hogere aanvoer
+    #: die meer vermogen in een uur vraagt (afgiftemodel + Carnot).
+    supply_cop_applied: bool = False
     hours_below_min: float = 0
     gamma: float = 0.0
     # Diepste voorspelde uitwijking van de kamertemperatuur (K, negatief = kouder).
@@ -206,6 +209,7 @@ def scan_gamma(
     dt_hours: float = 1.0,
     min_run_steps: int = 1,
     drift_response=None,
+    supply_of=None,
 ) -> GammaScan:
     """Reken het hele bereik van gamma door en wijs de bruikbaarste aan.
 
@@ -257,6 +261,7 @@ def scan_gamma(
             dt_hours=dt_hours,
             min_run_steps=min_run_steps,
             drift_response=drift_response,
+            supply_of=supply_of,
         )
         return GammaPunt(
             gamma=round(gamma, 2),
@@ -362,6 +367,7 @@ def calculate_demand_shift(
     dt_hours: float = 1.0,
     min_run_steps: int = 1,
     drift_response=None,
+    supply_of=None,
 ) -> DemandShiftResult:
     """Herverdeel de warmtevraag over het venster naar COP, en optioneel prijs.
 
@@ -379,6 +385,11 @@ def calculate_demand_shift(
             bijvoorbeeld de respons van een goedgekeurd 2R2C
             (``thermal_model_2r2c.room_response``). Moet lineair zijn: de
             terugschaling rekent erop.
+        supply_of: optioneel ``vermogen (W) -> aanvoer (°C)`` uit het
+            afgiftemodel. Dan krijgt de verschoven reeks een COP die rekening
+            houdt met de hogere aanvoer van een uur met meer vermogen
+            (``emitter.cop_supply_factor``). Zonder dit is de voorspelde
+            besparing te gunstig: warmte samenballen kost aanvoertemperatuur.
         max_drift_k: hoeveel de kamer maximaal mag wegzakken (K, positief).
             Wordt die overschreden, dan wordt de héle verschuiving evenredig
             teruggeschaald in plaats van verworpen — dat houdt het gedrag
@@ -529,8 +540,20 @@ def calculate_demand_shift(
     # Verwachte besparing: stroom is warmte gedeeld door COP, dus de winst zit
     # in het verschuiven naar uren met een hogere noemer.
     cop_arr = np.array(cops, dtype=float)
+    cops_shifted = list(cops)
+    if supply_of is not None:
+        from .emitter import cop_supply_factor
+
+        adj = []
+        for t, c, p_flat, p_shift in zip(forecast_temps, cops, flat_arr, shifted):
+            if p_flat > 0 and p_shift > 0:
+                c = c * cop_supply_factor(t, supply_of(float(p_shift)), supply_of(float(p_flat)))
+            adj.append(c)
+        cops_shifted = adj
+        result.supply_cop_applied = True
+    cop_shift_arr = np.array(cops_shifted, dtype=float)
     elec_flat = float(np.sum(flat_arr / cop_arr))
-    elec_shift = float(np.sum(shifted / cop_arr))
+    elec_shift = float(np.sum(shifted / cop_shift_arr))
     if elec_flat > 0:
         result.expected_saving = round((elec_flat - elec_shift) / elec_flat, 4)
 
@@ -538,7 +561,8 @@ def calculate_demand_shift(
         result.hours_above_ceiling = float(np.sum(shifted > ceiling_w)) * dt_hours
 
     if prices is not None:
-        _fill_costs(result, flat, list(shifted), cops, prices, drift, ua, dt_hours)
+        _fill_costs(result, flat, list(shifted), cops, prices, drift, ua, dt_hours,
+                    cops_shifted=cops_shifted)
 
     return result
 
@@ -705,8 +729,12 @@ def _fill_costs(
     drift: np.ndarray | None,
     ua: float,
     dt_hours: float = 1.0,
+    cops_shifted: list[float] | None = None,
 ) -> None:
     """Zet de stroomkosten van beide reeksen in euro's op het resultaat.
+
+    ``cops_shifted``: de COP van de verschoven reeks, als die afwijkt (hogere
+    aanvoer bij meer vermogen); anders dezelfde als ``cops``.
 
     Energie is vermogen maal ``dt_hours``; stroom is warmte gedeeld door COP.
 
@@ -729,13 +757,14 @@ def _fill_costs(
     flat_arr = np.array(flat, dtype=float)
     shift_arr = np.array(shifted, dtype=float)
     cop_arr = np.array(cops, dtype=float)
+    cop_s = np.array(cops_shifted if cops_shifted is not None else cops, dtype=float)
     price_arr = np.array(prices, dtype=float)
     kwh = dt_hours / 1000.0
 
     cost_flat = float(np.sum(flat_arr / cop_arr * price_arr)) * kwh
-    cost_shift = float(np.sum(shift_arr / cop_arr * price_arr)) * kwh
+    cost_shift = float(np.sum(shift_arr / cop_s * price_arr)) * kwh
     result.elec_flat_kwh = round(float(np.sum(flat_arr / cop_arr)) * kwh, 3)
-    result.elec_shifted_kwh = round(float(np.sum(shift_arr / cop_arr)) * kwh, 3)
+    result.elec_shifted_kwh = round(float(np.sum(shift_arr / cop_s)) * kwh, 3)
 
     loss_eur = 0.0
     heat_kwh = float(shift_arr.sum()) * kwh
