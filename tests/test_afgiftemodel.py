@@ -253,6 +253,19 @@ class TestBewaren:
         self._leer(s, ents, AsyncMock(return_value=series))
         assert s.emitter is not None
 
+    def test_blijvende_recorderfout_geeft_een_waarschuwing(self, caplog):
+        import logging
+        ents, series = self._reeksen()
+        s = self._mpc()
+        with caplog.at_level(logging.DEBUG):
+            for _ in range(3):
+                self._leer(s, ents, AsyncMock(side_effect=RuntimeError("recorder")))
+        waarschuwingen = [r for r in caplog.records
+                          if r.levelno == logging.WARNING and "Afgiftemodel" in r.message]
+        assert len(waarschuwingen) == 1
+        self._leer(s, ents, AsyncMock(return_value=series))
+        assert s._emitter_failures == 0
+
     def test_ontbrekende_rol_probeert_het_volgende_uur_opnieuw(self):
         ents, _ = self._reeksen()
         s = self._mpc()

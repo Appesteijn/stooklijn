@@ -1022,6 +1022,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     emitter: Any = None
     emitter_reason: str = "nog niet geleerd"
     _emitter_at: datetime | None = None
+    _emitter_failures: int = 0
 
     _attr_has_entity_name = True
     _attr_translation_key = "mpc_recommended_supply_temp"
@@ -1906,8 +1907,15 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             cols[3] = [v * _power_unit_factor(self._unit(entities[3])) for v in cols[3]]
             model, reason = await self.hass.async_add_executor_job(fit_emitter, *cols)
         except Exception:
-            _LOGGER.warning("Afgiftemodel leren mislukt", exc_info=True)
+            # Eén waarschuwing per reeks mislukkingen; het volgende uur wordt
+            # het opnieuw geprobeerd, en een recorder die blijft falen hoort
+            # niet elk uur een traceback in het log te zetten.
+            self._emitter_failures += 1
+            log = _LOGGER.warning if self._emitter_failures == 1 else _LOGGER.debug
+            log("Afgiftemodel leren mislukt (%d× op rij); volgend uur opnieuw",
+                self._emitter_failures, exc_info=True)
             return
+        self._emitter_failures = 0
         self._emitter_at = now
         self.emitter_reason = reason
         if model is not None:
