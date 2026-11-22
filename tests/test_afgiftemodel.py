@@ -160,6 +160,15 @@ class TestPrijsverschuiving:
         assert met.shifted == zonder.shifted
         assert met.expected_saving < zonder.expected_saving
 
+    def test_gamma_nul_telt_ook_als_met_aanvoer_cop(self):
+        from custom_components.quatt_stooklijn.analysis.demand_shift import (
+            calculate_demand_shift)
+        m, _ = fit_emitter(*_uren())
+        curve = {t: 2.0 + 0.1 * (t + 10) for t in range(-15, 20)}
+        r = calculate_demand_shift([2.0] * 8, curve, 250.0, 17.0, 0.0,
+                                   supply_of=lambda p: m.supply(p, 20.0))
+        assert r.supply_cop_applied
+
     def test_onder_het_minimum_is_het_minimum_de_referentie(self):
         """Vlak 800 W met een minimum van 2400 W: de installatie pendelt toch al
         op 2400 W. Een blok op het minimum kost dan geen COP (review 22-11:

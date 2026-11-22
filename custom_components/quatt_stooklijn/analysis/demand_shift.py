@@ -453,6 +453,9 @@ def calculate_demand_shift(
     # Dit is niet alleen een optimalisatie maar de gedefinieerde uit-stand —
     # gamma=0 hoort exact het huidige gedrag te geven. Met prijzen komen de
     # kosten er wel bij, zodat de nulmeting een bedrag heeft om tegen af te zetten.
+    # Ook bij γ = 0: de dag rekende met de aanvoer-COP, alleen viel er niets
+    # te verschuiven (de verdeling per model in het seizoenstotaal leest dit).
+    result.supply_cop_applied = supply_of is not None
     if total <= 0 or gamma == 0.0:
         result.shifted = list(flat)
         result.now_shifted = result.now_flat
