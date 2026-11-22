@@ -280,6 +280,26 @@ class TestBewaren:
         assert t.emitter.supply(4000, 20.0) == pytest.approx(s.emitter.supply(4000, 20.0), abs=0.05)
         assert t._emitter_at is not None
 
+    def test_geleerd_model_werkt_de_stooklijnpunten_bij(self):
+        """Live 22-11: de stooklijnpunten bleven na het leren op de vaste
+        retour staan tot de volgende analyse."""
+        from unittest.mock import MagicMock
+        ents, series = self._reeksen()
+        s = self._mpc()
+        s.coordinator = MagicMock(data=object())
+        self._leer(s, ents, AsyncMock(return_value=series))
+        s.coordinator.async_update_listeners.assert_called_once()
+
+    def test_eerste_keer_leren_alleen_zonder_model(self):
+        s = self._mpc()
+        s.async_learn_emitter = AsyncMock()
+        s.emitter = object()
+        asyncio.run(s._async_learn_emitter_first())
+        s.async_learn_emitter.assert_not_awaited()
+        s.emitter = None
+        asyncio.run(s._async_learn_emitter_first())
+        s.async_learn_emitter.assert_awaited_once()
+
     def test_recorderfout_probeert_het_volgende_uur_opnieuw(self):
         ents, series = self._reeksen()
         s = self._mpc()

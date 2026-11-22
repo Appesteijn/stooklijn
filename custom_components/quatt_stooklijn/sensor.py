@@ -1526,6 +1526,12 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         await self._async_load_thermal_model()
         await self._async_load_highres_log()
         await self._async_load_emitter()
+        if self.emitter is None:
+            # Geen bewaard model (eerste installatie): niet tot de eerste
+            # uurtik wachten, maar ook niet in de drukte van het opstarten.
+            self.async_on_remove(async_call_later(
+                self.hass, self.EMITTER_FIRST_LEARN_DELAY_S,
+                self._async_learn_emitter_first))
         await self._async_refresh_forecast()
         await self._async_refresh_solar_radiation()
 
@@ -1874,6 +1880,23 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     def _set_emitter(self, model) -> None:
         self.emitter = model
         self.coordinator.emitter = model
+        # De stooklijnpunten (Quatt-advies, OpenQuatt-stooklijn) rekenen bij
+        # een coordinator-update, en die komt alleen na een analyse. Zonder
+        # dit bleven ze na het leren op de vaste retour staan tot de volgende
+        # herstart (gezien bij de installatie van beta.9).
+        if getattr(self.coordinator, "data", None) is not None:
+            self.coordinator.async_update_listeners()
+
+    #: Eerste keer leren na het opstarten, als er nog geen model bewaard is.
+    EMITTER_FIRST_LEARN_DELAY_S = 600
+
+    async def _async_learn_emitter_first(self, _now=None) -> None:
+        if self.emitter is not None:
+            return
+        try:
+            await self.async_learn_emitter()
+        except Exception:  # noqa: BLE001 — het uurwerk probeert het opnieuw
+            _LOGGER.debug("Afgiftemodel na het opstarten overgeslagen", exc_info=True)
 
     async def _async_load_emitter(self) -> None:
         """Het bewaarde afgiftemodel terugzetten. Faalt dat, dan leert het
