@@ -1,5 +1,5 @@
 """De uitlooptijd rekent met het goedgekeurde 2R2C, anders met het 1R1C
-(v0.10.7-beta.9)."""
+(v0.10.7-beta.9). Met beide: de kortste (beta.10, "veilig" is voorzichtig)."""
 
 from __future__ import annotations
 
@@ -37,7 +37,29 @@ def test_met_goedgekeurd_2r2c():
     with patch("custom_components.quatt_stooklijn.sensor.get_float_state",
                side_effect=lambda h, e: _waarden(e)):
         attrs = s.extra_state_attributes
-    assert attrs["model_source"] == "2r2c"
+    assert attrs["model_source"] in ("2r2c", "online")
+    assert set(attrs["per_model"]) == {"2r2c", "online"}
+
+
+def _met_massa(t_mass):
+    s = _sensor((WAAR, StartState(t_indoor=20.5, t_mass=t_mass)))
+    s._mpc._indoor_temp_entity = "indoor"
+    s._mpc._outdoor_entity = "outdoor"
+    with patch("custom_components.quatt_stooklijn.sensor.get_float_state",
+               side_effect=lambda h, e: _waarden(e)):
+        return s.native_value, s.extra_state_attributes
+
+
+def test_de_kortste_van_beide_wint():
+    """Live 22-11: alleen het 2R2C gaf 237 minuten, het 1R1C 145; het 2R2C
+    koelde in de afkoeltoets ruim een kwart te traag af."""
+    for t_mass in (17.0, 23.0):
+        waarde, attrs = _met_massa(t_mass)
+        assert waarde == min(attrs["per_model"].values())
+        assert attrs["per_model"][attrs["model_source"]] == waarde
+    # Een warme massa houdt de kamer bij het 2R2C langer op peil: dan wint het 1R1C.
+    _, warm = _met_massa(23.0)
+    assert warm["per_model"]["2r2c"] >= warm["per_model"]["online"]
 
 
 def test_zonder_2r2c_het_1r1c():

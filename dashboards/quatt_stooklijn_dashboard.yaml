@@ -1342,9 +1342,10 @@ views:
 
               {% if state_attr(s, 'goedgekeurd_voor_gebruik') %}
 
-              **In gebruik** voor de uitlooptijd, de driftgrens van de
-              prijsverschuiving en de kamerlijn in de vooruitblik. Het advies
-              zelf rekent met de warmteverliesanalyse.
+              **In gebruik** voor de driftgrens van de prijsverschuiving en
+              de kamerlijn in de vooruitblik. De veilige uitlooptijd rekent met
+              beide huismodellen en neemt de kortste. Het advies zelf rekent
+              met de warmteverliesanalyse.
 
               {% else %}
 

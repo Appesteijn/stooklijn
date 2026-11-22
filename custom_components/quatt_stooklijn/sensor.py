@@ -2703,23 +2703,25 @@ class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorE
     def _compute(self) -> dict | None:
         """Run the free-cooldown simulation, or None if the model isn't ready.
 
-        Met het 2R2C als de modelvergelijking het goedkeurde voor gebruik,
-        anders met het 1R1C. Op het gemeten huis voorspelde het 1R1C de
-        afkoeling bij een stilstaande pomp vier uur vooruit op 0,20 K (rmse),
-        het goedgekeurde 2R2C op 0,13 K (22-11-2026).
+        Met beide huismodellen als het 2R2C goedgekeurd is voor gebruik, en
+        dan de kortste uitkomst: dit getal heet "veilig". Op het gemeten huis
+        voorspelde het 2R2C de afkoeling bij een stilstaande pomp ruim een
+        kwart te traag (+0,068 K op −0,248 K in vier uur), het 1R1C iets te
+        snel (−0,041 K); alleen het 2R2C gaf live 237 minuten tegen 145
+        (22-11-2026). Zonder goedgekeurd 2R2C alleen het 1R1C.
         """
         from .analysis.thermal_model_2r2c import TwoStateStepper
 
-        model = self._mpc.thermal_model
+        candidates: list[tuple[str, Any]] = []
+        one = self._mpc.thermal_model
+        if one is not None and one.is_converged:
+            candidates.append(("online", one))
         two = self._mpc.house_model_2r2c()
         if two is not None:
             params, start = two
-            model = TwoStateStepper(params, start.t_mass)
-            self._model_source = "2r2c"
-        elif model is None or not model.is_converged:
+            candidates.append(("2r2c", TwoStateStepper(params, start.t_mass)))
+        if not candidates:
             return None
-        else:
-            self._model_source = "online"
 
         t_indoor = get_float_state(self.hass, self._mpc._indoor_temp_entity)
         t_outdoor = get_float_state(self.hass, self._mpc._outdoor_entity)
@@ -2734,15 +2736,31 @@ class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorE
             fc_temps = [t_outdoor]
             fc_solar_wm2 = [0.0]
 
-        result = simulate_coast_time(
-            model,
-            t_indoor_now=t_indoor,
-            comfort_floor=self._comfort_floor,
-            forecast_t_outdoor=fc_temps,
-            forecast_q_solar=fc_solar_wm2,
-            step_minutes=COAST_STEP_MINUTES,
-            max_hours=COAST_MAX_HOURS,
-        )
+        per_model: dict[str, dict] = {}
+        for name, candidate in candidates:
+            per_model[name] = simulate_coast_time(
+                candidate,
+                t_indoor_now=t_indoor,
+                comfort_floor=self._comfort_floor,
+                forecast_t_outdoor=fc_temps,
+                forecast_q_solar=fc_solar_wm2,
+                step_minutes=COAST_STEP_MINUTES,
+                max_hours=COAST_MAX_HOURS,
+            )
+        usable = [(n, m) for n, m in candidates
+                  if per_model[n]["coast_minutes"] is not None]
+        if not usable:
+            self._model_source = candidates[0][0]
+            result = per_model[candidates[0][0]]
+            model = candidates[0][1]
+        else:
+            self._model_source, model = min(
+                usable, key=lambda nm: per_model[nm[0]]["coast_minutes"])
+            result = per_model[self._model_source]
+        result = dict(result)
+        result["per_model"] = {
+            n: r["coast_minutes"] for n, r in per_model.items()
+        }
 
         # Het vervolg: vanaf de vloer terug naar het setpoint met de warmtepomp
         # op zijn minimum. Alleen als de vloer gehaald wordt en het minimum
@@ -2783,8 +2801,10 @@ class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorE
             "comfort_floor": self._comfort_floor,
             "comfort_at_risk": result["comfort_at_risk"],
             "reaches_floor": result["reaches_floor"],
-            # "2r2c" als het goedgekeurde 2R2C rekent, "online" voor het 1R1C.
+            # Het model met de kortste uitlooptijd: "2r2c" of "online" (1R1C).
             "model_source": getattr(self, "_model_source", "online"),
+            # Beide uitkomsten in minuten, als het 2R2C meedoet.
+            "per_model": result.get("per_model"),
             "trajectory": result["trajectory"],
             # None = niet binnen het venster op het minimum, of geen minimum
             # geleerd; recovery_target zegt welke van de twee (None = geen).
