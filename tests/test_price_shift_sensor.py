@@ -219,6 +219,8 @@ class TestRekenwijze:
                 "dagen": [
                     # Opgeslagen vóór het veld bestond: rekenwijze 1.
                     {"datum": "2026-10-05", "besparing_eur": 0.03},
+                    # Rekenwijze 2: zonder 2R2C-driftgrens en aanvoer-COP.
+                    {"datum": "2026-10-04", "methode": 2, "besparing_eur": 0.02},
                     {"datum": "2026-10-06", "methode": PRICE_SHIFT_METHOD,
                      "besparing_eur": 0.01},
                 ]

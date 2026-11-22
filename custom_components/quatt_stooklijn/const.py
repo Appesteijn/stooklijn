@@ -505,4 +505,6 @@ PRICE_SHIFT_KEEP_DAYS = 400
 # weersverwachting van die nacht niet bewaard is.
 # 1 = gewichten (COP/prijs)^γ, t/m v0.10.4-beta.4 (dagen zonder veld).
 # 2 = buigen vanaf de vlakke reeks, P + γ·P̄·(1 − r).
-PRICE_SHIFT_METHOD = 2
+# 3 = als 2, met de driftgrens van het goedgekeurde 2R2C en de COP op
+#     aanvoertemperatuur uit het afgiftemodel (v0.10.7-beta.9).
+PRICE_SHIFT_METHOD = 3
