@@ -9,6 +9,13 @@ maken en kiest de traagste, want die domineert de residuen. Het gevolg is een
 model dat een luchttemperatuur boven het setpunt aanziet voor opgeslagen
 energie in de hele bouwmassa — en dus veel te lang durft te teren.
 
+Let op (22-11-2026): op het gemeten huis gold dat níét voor de afkoeling bij
+een stilstaande pomp. Het 1R1C met P_c-anker zat daar vier uur vooruit 0,04 K
+naast; een vrij gefit 2R2C voorspelde nauwelijks afkoeling (+0,25 K). Pas met
+ankers en extra gewicht op stookloze vensters (zie ``Anchors``) won het 2R2C
+ook daar (rmse 0,13 tegen 0,20 K). Daarom toetst de modelvergelijking de
+afkoeling apart voordat een afnemer het 2R2C gebruikt.
+
 Gemeten op uurdata van één seizoen (november t/m mei), getraind op oneven
 weken en geevalueerd op even weken, RMSE van de voorspelde binnentemperatuur
 in K. "niets doen" is aannemen dat de binnentemperatuur niet verandert — een
@@ -254,6 +261,50 @@ def simulate(
     return out
 
 
+def room_response(
+    p: TwoStateParams, delta_w, dt_hours: float = 1.0
+) -> np.ndarray:
+    """Hoeveel de kamer afwijkt door een verandering in het vermogen.
+
+    Het model is lineair, dus het verschil tussen twee plannen hangt alleen af
+    van het verschil in vermogen; weer, zon en begintoestand vallen weg. Uit
+    rust, ``out[k]`` na stap ``k``. Voor de driftgrens van de prijsverschuiving.
+    """
+    Ad, Bd = discretize(p, dt_hours)
+    b = Bd[:, 2]
+    x = np.zeros(2)
+    out = np.empty(len(delta_w))
+    for k, dq in enumerate(delta_w):
+        x = Ad @ x + b * float(dq)
+        out[k] = x[0]
+    return out
+
+
+class TwoStateStepper:
+    """Het 2R2C achter de interface van het 1R1C (``predict_t_indoor``).
+
+    Voor de uitlooptijd, die stap voor stap doorrekent vanaf zijn eigen
+    vorige uitkomst. De massatemperatuur loopt hier mee; begin met de
+    gereconstrueerde waarde uit het logboek (``shift_room_temp.start_state``).
+    """
+
+    def __init__(self, p: TwoStateParams, t_mass: float) -> None:
+        self.p = p
+        self.t_mass = float(t_mass)
+        self._cache: dict[float, tuple[np.ndarray, np.ndarray]] = {}
+        self.raw_params = p.to_dict()
+
+    def predict_t_indoor(self, t_in, t_out, q_hp, q_solar, dt_hours) -> float:
+        mats = self._cache.get(dt_hours)
+        if mats is None:
+            mats = self._cache[dt_hours] = discretize(self.p, dt_hours)
+        Ad, Bd = mats
+        x = Ad @ np.array([float(t_in), self.t_mass]) + Bd @ np.array(
+            [float(t_out), float(q_solar), float(q_hp), 1.0])
+        self.t_mass = float(x[1])
+        return float(x[0])
+
+
 # --------------------------------------------------------------------------- #
 #  Fitten                                                                      #
 # --------------------------------------------------------------------------- #
@@ -394,6 +445,145 @@ def multi_step_residuals(
     return np.concatenate(parts)
 
 
+# --------------------------------------------------------------------------- #
+#  Ankers en afkoeling (v0.10.7-beta.9)                                        #
+# --------------------------------------------------------------------------- #
+#
+# Vrij gefit ruilen U, P_int en g tegen elkaar uit, en de opslag (Ci, Cm) is
+# niet te bepalen: op het gemeten huis gaf een andere splitsing van dezelfde
+# data een factor 2–3 andere Ci en Cm. Nagespeeld op het logboek van 08-09 t/m
+# 22-11-2026 (scratchpad ``mpc/anker.py``):
+#
+# - U vast op de warmteverliesanalyse kost niets (12 u: 0,262 tegen 0,266 K).
+# - P_int als constante vast op U·(kamer − balanspunt) kost 7–16 %, want het
+#   balanspunt bevat de gemiddelde zon al en het model telt de zon apart.
+#   Daarom staat de *totale* gratis warmte vast: P_int + g·(gemiddelde zon).
+# - In november staat de warmtepomp geen uur uit. De afkoeling bij een
+#   stilstaande pomp leert het model alleen uit september en oktober, en die
+#   uren vallen in de minderheid. Zonder extra gewicht voorspelde het vrij
+#   gefitte model ~0,01 K/u afkoeling tegen 0,062 gemeten; het 1R1C zat er
+#   0,04 K per vier uur naast. Met ``COOLING_WEIGHT`` 0,5: −0,046 K/u, bij
+#   gelijke fout na twaalf uur.
+
+#: Een venster telt als "uit" als de warmte en de zon het hele venster onder
+#: deze waarden blijven.
+OFF_MAX_HEAT_W = 50.0
+OFF_MAX_SUN_WM2 = 5.0
+#: Lengte van zo'n venster.
+COOLING_HOURS = 4.0
+#: Aandeel van de kostfunctie dat de stookloze vensters krijgen bij gelijke
+#: fout per residu. 0 is de oude fit.
+COOLING_WEIGHT = 0.5
+
+
+@dataclass(frozen=True)
+class Anchors:
+    """Wat de warmteverliesanalyse al weet: U, en de totale gratis warmte.
+
+    ``p_free_w`` is U × (kamer − balanspunt), net als het anker van het 1R1C;
+    ``sun_mean_wm2`` de gemiddelde zon over dezelfde periode. In de fit wordt
+    P_int dan ``p_free_w − g × sun_mean_wm2`` (niet negatief).
+    """
+
+    u: float
+    p_free_w: float
+    sun_mean_wm2: float
+
+    def to_dict(self) -> dict:
+        return {"U": round(self.u, 1), "gratis_warmte_w": round(self.p_free_w),
+                "zon_gemiddeld_wm2": round(self.sun_mean_wm2, 1)}
+
+
+def off_windows(
+    segments: list[Segment],
+    dt_hours: float,
+    hours: float = COOLING_HOURS,
+    burn_in: int | None = None,
+) -> list[tuple[int, int]]:
+    """(segment, startindex) van niet-overlappende vensters van ``hours`` lang
+    zonder warmte en zonder zon, na de inlooptijd."""
+    if burn_in is None:
+        burn_in = steps_in(BURN_IN_HOURS, dt_hours)
+    n = steps_in(hours, dt_hours)
+    out = []
+    for si, (ti, _to, sol, q) in enumerate(segments):
+        k = burn_in
+        while k < len(ti) - n:
+            if (np.max(q[k:k + n]) < OFF_MAX_HEAT_W
+                    and np.max(sol[k:k + n]) < OFF_MAX_SUN_WM2):
+                out.append((si, k))
+                k += n
+            else:
+                k += 1
+    return out
+
+
+def cooling_errors(
+    p: TwoStateParams,
+    segments: list[Segment],
+    windows: list[tuple[int, int]],
+    dt_hours: float,
+    hours: float = COOLING_HOURS,
+) -> np.ndarray:
+    """Voorspeld min gemeten aan het eind van elk stookloos venster."""
+    if not windows:
+        return np.zeros(0)
+    n = steps_in(hours, dt_hours)
+    Ad, Bd = discretize(p, dt_hours)
+    tm_cache: dict[int, np.ndarray] = {}
+    errs = []
+    for si, k in windows:
+        ti, to, sol, q = segments[si]
+        if si not in tm_cache:
+            tm_cache[si] = track_hidden_state(p, ti, to, sol, q, dt_hours)
+        x = np.array([ti[k], tm_cache[si][k]])
+        for j in range(n):
+            x = Ad @ x + Bd @ np.array([to[k + j], sol[k + j], q[k + j], 1.0])
+        errs.append(x[0] - ti[k + n])
+    return np.array(errs)
+
+
+def _summary(errs: np.ndarray, measured: np.ndarray) -> dict:
+    return {
+        "n": int(len(errs)),
+        "gemeten_k": round(float(np.mean(measured)), 3),
+        "fout_gem_k": round(float(np.mean(errs)), 3),
+        "fout_rmse_k": round(float(np.sqrt(np.mean(errs ** 2))), 3),
+    }
+
+
+def cooling_check(
+    p: TwoStateParams,
+    segments: list[Segment],
+    dt_hours: float = 1.0,
+    hours: float = COOLING_HOURS,
+    reference=None,
+) -> dict:
+    """Hoe goed het model de afkoeling bij een stilstaande pomp voorspelt.
+
+    ``reference`` is optioneel het 1R1C (``predict_t_indoor``), op dezelfde
+    vensters. Geeft ``{"n": 0}`` zonder vensters.
+    """
+    windows = off_windows(segments, dt_hours, hours)
+    if not windows:
+        return {"n": 0}
+    n = steps_in(hours, dt_hours)
+    measured = np.array([segments[si][0][k + n] - segments[si][0][k] for si, k in windows])
+    out = {"uren": hours, "model": _summary(cooling_errors(p, segments, windows, dt_hours, hours), measured)}
+    out["n"] = out["model"]["n"]
+    if reference is not None:
+        errs = []
+        for si, k in windows:
+            ti, to, sol, q = segments[si]
+            t = float(ti[k])
+            for j in range(n):
+                t = reference.predict_t_indoor(t, float(to[k + j]), float(q[k + j]),
+                                               float(sol[k + j]), dt_hours)
+            errs.append(t - ti[k + n])
+        out["referentie"] = _summary(np.array(errs), measured)
+    return out
+
+
 def fit(
     segments: list[Segment],
     initial: dict | None = None,
@@ -402,8 +592,14 @@ def fit(
     dt_hours: float = 1.0,
     horizon_steps: int = 1,
     start_every: int = 1,
+    anchors: Anchors | None = None,
+    cooling_weight: float = 0.0,
 ) -> tuple[TwoStateParams, dict]:
     """Fit de zeven parameters op voorspelfout over ``horizon_steps`` stappen.
+
+    Met ``anchors`` staan U en de totale gratis warmte vast (zie ``Anchors``)
+    en leert de fit er vijf. ``cooling_weight`` voegt de stookloze vensters toe
+    met dat aandeel in de kostfunctie (``COOLING_WEIGHT``).
 
     Standaard één stap, vanaf elk tijdstip. Op vijfminutendata hoort hier
     ``steps_in(FIT_HORIZON_HOURS, dt_hours)`` te staan; zie die constante.
@@ -415,13 +611,36 @@ def fit(
     start = dict(INITIAL)
     if initial:
         start.update(initial)
-    x = _to_free(np.array([start[k] for k in ORDER], dtype=float))
+    if anchors is not None:
+        start["U"] = anchors.u
+    full = _to_free(np.array([start[k] for k in ORDER], dtype=float))
+    i_u, i_g, i_p = ORDER.index("U"), ORDER.index("g"), ORDER.index("P_int")
+    free_idx = [i for i in range(len(ORDER))
+                if anchors is None or i not in (i_u, i_p)]
+    windows = off_windows(segments, dt_hours, burn_in=burn_in) if cooling_weight > 0 else []
+
+    def physical(free: np.ndarray) -> np.ndarray:
+        z = full.copy()
+        z[free_idx] = free
+        v = _to_bounded(z)
+        if anchors is not None:
+            v[i_u] = anchors.u
+            lo, hi = BOUNDS["P_int"]
+            v[i_p] = min(hi, max(lo, anchors.p_free_w - v[i_g] * anchors.sun_mean_wm2))
+        return v
 
     def cost_at(free: np.ndarray) -> tuple[np.ndarray, float]:
-        r = multi_step_residuals(TwoStateParams.from_array(_to_bounded(free)),
-                                 segments, horizon_steps, burn_in, dt_hours,
+        p = TwoStateParams.from_array(physical(free))
+        r = multi_step_residuals(p, segments, horizon_steps, burn_in, dt_hours,
                                  start_every)
+        if windows and r.size:
+            # Gewogen zodat de vensters samen ``cooling_weight`` van de kosten
+            # dragen als hun fout per residu even groot is als die van de rest.
+            scale = np.sqrt(cooling_weight * r.size / len(windows))
+            r = np.concatenate([r, scale * cooling_errors(p, segments, windows, dt_hours)])
         return r, float(r @ r)
+
+    x = full[free_idx].copy()
 
     r, cost = cost_at(x)
     if r.size == 0:
@@ -439,8 +658,8 @@ def fit(
         # Numerieke Jacobiaan met voorwaartse differenties. De stap is
         # relatief aan de schaal van de vrije variabele, niet absoluut:
         # in de getransformeerde ruimte lopen de parameters ver uiteen.
-        J = np.empty((r.size, len(ORDER)))
-        for i in range(len(ORDER)):
+        J = np.empty((r.size, len(x)))
+        for i in range(len(x)):
             step = 1e-5 * max(1.0, abs(x[i]))
             xp = x.copy()
             xp[i] += step
@@ -474,7 +693,7 @@ def fit(
             stop_reason = "tolerantie bereikt"
             break
 
-    params = TwoStateParams.from_array(_to_bounded(x))
+    params = TwoStateParams.from_array(physical(x))
     report = {
         "iterations": iterations,
         "converged": stop_reason != "iteratielimiet",
@@ -483,6 +702,8 @@ def fit(
         "n_residuals": int(r.size),
         "dt_hours": dt_hours,
         "horizon_steps": horizon_steps,
+        "geankerd": anchors is not None,
+        "afkoelvensters": len(windows),
     }
     return params, report
 
@@ -678,6 +899,8 @@ def fit_and_score(
     min_train_hours: float = MIN_TRAIN_HOURS,
     fit_burn_in: int | None = None,
     test_burn_in: int | None = None,
+    anchors: Anchors | None = None,
+    cooling_weight: float = 0.0,
 ) -> Validation:
     """Fit op ``train`` en toets op ``test``, elk op een eigen stapgrootte.
 
@@ -717,6 +940,7 @@ def fit_and_score(
             train, burn_in=fit_burn_in, dt_hours=fit_dt_hours, max_iter=max_iter,
             horizon_steps=steps_in(FIT_HORIZON_HOURS, fit_dt_hours),
             start_every=steps_in(FIT_START_EVERY_HOURS, fit_dt_hours),
+            anchors=anchors, cooling_weight=cooling_weight,
         )
     except (ValueError, np.linalg.LinAlgError) as err:
         return _no(f"fit mislukt: {err}")

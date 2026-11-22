@@ -169,7 +169,8 @@ class TestFit:
         assert rep["n_residuals"] > 0
         assert rep["rms_k"] < 0.05
         assert set(rep) == {"iterations", "converged", "stop_reason",
-                            "rms_k", "n_residuals", "dt_hours", "horizon_steps"}
+                            "rms_k", "n_residuals", "dt_hours", "horizon_steps",
+                            "geankerd", "afkoelvensters"}
         assert rep["stop_reason"] in {"tolerantie bereikt", "geen verbetering meer"}
 
     def test_iteratielimiet_telt_niet_als_convergentie(self):
@@ -506,3 +507,131 @@ class TestPoortBedrading:
         test = _genereer(WAAR, n=200, seed=2)
         v = fit_and_score(train, test, horizon=12, reference_rmse=0.6, min_train_hours=0)
         assert not v.accepted
+
+
+def _met_stooklozen_nachten(p: TwoStateParams, dagen: int = 40, seed: int = 3):
+    """Uurdata; elke nacht van 0 tot 6 uur staat de warmtepomp uit."""
+    rng = np.random.default_rng(seed)
+    n = dagen * 24
+    uur = np.arange(n)
+    t_out = 8.0 + 4.0 * np.sin(2 * np.pi * (uur - 9) / 24) + rng.normal(0, 0.5, n)
+    solar = np.maximum(0.0, 250 * np.sin(2 * np.pi * (uur - 8) / 24))
+    t_in = np.empty(n); t_mass = np.empty(n); q = np.empty(n)
+    t_in[0] = t_mass[0] = 20.0
+    Ad, Bd = discretize(p, 1.0)
+    for i in range(n - 1):
+        uit = (i % 24) < 6
+        q[i] = 0.0 if uit else max(0.0, p.U * (21.0 - t_out[i]) - p.g * solar[i] - p.P_int)
+        x = Ad @ np.array([t_in[i], t_mass[i]]) + Bd @ np.array([t_out[i], solar[i], q[i], 1.0])
+        t_in[i + 1] = x[0] + rng.normal(0, 0.01)
+        t_mass[i + 1] = x[1]
+    q[-1] = q[-2]
+    return [(t_in, t_out, solar, q)]
+
+
+class TestAnkersEnAfkoeling:
+    """v0.10.7-beta.9: U en de totale gratis warmte vast, stookloze vensters
+    extra gewicht, en een afkoeltoets."""
+
+    HUIS = TwoStateParams(U=280.0, Ci=6000.0, Cm=40000.0, Hm=3000.0,
+                          g=8.0, P_int=400.0, alpha=0.9)
+
+    def test_anker_houdt_u_en_de_gratis_warmte_vast(self):
+        from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import Anchors
+        data = _met_stooklozen_nachten(self.HUIS)
+        sun = float(np.mean(data[0][2]))
+        anker = Anchors(u=280.0, p_free_w=400.0 + 8.0 * sun, sun_mean_wm2=sun)
+        p, rep = fit(data, anchors=anker, horizon_steps=6, max_iter=100)
+        assert rep["geankerd"] is True
+        assert p.U == 280.0
+        assert p.P_int + p.g * sun == pytest.approx(anker.p_free_w, rel=1e-6)
+
+    def test_gratis_warmte_wordt_niet_negatief(self):
+        from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import Anchors
+        data = _met_stooklozen_nachten(self.HUIS)
+        p, _ = fit(data, anchors=Anchors(u=280.0, p_free_w=0.0, sun_mean_wm2=100.0),
+                   horizon_steps=6, max_iter=30)
+        assert p.P_int >= 0.0
+
+    def test_stookloze_vensters_gevonden(self):
+        from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import off_windows
+        data = _met_stooklozen_nachten(self.HUIS, dagen=10)
+        w = off_windows(data, 1.0, hours=4.0)
+        assert len(w) >= 8
+        for si, k in w:
+            assert np.max(data[si][3][k:k + 4]) < 50
+
+    def test_afkoeltoets_met_het_echte_model_klopt(self):
+        from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import cooling_check
+        data = _met_stooklozen_nachten(self.HUIS, dagen=10)
+        c = cooling_check(self.HUIS, data)
+        assert c["n"] >= 8
+        assert abs(c["model"]["fout_gem_k"]) < 0.02
+        assert c["model"]["gemeten_k"] < 0
+
+    def test_afkoeltoets_vangt_te_trage_afkoeling(self):
+        from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import cooling_check
+        data = _met_stooklozen_nachten(self.HUIS, dagen=10)
+        traag = TwoStateParams(U=140.0, Ci=6000.0, Cm=40000.0, Hm=3000.0,
+                               g=8.0, P_int=400.0, alpha=0.9)
+        assert cooling_check(traag, data)["model"]["fout_gem_k"] > 0.05
+
+    def test_afkoeltoets_met_referentie(self):
+        from types import SimpleNamespace
+        from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import cooling_check
+        data = _met_stooklozen_nachten(self.HUIS, dagen=10)
+        nooit_koud = SimpleNamespace(predict_t_indoor=lambda t, *a: t)
+        c = cooling_check(self.HUIS, data, reference=nooit_koud)
+        assert c["referentie"]["fout_gem_k"] == pytest.approx(-c["referentie"]["gemeten_k"])
+
+    def test_zonder_stookloze_uren_geen_toets(self):
+        from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import cooling_check
+        data = _genereer(WAAR, n=300)
+        assert cooling_check(WAAR, data)["n"] == 0
+
+    def test_gewicht_op_vensters_draait(self):
+        data = _met_stooklozen_nachten(self.HUIS)
+        p, rep = fit(data, horizon_steps=6, max_iter=40, cooling_weight=0.5)
+        assert rep["afkoelvensters"] > 0
+        assert np.isfinite(p.Ci)
+
+
+class TestAfnemers:
+    """Het goedgekeurde 2R2C voor uitlooptijd en driftgrens (v0.10.7-beta.9)."""
+
+    def test_stapper_volgt_simulate(self):
+        from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import (
+            TwoStateStepper, simulate)
+        to = np.full(8, 3.0); sol = np.zeros(8); q = np.zeros(8)
+        ref = simulate(WAAR, 20.0, 19.5, to, sol, q, 1.0)
+        st = TwoStateStepper(WAAR, 19.5)
+        t = 20.0
+        for k in range(8):
+            t = st.predict_t_indoor(t, 3.0, 0.0, 0.0, 1.0)
+            assert t == pytest.approx(ref[k])
+
+    def test_uitlooptijd_met_de_stapper(self):
+        from custom_components.quatt_stooklijn.analysis.thermal_model import simulate_coast_time
+        from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import TwoStateStepper
+        r = simulate_coast_time(TwoStateStepper(WAAR, 20.0), 20.5, 19.0, [0.0] * 12, [0.0] * 12)
+        assert r["coast_minutes"] is not None and r["coast_minutes"] > 0
+        assert r["trajectory"][0]["t_indoor_predicted"] == 20.5
+
+    def test_warme_massa_rekt_de_uitlooptijd(self):
+        from custom_components.quatt_stooklijn.analysis.thermal_model import simulate_coast_time
+        from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import TwoStateStepper
+        koud = simulate_coast_time(TwoStateStepper(WAAR, 19.0), 20.5, 19.0, [0.0] * 12, [0.0] * 12)
+        warm = simulate_coast_time(TwoStateStepper(WAAR, 22.0), 20.5, 19.0, [0.0] * 12, [0.0] * 12)
+        assert warm["coast_minutes"] > koud["coast_minutes"]
+
+    def test_kamerrespons_is_lineair_en_klopt_met_simulate(self):
+        from custom_components.quatt_stooklijn.analysis.thermal_model_2r2c import (
+            room_response, simulate)
+        dq = np.array([1000.0, -500.0, 0.0, 2000.0, -2500.0])
+        r = room_response(WAAR, dq, 1.0)
+        np.testing.assert_allclose(room_response(WAAR, 2 * dq, 1.0), 2 * r)
+        # Verschil tussen twee simulaties met hetzelfde weer = respons op het verschil.
+        to = np.full(5, 4.0); sol = np.full(5, 50.0); q0 = np.full(5, 3000.0)
+        a = simulate(WAAR, 20.0, 20.0, to, sol, q0 + dq, 1.0)
+        b = simulate(WAAR, 20.0, 20.0, to, sol, q0, 1.0)
+        np.testing.assert_allclose(a - b, r, atol=1e-9)

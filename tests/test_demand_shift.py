@@ -800,3 +800,38 @@ class TestCopVergelijkingKiestOpKosten:
         )
         zonder = calculate_demand_shift(DAG, CURVE, UA, T0, 2.0)
         assert met.shifted == zonder.shifted
+
+
+class TestDriftMetEenAnderModel:
+    """De driftgrens met een eigen respons (het goedgekeurde 2R2C)."""
+
+    def test_respons_vervangt_de_capaciteit(self):
+        import numpy as np
+        from custom_components.quatt_stooklijn.analysis.demand_shift import calculate_demand_shift
+        temps = [-2.0, -1.0, 2.0, 6.0, 8.0, 6.0, 2.0, 0.0] * 3
+        curve = {t: 2.0 + 0.1 * (t + 10) for t in range(-15, 20)}
+        calls = []
+
+        def resp(delta, dt):
+            calls.append(len(delta))
+            return np.cumsum(delta) * dt / 5000.0
+
+        a = calculate_demand_shift(temps, curve, 250.0, 17.0, 3.0,
+                                   drift_response=resp, max_drift_k=0.3)
+        b = calculate_demand_shift(temps, curve, 250.0, 17.0, 3.0,
+                                   thermal_mass_wh_k=5000.0, max_drift_k=0.3)
+        assert calls
+        assert a.worst_drift_k == pytest.approx(b.worst_drift_k)
+        assert a.shifted == pytest.approx(b.shifted)
+
+    def test_strengere_respons_schaalt_meer_terug(self):
+        import numpy as np
+        from custom_components.quatt_stooklijn.analysis.demand_shift import calculate_demand_shift
+        temps = [-2.0, -1.0, 2.0, 6.0, 8.0, 6.0, 2.0, 0.0] * 3
+        curve = {t: 2.0 + 0.1 * (t + 10) for t in range(-15, 20)}
+        ruim = calculate_demand_shift(temps, curve, 250.0, 17.0, 3.0, max_drift_k=0.3,
+                                      drift_response=lambda d, dt: np.cumsum(d) * dt / 50000.0)
+        krap = calculate_demand_shift(temps, curve, 250.0, 17.0, 3.0, max_drift_k=0.3,
+                                      drift_response=lambda d, dt: np.cumsum(d) * dt / 2000.0)
+        assert krap.drift_limit_factor <= ruim.drift_limit_factor
+        assert krap.worst_drift_k >= -0.3 - 1e-9

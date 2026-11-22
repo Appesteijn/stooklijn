@@ -210,3 +210,27 @@ Het sturingseffect bewaart per dag de sleutel (`max_water=mpc;sound=uit;demand=0
 niet de naam. Tot beta.8 werd de tekst bewaard, en dan splitst een hernoeming
 elke instelling in twee groepen. Wie een naam verandert, hoeft daar dus niets
 voor te migreren; wie de sleutel verandert wel (`migrate_config`).
+
+## Het 2R2C mag pas rekenen als het ook de afkoeling kent
+
+Vrij gefit voorspelt het 2R2C de kamer twaalf uur vooruit goed, maar zijn
+opslag (Ci, Cm) is niet te bepalen en hij kent de afkoeling bij een
+stilstaande pomp niet: in november staat de pomp geen uur uit. Nagespeeld op
+het logboek van 08-09 t/m 22-11-2026 (32 stookloze vensters van vier uur,
+allemaal september en oktober): gemeten −0,25 K; 1R1C fout −0,04, vrij 2R2C
++0,25 (nauwelijks afkoeling), 2R2C met ankers en afkoelgewicht +0,06
+(spreiding 0,13 tegen 0,20 bij het 1R1C).
+
+- **U vast op de warmteverliesanalyse** kost niets (12 u: 0,262 tegen 0,266 K).
+- **De totale gratis warmte vast**, niet P_int alleen: P_int = U·(kamer −
+  balanspunt) − g·(gemiddelde zon). Het balanspunt bevat de gemiddelde zon al;
+  P_int als constante vastzetten telt die dubbel en kostte 7–16 %.
+- **Stookloze vensters wegen extra** (`COOLING_WEIGHT` 0,5).
+- **Goedkeuring voor gebruik** (`Comparison.approved`) vraagt de gewone toets,
+  de toets met de weken omgedraaid, een fit op het hele logboek, en een
+  afkoeltoets: minstens 10 vensters, gemiddelde fout ≤ 0,10 K, en niet
+  slechter dan het 1R1C. Pas dan rekenen uitlooptijd, driftgrens en de
+  kamerlijn van de vooruitblik met het 2R2C. Het advies rekent met de
+  warmteverliesanalyse, niet met het 2R2C.
+- Een installatie die in de winter begint, heeft geen stookloze vensters; dan
+  blijft het 1R1C staan tot het tussenseizoen. Dat is de bedoeling.

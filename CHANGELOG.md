@@ -49,6 +49,17 @@ je leest is anders.
   opgeslagen: op een testlogboek van 74 dagen 0,7 MB in plaats van 2,3 MB.
   Een terugstap naar een oudere versie kan het nieuwe formaat niet lezen; het
   logboek blijft dan staan en wordt niet overschreven.
+- **Het 2R2C rekent mee, maar pas als het de afkoeling kent.** De fit zet U en
+  de totale gratis warmte vast op de warmteverliesanalyse en laat stookloze
+  uren extra meetellen. Goedgekeurd voor gebruik is het pas na de gewone toets,
+  dezelfde toets met de weken omgedraaid, en een afkoeltoets tegen het lerende
+  huismodel. Dan rekenen de veilige uitlooptijd, de driftgrens van de
+  prijsverschuiving en de kamerlijn in de vooruitblik ermee (`model_source:
+  2r2c`, `driftmodel: 2r2c`); anders blijft alles op het lerende huismodel. De
+  uitkomst wordt bewaard over een herstart (hoogstens 48 uur oud). Op het
+  testhuis: twaalf uur vooruit 0,26 K in beide splitsingen (huismodel 0,43),
+  afkoeling met de pomp uit 0,13 K tegen 0,20 K. De kaart Modelvergelijking
+  toont of het in gebruik is en waarom niet.
 
 ## v0.10.7-beta.8 — 2026-11-22
 

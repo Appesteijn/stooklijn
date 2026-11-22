@@ -205,6 +205,7 @@ def scan_gamma(
     weigh_prices: bool = True,
     dt_hours: float = 1.0,
     min_run_steps: int = 1,
+    drift_response=None,
 ) -> GammaScan:
     """Reken het hele bereik van gamma door en wijs de bruikbaarste aan.
 
@@ -255,6 +256,7 @@ def scan_gamma(
             weigh_prices=weigh_prices,
             dt_hours=dt_hours,
             min_run_steps=min_run_steps,
+            drift_response=drift_response,
         )
         return GammaPunt(
             gamma=round(gamma, 2),
@@ -359,6 +361,7 @@ def calculate_demand_shift(
     min_power_w: list[float] | None = None,
     dt_hours: float = 1.0,
     min_run_steps: int = 1,
+    drift_response=None,
 ) -> DemandShiftResult:
     """Herverdeel de warmtevraag over het venster naar COP, en optioneel prijs.
 
@@ -371,6 +374,11 @@ def calculate_demand_shift(
         ceiling_w: firmwareplafond, alleen om te signaleren — er wordt hier
             bewust niet op geklemd, want dat maakt verzadiging onzichtbaar.
         thermal_mass_wh_k: C uit het RC-model, om de kamerdrift te schatten.
+        drift_response: in plaats van ``thermal_mass_wh_k``: een functie
+            ``(verschil in W per stap, dt_hours) -> kamerdrift in K per stap``,
+            bijvoorbeeld de respons van een goedgekeurd 2R2C
+            (``thermal_model_2r2c.room_response``). Moet lineair zijn: de
+            terugschaling rekent erop.
         max_drift_k: hoeveel de kamer maximaal mag wegzakken (K, positief).
             Wordt die overschreden, dan wordt de héle verschuiving evenredig
             teruggeschaald in plaats van verworpen — dat houdt het gedrag
@@ -473,9 +481,14 @@ def calculate_demand_shift(
     # blijft draaien en is de eigenlijke vangnet. Wat hier gebeurt is begrenzen
     # vóórdat dat vangnet nodig is, want elke correctie die de firmware moet
     # maken landt juist op het koude uur met de slechte COP.
+    def _drift(diff: np.ndarray) -> np.ndarray:
+        if drift_response is not None:
+            return np.asarray(drift_response(diff, dt_hours), dtype=float)
+        return np.cumsum(diff) * dt_hours / thermal_mass_wh_k
+
     drift = None
-    if thermal_mass_wh_k and thermal_mass_wh_k > 0:
-        drift = np.cumsum(shifted - flat_arr) * dt_hours / thermal_mass_wh_k
+    if drift_response is not None or (thermal_mass_wh_k and thermal_mass_wh_k > 0):
+        drift = _drift(shifted - flat_arr)
         worst = float(drift.min())
         peak = float(drift.max())
         # Evenredig terugschalen naar precies de limiet. Σ(shifted−flat) = 0
@@ -490,7 +503,7 @@ def calculate_demand_shift(
         if factor < 1.0:
             shifted = flat_arr + factor * (shifted - flat_arr)
             result.drift_limit_factor = round(factor, 3)
-            drift = np.cumsum(shifted - flat_arr) * dt_hours / thermal_mass_wh_k
+            drift = _drift(shifted - flat_arr)
             worst = float(drift.min())
             peak = float(drift.max())
         result.worst_drift_k = round(worst, 3)
@@ -506,7 +519,7 @@ def calculate_demand_shift(
         result.hours_below_min = steps_below_min * dt_hours
         result.min_power_applied = True
         if drift is not None:
-            drift = np.cumsum(shifted - flat_arr) * dt_hours / thermal_mass_wh_k
+            drift = _drift(shifted - flat_arr)
             result.worst_drift_k = round(float(drift.min()), 3)
             result.peak_drift_k = round(float(drift.max()), 3)
 

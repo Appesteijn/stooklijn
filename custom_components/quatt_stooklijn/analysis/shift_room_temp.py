@@ -1,7 +1,8 @@
 """Wat doet verschuiven met de kamertemperatuur, volgens het 2R2C?
 
-De verschuiving zelf rekent met het 1R1C en begrenst de kamerdrift met diens
-ene capaciteit. Het 2R2C voorspelt de kamertemperatuur op weggehouden data
+De verschuiving begrenst de kamerdrift met het 2R2C als de modelvergelijking
+dat goedkeurde voor gebruik (``room_response``), anders met de ene capaciteit
+van het 1R1C. Het 2R2C voorspelt de kamertemperatuur op weggehouden data
 duidelijk beter (twaalf uur vooruit 0,28 K tegen 0,46 K, november 2026), dus
 dat is het model om te laten zien wat een plan met de kamer doet.
 

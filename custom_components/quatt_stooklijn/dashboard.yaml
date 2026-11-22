@@ -1338,8 +1338,22 @@ views:
 
               ✅ **2R2C is beter**{% if winst %} — {{ winst | round(0) | int }}%
               scherper dan
-              het model dat nu draait{% endif %}. Het staat nog steeds uit:
-              aanzetten is een aparte stap.
+              het model dat nu draait{% endif %}.
+
+              {% if state_attr(s, 'goedgekeurd_voor_gebruik') %}
+
+              **In gebruik** voor de uitlooptijd, de driftgrens van de
+              prijsverschuiving en de kamerlijn in de vooruitblik. Het advies
+              zelf rekent met de warmteverliesanalyse.
+
+              {% else %}
+
+              Nog niet in gebruik: {{ state_attr(s, 'goedkeuring') }}.
+              Uitlooptijd en driftgrens rekenen met het lerende huismodel.
+
+              {% endif %}
+
+              {% set a = state_attr(s, 'afkoeling') %}{% if a and a.n and a.model is defined %}Afkoeling met de warmtepomp uit ({{ a.n }}× {{ a.uren | int }} uur, gemeten gemiddeld {{ a.model.gemeten_k }}&nbsp;K): 2R2C zit er gemiddeld {{ a.model.fout_gem_k }}&nbsp;K naast (spreiding {{ a.model.fout_rmse_k }}&nbsp;K){% if a.referentie is defined %}, het lerende huismodel {{ a.referentie.fout_gem_k }}&nbsp;K (spreiding {{ a.referentie.fout_rmse_k }}&nbsp;K){% endif %}.{% endif %}
 
               {% else %}
 

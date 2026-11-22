@@ -335,6 +335,7 @@ def _sensor(resultaat):
     sensor = QuattModelBenchmarkSensor.__new__(QuattModelBenchmarkSensor)
     sensor._result = resultaat
     sensor._running = False
+    sensor._store = MagicMock()
     return sensor
 
 
@@ -457,3 +458,99 @@ class TestSensorBedrading:
         await sensor._async_run()
 
         sensor.hass.async_add_executor_job.assert_not_called()
+
+
+
+class TestGoedkeuringVoorGebruik:
+    """v0.10.7-beta.9: beide splitsingen, een fit op alles en de afkoeltoets
+    voordat uitlooptijd en driftgrens het 2R2C gebruiken."""
+
+    def _koeling(self, n=20, fout=0.05, rmse=0.1, ref_rmse=0.2):
+        c = {"n": n, "uren": 4.0,
+             "model": {"n": n, "gemeten_k": -0.25, "fout_gem_k": fout, "fout_rmse_k": rmse}}
+        if ref_rmse is not None:
+            c["referentie"] = {"n": n, "gemeten_k": -0.25, "fout_gem_k": -0.04,
+                               "fout_rmse_k": ref_rmse}
+        return c
+
+    def test_goed(self):
+        assert mb._cooling_verdict(self._koeling())[0] is True
+
+    def test_te_weinig_vensters(self):
+        ok, why = mb._cooling_verdict(self._koeling(n=4))
+        assert not ok and "4 van 10" in why
+
+    def test_te_trage_afkoeling(self):
+        ok, why = mb._cooling_verdict(self._koeling(fout=0.2))
+        assert not ok and "te traag" in why
+
+    def test_slechter_dan_het_1r1c(self):
+        ok, why = mb._cooling_verdict(self._koeling(rmse=0.25))
+        assert not ok and "slechter" in why
+
+    def test_zonder_1r1c_alleen_de_eigen_fout(self):
+        assert mb._cooling_verdict(self._koeling(ref_rmse=None))[0] is True
+
+    def test_bewaren_en_terughalen(self):
+        u = _uitkomst(accepted=True, reason="beter", params={"U": 1.0},
+                      params_use={"U": 2.0}, approved=True,
+                      approval_reason="goedgekeurd", measured_ts=1_795_000_000.0,
+                      cooling=self._koeling(), reverse={"accepted": True})
+        import json
+        terug = mb.Comparison.from_storage(json.loads(json.dumps(u.to_storage())))
+        assert terug == u
+
+    def test_kapotte_opslag_geeft_none(self):
+        assert mb.Comparison.from_storage({"rmse_k": 1.0}) is None
+
+    def test_ankers_uit_het_logboek(self):
+        rijen = [[1_795_000_000 + 300 * i, 20.0, 5.0, 2000.0, 50.0, None]
+                 for i in range(14 * 288)]
+        a = mb.anchors_from_rows(rijen, 280.0, 16.5)
+        assert a.u == 280.0
+        assert a.p_free_w == pytest.approx(280.0 * 3.5)
+        assert a.sun_mean_wm2 == pytest.approx(50.0)
+
+    def test_geen_ankers_zonder_analyse(self):
+        rijen = [[1_795_000_000 + 300 * i, 20.0, 5.0, 2000.0, 50.0, None]
+                 for i in range(14 * 288)]
+        assert mb.anchors_from_rows(rijen, None, 16.5) is None
+        assert mb.anchors_from_rows(rijen[:100], 280.0, 16.5) is None
+
+
+class TestBewaardNaHerstart:
+    NU = 1_795_000_000.0
+
+    def _bewaard(self, leeftijd_s):
+        return _uitkomst(accepted=True, reason="beter", approved=True,
+                         params_use={"U": 2.0},
+                         measured_ts=self.NU - leeftijd_s).to_storage()
+
+    def test_verse_uitkomst_terug(self):
+        sensor = _sensor(None)
+        sensor._restore(self._bewaard(3600), self.NU)
+        assert sensor.result is not None and sensor.result.approved
+
+    def test_oude_uitkomst_niet(self):
+        sensor = _sensor(None)
+        sensor._restore(self._bewaard(3 * 86400), self.NU)
+        assert sensor.result is None
+
+    def test_onleesbaar_niet(self):
+        sensor = _sensor(None)
+        sensor._restore({"onzin": 1}, self.NU)
+        sensor._restore(None, self.NU)
+        assert sensor.result is None
+
+    @pytest.mark.asyncio
+    async def test_meting_wordt_bewaard(self):
+        sensor = _sensor(None)
+        sensor.hass = TestSensorBedrading._hass()
+        sensor.async_write_ha_state = MagicMock()
+        sensor._mpc = MagicMock()
+        sensor._mpc.highres_samples = _fijne_rijen(1200)
+        sensor._mpc.thermal_model = TestOnlineRCModel._make_trained_model()
+        await sensor._async_run()
+        sensor._store.async_delay_save.assert_called_once()
+        data = sensor._store.async_delay_save.call_args.args[0]()
+        assert mb.Comparison.from_storage(data) == sensor.result

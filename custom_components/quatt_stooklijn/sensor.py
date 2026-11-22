@@ -2259,6 +2259,47 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             "minimumvermogen": min_curve.as_attribute() if min_curve.bins else None,
         }
 
+    def _start_state_2r2c(self, params_dict: dict):
+        """Begintoestand van het 2R2C (kamer en massa) uit het logboek, een
+        paar minuten bewaard: dit is het dure deel en wordt vaak gevraagd."""
+        from .analysis.shift_room_temp import start_state
+        from .analysis.thermal_model_2r2c import TwoStateParams
+
+        params = TwoStateParams.from_dict(params_dict)
+        key = tuple(sorted(params_dict.items()))
+        now = time.monotonic()
+        cached = self._start_2r2c
+        if cached is None or cached[1] != key or now - cached[0] > MPC_2R2C_START_TTL_S:
+            start = start_state(params, self.highres_samples, dt_util.utcnow().timestamp())
+            self._start_2r2c = (now, key, start)
+        else:
+            start = cached[2]
+        return params, start
+
+    def house_model_2r2c(self):
+        """Het 2R2C als huismodel voor afnemers, of None.
+
+        Alleen als de modelvergelijking het goedkeurde voor gebruik (beide
+        toetsen en de afkoeling, zie ``model_benchmark.compare``) én er een
+        verse begintoestand is. Geeft ``(TwoStateParams, StartState)``. Zonder
+        dat rekenen uitlooptijd en driftgrens met het 1R1C, zoals voorheen.
+        """
+        result = self.benchmark.result if getattr(self, "benchmark", None) else None
+        if (
+            result is None
+            or not getattr(result, "approved", False)
+            or not getattr(result, "params_use", None)
+        ):
+            return None
+        try:
+            params, start = self._start_state_2r2c(result.params_use)
+        except (KeyError, IndexError, TypeError, ValueError, ArithmeticError):
+            _LOGGER.debug("Begintoestand 2R2C mislukt", exc_info=True)
+            return None
+        if start.reason is not None or start.t_mass is None:
+            return None
+        return params, start
+
     def _room_2r2c(
         self, forecast: list[dict], solar_wm2: list[float]
     ) -> tuple[list[float] | None, str | None]:
@@ -2275,8 +2316,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         ``MPC_2R2C_START_TTL_S`` bewaard: de attributen worden bij elke
         statuswijziging opgebouwd.
         """
-        from .analysis.shift_room_temp import room_after_each_step, start_state
-        from .analysis.thermal_model_2r2c import TwoStateParams
+        from .analysis.shift_room_temp import room_after_each_step
 
         if not forecast:
             return None, "geen vooruitblik"
@@ -2286,21 +2326,12 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         if not result.accepted or not result.params:
             return None, "2R2C voorspelt nog niet beter dan het huidige model"
         try:
-            params = TwoStateParams.from_dict(result.params)
-            key = tuple(sorted(result.params.items()))
-            now = time.monotonic()
-            cached = self._start_2r2c
-            if (
-                cached is None
-                or cached[1] != key
-                or now - cached[0] > MPC_2R2C_START_TTL_S
-            ):
-                start = start_state(
-                    params, self.highres_samples, dt_util.utcnow().timestamp()
-                )
-                self._start_2r2c = (now, key, start)
-            else:
-                start = cached[2]
+            # Goedgekeurd voor gebruik: de fit op het hele logboek, net als
+            # uitlooptijd en driftgrens. Anders de fit die getoetst is.
+            use = getattr(result, "params_use", None)
+            params, start = self._start_state_2r2c(
+                use if getattr(result, "approved", False) and use else result.params
+            )
             if start.reason is not None:
                 return None, start.reason
             n = len(forecast)
@@ -2368,10 +2399,25 @@ class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorE
         return cfg.get(CONF_COMFORT_FLOOR_TEMP, DEFAULT_COMFORT_FLOOR_TEMP)
 
     def _compute(self) -> dict | None:
-        """Run the free-cooldown simulation, or None if the model isn't ready."""
+        """Run the free-cooldown simulation, or None if the model isn't ready.
+
+        Met het 2R2C als de modelvergelijking het goedkeurde voor gebruik,
+        anders met het 1R1C. Op het gemeten huis voorspelde het 1R1C de
+        afkoeling bij een stilstaande pomp vier uur vooruit op 0,20 K (rmse),
+        het goedgekeurde 2R2C op 0,13 K (22-11-2026).
+        """
+        from .analysis.thermal_model_2r2c import TwoStateStepper
+
         model = self._mpc.thermal_model
-        if model is None or not model.is_converged:
+        two = self._mpc.house_model_2r2c()
+        if two is not None:
+            params, start = two
+            model = TwoStateStepper(params, start.t_mass)
+            self._model_source = "2r2c"
+        elif model is None or not model.is_converged:
             return None
+        else:
+            self._model_source = "online"
 
         t_indoor = get_float_state(self.hass, self._mpc._indoor_temp_entity)
         t_outdoor = get_float_state(self.hass, self._mpc._outdoor_entity)
@@ -2435,7 +2481,8 @@ class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorE
             "comfort_floor": self._comfort_floor,
             "comfort_at_risk": result["comfort_at_risk"],
             "reaches_floor": result["reaches_floor"],
-            "model_source": "online",
+            # "2r2c" als het goedgekeurde 2R2C rekent, "online" voor het 1R1C.
+            "model_source": getattr(self, "_model_source", "online"),
             "trajectory": result["trajectory"],
             # None = niet binnen het venster op het minimum, of geen minimum
             # geleerd; recovery_target zegt welke van de twee (None = geen).
@@ -2659,10 +2706,12 @@ class QuattModelBenchmarkSensor(
     model wordt alleen uitgelezen.
 
     Draait 's nachts, want de fit plus de vrijloop-evaluatie kosten seconden
-    en horen niet in de event loop. Na een herstart staat hij op "nog niet
-    gemeten" tot de eerste meting; het resultaat wordt bewust niet bewaard,
-    want een score van gisteren op de data van gisteren is geen antwoord op de
-    vraag van vandaag.
+    en horen niet in de event loop.
+
+    Sinds v0.10.7-beta.9 wordt de uitkomst bewaard (hoogstens
+    ``KEEP_RESULT`` oud bij het laden): uitlooptijd en driftgrens rekenen op
+    het goedgekeurde 2R2C, en zouden anders na elke herstart tien minuten
+    terugvallen op het 1R1C.
     """
 
     _attr_has_entity_name = True
@@ -2678,6 +2727,9 @@ class QuattModelBenchmarkSensor(
     #: soort werk dat je daar niet doorheen wil duwen.
     STARTUP_DELAY = timedelta(minutes=10)
 
+    #: Hoe oud een bewaarde uitkomst mag zijn om na een herstart te gelden.
+    KEEP_RESULT = timedelta(hours=48)
+
     def __init__(
         self,
         coordinator: QuattStooklijnCoordinator,
@@ -2688,6 +2740,9 @@ class QuattModelBenchmarkSensor(
         self._entry = entry
         self._mpc = mpc_sensor
         self._result: Comparison | None = None
+        self._store = Store(
+            coordinator.hass, 1, f"{DOMAIN}.model_benchmark_{entry.entry_id}"
+        )
         # Het 2R2C met de zon op de ramen (zonnesensor), naast de hoofduitkomst.
         # None zonder zonnesensor of zolang er niet gemeten is.
         self._window: dict | None = None
@@ -2739,6 +2794,12 @@ class QuattModelBenchmarkSensor(
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+        try:
+            stored = await self._store.async_load()
+        except Exception:  # noqa: BLE001 — een kapotte opslag is geen ramp
+            _LOGGER.warning("Bewaarde modelvergelijking onleesbaar", exc_info=True)
+            stored = None
+        self._restore(stored, dt_util.utcnow().timestamp())
         self.async_on_remove(
             async_track_time_interval(
                 self.hass, self._async_run, self.INTERVAL
@@ -2749,6 +2810,16 @@ class QuattModelBenchmarkSensor(
                 self.hass, self.STARTUP_DELAY.total_seconds(), self._async_run
             )
         )
+
+    def _restore(self, stored, now_ts: float) -> None:
+        """Een bewaarde uitkomst terugzetten, als hij niet te oud is."""
+        restored = Comparison.from_storage(stored) if isinstance(stored, dict) else None
+        if (
+            restored is not None
+            and restored.measured_ts is not None
+            and now_ts - restored.measured_ts <= self.KEEP_RESULT.total_seconds()
+        ):
+            self._result = restored
 
     async def _async_run(self, _now=None) -> None:
         """Meet opnieuw. Een mislukte meting laat de vorige uitkomst staan."""
@@ -2761,9 +2832,18 @@ class QuattModelBenchmarkSensor(
         if not rows:
             return
         model = self._mpc.thermal_model
+        heat_loss = getattr(
+            getattr(getattr(self, "coordinator", None), "data", None), "heat_loss_hp", None
+        )
+        slope = getattr(heat_loss, "slope", None)
+        u = -slope if isinstance(slope, (int, float)) else None
+        bp = getattr(heat_loss, "balance_point", None)
+        now_ts = dt_util.utcnow().timestamp()
         self._running = True
         try:
-            result = await self.hass.async_add_executor_job(compare, rows, model)
+            result = await self.hass.async_add_executor_job(
+                _compare_anchored, rows, model, u, bp, now_ts
+            )
             window = await self._async_window_variant(rows)
         except Exception:
             _LOGGER.warning("Modelvergelijking mislukt", exc_info=True)
@@ -2772,6 +2852,7 @@ class QuattModelBenchmarkSensor(
             self._running = False
         self._result = result
         self._window = window
+        self._store.async_delay_save(result.to_storage, 30)
         _LOGGER.info(
             "Modelvergelijking: 2R2C %s K, huidig %s K, niets doen %s K — %s; "
             "gevelzon %s K",
@@ -2811,6 +2892,14 @@ class QuattModelBenchmarkSensor(
         result["richting_panelen"] = self._mpc.pv_azimuth
         return result
 
+
+
+def _compare_anchored(rows, model, u, balance_point, now_ts):
+    """De modelvergelijking met ankers uit de warmteverliesanalyse; executor."""
+    from .analysis.model_benchmark import anchors_from_rows
+
+    return compare(rows, model, anchors=anchors_from_rows(rows, u, balance_point),
+                   now_ts=now_ts)
 
 
 def _window_variant_with_learned_direction(rows, where, hourly) -> dict:
@@ -4437,6 +4526,18 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
 
         params = self._mpc.thermal_params
         c_whk = params.get("C_whk") if params.get("converged") else None
+        # De kamerdrift met het 2R2C als dat goedgekeurd is voor gebruik: één
+        # capaciteit voor het hele huis overschat hoeveel een kort tekort de
+        # lucht laat zakken niet, maar wel hoe traag hij terugkomt.
+        drift_response = None
+        two = self._mpc.house_model_2r2c()
+        if two is not None:
+            from .analysis.thermal_model_2r2c import room_response
+
+            p2 = two[0]
+            drift_response = lambda delta, dt, _p=p2: room_response(_p, delta, dt)  # noqa: E731
+        self._drift_model = "2r2c" if drift_response is not None else (
+            "1r1c" if c_whk else None)
         ceiling = get_float_state(
             self.hass, openquatt.get(ROLE_PH_RATED_POWER) or ""
         ) if openquatt else None
@@ -4456,6 +4557,7 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
         common = {
             "ceiling_w": ceiling,
             "thermal_mass_wh_k": c_whk,
+            "drift_response": drift_response,
             "max_drift_k": DEMAND_SHIFT_MAX_DRIFT_K,
             "max_overshoot_k": DEMAND_SHIFT_MAX_OVERSHOOT_K,
             "baseline": baseline,
@@ -4522,6 +4624,7 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
             "stroom_vlak_kwh": r_p.elec_flat_kwh,
             "stroom_verschoven_kwh": r_p.elec_shifted_kwh,
             "drift_k": r_p.worst_drift_k,
+            "driftmodel": self._drift_model,
             "overshoot_k": r_p.peak_drift_k,
             "uren_boven_plafond": r_p.hours_above_ceiling,
             "minimumvermogen": r_p.min_power_applied,

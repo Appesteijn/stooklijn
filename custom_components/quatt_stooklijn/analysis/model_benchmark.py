@@ -46,6 +46,13 @@ import numpy as np
 
 from .thermal_model import OnlineRCModel
 from .thermal_model_2r2c import (
+    COOLING_WEIGHT,
+    Anchors,
+    FIT_HORIZON_HOURS,
+    FIT_START_EVERY_HOURS,
+    TwoStateParams,
+    cooling_check,
+    fit,
     BURN_IN_HOURS,
     MIN_BLOCK_HOURS,
     MIN_TRAIN_HOURS,
@@ -327,6 +334,20 @@ class Comparison:
     train_ready_ts: float | None = None
     #: Of het laatste monster in een trainingsweek valt. None zonder logboek.
     train_week_now: bool | None = None
+    #: Dezelfde toets met train- en testweken omgedraaid (v0.10.7-beta.9).
+    reverse: dict | None = None
+    #: Waar U en de gratis warmte op vastgezet waren; None = vrij gefit.
+    anchors: dict | None = None
+    #: De fit op het hele logboek: wat afnemers gebruiken als het model
+    #: goedgekeurd is. ``params`` is de fit die op de testweken gescoord is.
+    params_use: dict | None = None
+    #: Afkoeling bij een stilstaande pomp, 2R2C (``params_use``) tegen het 1R1C.
+    cooling: dict | None = None
+    #: Mag het 2R2C het 1R1C vervangen in uitlooptijd en driftgrens?
+    approved: bool = False
+    approval_reason: str = "nog niet gemeten"
+    #: Unix-tijd van de meting; voor een bewaarde uitkomst na een herstart.
+    measured_ts: float | None = None
 
     @property
     def verbetering_pct(self) -> float | None:
@@ -366,7 +387,84 @@ class Comparison:
             ),
             "params": self.params,
             "fit": self.fit_report,
+            "omgekeerd": self.reverse,
+            "ankers": self.anchors,
+            "params_gebruik": self.params_use,
+            "afkoeling": self.cooling,
+            "goedgekeurd_voor_gebruik": self.approved,
+            "goedkeuring": self.approval_reason,
+            "gemeten_op": (
+                datetime.fromtimestamp(self.measured_ts, timezone.utc).isoformat()
+                if self.measured_ts is not None else None
+            ),
         }
+
+    def to_storage(self) -> dict:
+        """Alles wat ``from_storage`` nodig heeft, voor bewaren over een herstart."""
+        return {
+            "rmse_k": self.rmse_k, "reference_rmse_k": self.reference_rmse_k,
+            "persistence_rmse_k": self.persistence_rmse_k, "accepted": self.accepted,
+            "reason": self.reason, "horizon_hours": self.horizon_hours,
+            "dt_hours": self.dt_hours, "data_hours": self.data_hours,
+            "required_train_hours": self.required_train_hours, "params": self.params,
+            "fit_report": self.fit_report, "fit_dt_hours": self.fit_dt_hours,
+            "train_hours": self.train_hours, "test_hours": self.test_hours,
+            "train_ready_ts": self.train_ready_ts, "train_week_now": self.train_week_now,
+            "reverse": self.reverse, "anchors": self.anchors,
+            "params_use": self.params_use, "cooling": self.cooling,
+            "approved": self.approved, "approval_reason": self.approval_reason,
+            "measured_ts": self.measured_ts,
+        }
+
+    @classmethod
+    def from_storage(cls, data: dict) -> Comparison | None:
+        """Terug uit ``to_storage``; None als het niet te lezen is."""
+        try:
+            return cls(**{k: data[k] for k in cls.__dataclass_fields__ if k in data})
+        except (TypeError, KeyError):
+            return None
+
+
+#: Alleen een 2R2C dat de afkoeling bij een stilstaande pomp minstens zo goed
+#: voorspelt als het 1R1C mag dat vervangen. Zonder genoeg stookloze vensters
+#: (in de winter staat de pomp nooit uit) is er niets om op te oordelen.
+COOLING_MIN_WINDOWS = 10
+#: Gemiddelde fout van het 2R2C over een stookloos venster van vier uur.
+COOLING_MAX_BIAS_K = 0.10
+
+
+def anchors_from_rows(
+    rows: list[list[float]], u: float | None, balance_point: float | None,
+    days: float = 14.0,
+) -> Anchors | None:
+    """Ankers uit de warmteverliesanalyse en het logboek van de laatste ``days``.
+
+    Gratis warmte = U × (mediaan kamer − balanspunt), zoals het anker van het
+    1R1C; de gemiddelde zon over dezelfde dagen hoort erbij, want het
+    balanspunt bevat die zon al.
+    """
+    if u is None or balance_point is None or not rows or u <= 0:
+        return None
+    data = np.asarray([r[:5] for r in rows], dtype=float)
+    recent = data[data[:, _TS] >= data[:, _TS].max() - days * 86400.0]
+    if len(recent) < 288:
+        return None
+    t_room = float(np.median(recent[:, _T_IN]))
+    sun = float(np.nanmean(recent[:, _Q_SOLAR]))
+    return Anchors(u=float(u), p_free_w=max(0.0, float(u) * (t_room - balance_point)),
+                   sun_mean_wm2=sun)
+
+
+def _split_segments(rows, reverse, fit_dt_hours, dt_hours, min_coverage):
+    train_rows, test_rows = split_by_week(rows)
+    if reverse:
+        train_rows, test_rows = test_rows, train_rows
+    train = _long_enough(
+        resample(train_rows, fit_dt_hours, min_coverage, MAX_GAP_FILL_HOURS),
+        fit_dt_hours,
+    )
+    test = _long_enough(resample(test_rows, dt_hours, min_coverage), dt_hours)
+    return train, test
 
 
 def compare(
@@ -377,6 +475,9 @@ def compare(
     min_coverage: float = MIN_BUCKET_COVERAGE,
     max_iter: int = FIT_MAX_ITER,
     fit_dt_hours: float = FIT_DT_HOURS,
+    anchors: Anchors | None = None,
+    cooling_weight: float = COOLING_WEIGHT,
+    now_ts: float | None = None,
 ) -> Comparison:
     """Fit 2R2C op de ene helft van het logboek en scoor drie modellen op de
     andere.
@@ -384,28 +485,29 @@ def compare(
     Het 2R2C leert op ``fit_dt_hours``, alle drie worden getoetst op
     ``dt_hours``. Zie de kop van dit bestand voor waarom die twee verschillen.
 
+    Sinds v0.10.7-beta.9 daarnaast: dezelfde toets met de weken omgedraaid, een
+    fit op het hele logboek (``params_use``) en een afkoeltoets. Alleen als
+    alle drie goed zijn is het model ``approved`` en mogen de uitlooptijd en
+    de driftgrens erop rekenen.
+
     Rekent zwaar genoeg om niet in de event loop thuis te horen: draai hem in
     een executor.
     """
     horizon = steps_in(horizon_hours, dt_hours)
     data_hours = _hours(resample(rows, dt_hours, min_coverage), dt_hours)
 
-    train_rows, test_rows = split_by_week(rows)
-    train = _long_enough(
-        resample(train_rows, fit_dt_hours, min_coverage, MAX_GAP_FILL_HOURS),
-        fit_dt_hours,
-    )
-    test = _long_enough(resample(test_rows, dt_hours, min_coverage), dt_hours)
+    train, test = _split_segments(rows, False, fit_dt_hours, dt_hours, min_coverage)
     train_hours = _hours(train, fit_dt_hours)
     test_hours = _hours(test, dt_hours)
     # Het laatste monster als "nu": het logboek schrijft elke vijf minuten,
     # en zo blijft compare() een zuivere functie van zijn invoer.
-    now_ts = float(rows[-1][_TS]) if rows else None
+    last_ts = float(rows[-1][_TS]) if rows else None
+
+    def _r(v: float | None) -> float | None:
+        return round(v, 3) if v is not None else None
 
     def _uitkomst(validation: Validation | None, ref: float | None,
-                  reason: str | None = None) -> Comparison:
-        def _r(v: float | None) -> float | None:
-            return round(v, 3) if v is not None else None
+                  reason: str | None = None, **extra) -> Comparison:
         return Comparison(
             rmse_k=_r(validation.rmse) if validation else None,
             reference_rmse_k=_r(ref),
@@ -422,29 +524,93 @@ def compare(
             train_hours=train_hours,
             test_hours=test_hours,
             train_ready_ts=(
-                train_ready_at(now_ts, train_hours) if now_ts is not None else None
+                train_ready_at(last_ts, train_hours) if last_ts is not None else None
             ),
-            train_week_now=is_train_week(now_ts) if now_ts is not None else None,
+            train_week_now=is_train_week(last_ts) if last_ts is not None else None,
+            anchors=anchors.to_dict() if anchors else None,
+            measured_ts=now_ts,
+            **extra,
         )
 
     if data_hours == 0.0:
         return _uitkomst(None, None, "nog geen bruikbare meetdata")
 
-    # De referentie moet vóór de fit bekend zijn: de poort toetst het
-    # kandidaat-model eraan af. Zonder referentie zou de poort alleen tegen
-    # "niets doen" toetsen en dus veel te makkelijk open gaan. Hij scoort op
-    # precies de testreeksen die ook de poort krijgt — hetzelfde object, niet
-    # een tweede splitsing die uit de pas kan lopen.
-    ref = (
-        reference_rmse(model, test, horizon, dt_hours=dt_hours)
-        if model is not None and test
-        else None
+    def _validate(train_s, test_s):
+        # De referentie moet vóór de fit bekend zijn: de poort toetst het
+        # kandidaat-model eraan af. Zonder referentie zou de poort alleen tegen
+        # "niets doen" toetsen en dus veel te makkelijk open gaan. Hij scoort op
+        # precies de testreeksen die ook de poort krijgt.
+        ref = (
+            reference_rmse(model, test_s, horizon, dt_hours=dt_hours)
+            if model is not None and test_s
+            else None
+        )
+        v = fit_and_score(
+            train_s, test_s, horizon, reference_rmse=ref,
+            fit_dt_hours=fit_dt_hours, test_dt_hours=dt_hours, max_iter=max_iter,
+            anchors=anchors, cooling_weight=cooling_weight,
+        )
+        return v, ref
+
+    validation, ref = _validate(train, test)
+    if not validation.accepted:
+        return _uitkomst(validation, ref, approval_reason=(
+            "de gewone toets is niet gehaald"))
+
+    rev_train, rev_test = _split_segments(rows, True, fit_dt_hours, dt_hours, min_coverage)
+    rev, rev_ref = _validate(rev_train, rev_test)
+    reverse = {
+        "rmse_k": _r(rev.rmse), "reference_rmse_k": _r(rev_ref),
+        "persistence_rmse_k": _r(rev.persistence_rmse), "accepted": rev.accepted,
+        "reason": rev.reason, "params": rev.params.to_dict() if rev.params else None,
+    }
+    if not rev.accepted:
+        return _uitkomst(validation, ref, reverse=reverse, approval_reason=(
+            "met de weken omgedraaid niet gehaald"))
+
+    # Wat afnemers gebruiken: de fit op alles, met dezelfde instellingen.
+    all_fit = _long_enough(
+        resample(rows, fit_dt_hours, min_coverage, MAX_GAP_FILL_HOURS), fit_dt_hours)
+    try:
+        p_use, rep_use = fit(
+            all_fit, burn_in=steps_in(BURN_IN_HOURS, fit_dt_hours),
+            dt_hours=fit_dt_hours, max_iter=max_iter,
+            horizon_steps=steps_in(FIT_HORIZON_HOURS, fit_dt_hours),
+            start_every=steps_in(FIT_START_EVERY_HOURS, fit_dt_hours),
+            anchors=anchors, cooling_weight=cooling_weight,
+        )
+    except (ValueError, np.linalg.LinAlgError) as err:
+        return _uitkomst(validation, ref, reverse=reverse,
+                         approval_reason=f"fit op alle data mislukt: {err}")
+    if not rep_use.get("converged"):
+        return _uitkomst(validation, ref, reverse=reverse,
+                         approval_reason="fit op alle data convergeerde niet")
+
+    hourly = _long_enough(resample(rows, dt_hours, min_coverage), dt_hours)
+    cooling = cooling_check(p_use, hourly, dt_hours, reference=model)
+    approved, why = _cooling_verdict(cooling)
+    return _uitkomst(
+        validation, ref, reverse=reverse, params_use=p_use.to_dict(),
+        cooling=cooling, approved=approved, approval_reason=why,
     )
-    validation = fit_and_score(
-        train, test, horizon, reference_rmse=ref,
-        fit_dt_hours=fit_dt_hours, test_dt_hours=dt_hours, max_iter=max_iter,
-    )
-    return _uitkomst(validation, ref)
+
+
+def _cooling_verdict(cooling: dict) -> tuple[bool, str]:
+    """Goedkeuring op de afkoeltoets: genoeg vensters, kleine fout, en niet
+    slechter dan het 1R1C (als dat er is)."""
+    n = cooling.get("n", 0)
+    if n < COOLING_MIN_WINDOWS:
+        return False, (
+            f"afkoeling nog niet te toetsen ({n} van {COOLING_MIN_WINDOWS} "
+            "stookloze vensters)")
+    bias = cooling["model"]["fout_gem_k"]
+    if abs(bias) > COOLING_MAX_BIAS_K:
+        richting = "te traag" if bias > 0 else "te snel"
+        return False, f"afkoeling {richting} voorspeld ({bias:+.2f} K over {cooling['uren']:.0f} u)"
+    ref = cooling.get("referentie")
+    if ref is not None and cooling["model"]["fout_rmse_k"] > ref["fout_rmse_k"]:
+        return False, "afkoeling slechter voorspeld dan het huidige huismodel"
+    return True, "goedgekeurd: beide toetsen en de afkoeling"
 
 
 def compare_variant(
@@ -455,6 +621,8 @@ def compare_variant(
     max_iter: int = FIT_MAX_ITER,
     fit_dt_hours: float = FIT_DT_HOURS,
     reverse: bool = False,
+    anchors: Anchors | None = None,
+    cooling_weight: float = COOLING_WEIGHT,
 ) -> dict:
     """Het 2R2C op een andere invoer, gescoord precies zoals ``compare()``.
 
@@ -479,7 +647,7 @@ def compare_variant(
     test = _long_enough(resample(test_rows, dt_hours, min_coverage), dt_hours)
     v = fit_and_score(
         train, test, horizon, fit_dt_hours=fit_dt_hours, test_dt_hours=dt_hours,
-        max_iter=max_iter,
+        max_iter=max_iter, anchors=anchors, cooling_weight=cooling_weight,
     )
     return {
         "rmse_k": round(v.rmse, 3) if v.rmse is not None else None,
