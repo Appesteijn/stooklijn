@@ -3,7 +3,7 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
-## v0.10.7-beta.10 — nog niet uitgebracht
+## v0.10.7-beta.10 — 2026-11-22
 
 Bevindingen na de installatie van beta.9:
 
