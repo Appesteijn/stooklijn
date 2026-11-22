@@ -71,6 +71,7 @@ class Sample:
     p_heat_w: float | None = None
     p_gas_w: float | None = None
     supply: float | None = None
+    t_return: float | None = None
     ceiling: float | None = None
     flow_lph: float | None = None
     base_temp: float = DEFAULT_BASE_TEMP
@@ -264,6 +265,13 @@ def summarize(records: list[dict]) -> dict[str, dict]:
 PAUSED = "gepauzeerd"
 #: Op de 1R1C-bron gezet terwijl het huismodel nog niet online is.
 FALLBACK_1R1C = "1r1c_terugval"
+
+#: De stand van een knop als getal, voor het meetlogboek (kolommen
+#: ``max_water`` en ``sound`` in ``highres_log``). Alleen toevoegen, nooit
+#: hernummeren: het logboek bewaart de getallen, niet de woorden.
+KNOB_CODES = {
+    "uit": 0, "stooklijn": 1, "mpc": 2, "1r1c": 3, FALLBACK_1R1C: 4, PAUSED: 5,
+}
 
 #: Stand van een knop → woord voor de gebruiker. De bronnen komen uit
 #: ``SOURCE_NAMES``, zodat de opties, de kaarten en dit label dezelfde naam

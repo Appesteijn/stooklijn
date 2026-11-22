@@ -40,6 +40,15 @@ je leest is anders.
   niet de factor gemeten / verwacht van de zonverwachtingssensor: de huismodellen
   leren hun zonfactor op de Open-Meteo-waarde van het lopende uur, en die factor
   zou de zon dan dubbel omlaag halen.
+- **Het meetlogboek bewaart meer, en kleiner.** Naast kamer, buiten, warmte, zon
+  en PV nu ook aanvoer, retour, debiet, opgenomen vermogen, kamersetpoint, de
+  waarde op de max. aanvoertemperatuur en de stand van de drie knoppen, elke
+  vijf minuten. Overgenomen uit de meting van het sturingseffect, dat ze al
+  las maar alleen dagsommen bewaarde. Grondstof voor een afgiftemodel, een COP
+  op buiten- én aanvoertemperatuur en een naspeler. Het bestand is compact
+  opgeslagen: op een testlogboek van 74 dagen 0,7 MB in plaats van 2,3 MB.
+  Een terugstap naar een oudere versie kan het nieuwe formaat niet lezen; het
+  logboek blijft dan staan en wordt niet overschreven.
 
 ## v0.10.7-beta.8 — 2026-11-22
 

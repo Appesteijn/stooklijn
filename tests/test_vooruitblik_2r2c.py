@@ -36,7 +36,7 @@ def _sensor(result, rows=None):
     )
     sensor._start_2r2c = None
     store = MagicMock()
-    store.log.to_dict.return_value = {"samples": rows if rows is not None else _logboek()}
+    store.log.rows.return_value = rows if rows is not None else _logboek()
     sensor._highres_store = store
     sensor._highres_loaded = True
     return sensor

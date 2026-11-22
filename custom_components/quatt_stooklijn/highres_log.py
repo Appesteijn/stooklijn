@@ -23,6 +23,7 @@ doet is een aparte analyse, offline of in een latere modelversie.
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 import logging
 import math
@@ -34,8 +35,33 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-STORAGE_VERSION = 1
+#: 2 sinds v0.10.7-beta.9: compacte opslag met extra kolommen (zie
+#: ``HighResLog.to_storage``). Een oudere versie van de integratie kan versie 2
+#: niet lezen; dan blijft het logboek staan en schrijft die versie niets weg.
+STORAGE_VERSION = 2
 STORAGE_KEY = f"{DOMAIN}.highres_log"
+
+#: De vaste kolommen. Hun plek ligt vast: analyses lezen op index
+#: (``model_benchmark._TS`` e.v., ``solar_input._PV``).
+BASE_COLUMNS = ("ts", "t_indoor", "t_outdoor", "q_hp_w", "q_solar_wm2", "pv_w")
+
+#: Sinds v0.10.7-beta.9: wat er nodig is voor een afgiftemodel (aanvoer, retour,
+#: debiet), een COP op buiten- én aanvoertemperatuur (opgenomen vermogen), en
+#: om terug te zien wat de knoppen deden. ``max_water`` en ``sound`` zijn de
+#: stand van de knop als getal (``analysis.steering_effect.KNOB_CODES``),
+#: ``ceiling`` de waarde die op de regelaar stond, ``demand`` 1 als de
+#: warmtevraag naar OpenQuatt stuurde. Onbekend is NaN, op schijf leeg.
+EXTRA_COLUMNS = (
+    "t_supply", "t_return", "flow_lph", "p_el_w", "setpoint",
+    "ceiling", "max_water", "sound", "demand",
+)
+COLUMNS = BASE_COLUMNS + EXTRA_COLUMNS
+
+#: Afronding per extra kolom: genoeg voor de analyse, niet meer.
+_EXTRA_DIGITS = {
+    "t_supply": 2, "t_return": 2, "flow_lph": 0, "p_el_w": 0, "setpoint": 2,
+    "ceiling": 1, "max_water": 0, "sound": 0, "demand": 0,
+}
 
 #: Bemonsteringsinterval. Fijn genoeg voor een tijdconstante van een uur,
 #: grof genoeg om het logboek binnen een paar honderd kilobyte te houden.
@@ -68,6 +94,7 @@ class HighResLog:
         q_hp_w: float,
         q_solar_wm2: float,
         pv_w: float | None = None,
+        extra: Mapping[str, float | None] | None = None,
     ) -> bool:
         """Leg één monster vast. Geeft False als het is overgeslagen.
 
@@ -75,6 +102,10 @@ class HighResLog:
         ingesteld. Onbekend wordt NaN in het geheugen en ``null`` op schijf. De
         zon gemeten met PV en omgerekend naar de ramen bleek de beste zoninvoer
         voor het 2R2C; zie ZONNEWARMTE_PLAN.md.
+
+        ``extra``: waarden voor ``EXTRA_COLUMNS``. Wat ontbreekt of geen eindig
+        getal is, wordt NaN; een ontbrekende aanvoer houdt het monster niet
+        tegen.
         """
         # Een NaN in de warmtekolom komt via mean_heat_between in het 1R1C.
         # Alleen pv_w mag ontbreken; de rest moet een getal zijn.
@@ -99,6 +130,7 @@ class HighResLog:
             round(float(q_hp_w)),
             round(float(q_solar_wm2), 1),
             round(float(pv_w)) if pv_w is not None and math.isfinite(pv_w) else math.nan,
+            *(_rounded((extra or {}).get(c), _EXTRA_DIGITS[c]) for c in EXTRA_COLUMNS),
         ])
         return True
 
@@ -137,44 +169,120 @@ class HighResLog:
         ts = [row[0] for row in self._samples]
         return (max(ts) - min(ts)) / 3600.0
 
+    def rows(self) -> list[list[float | None]]:
+        """Alle monsters als rijen in de volgorde van ``COLUMNS``, onbekend als
+        None. Voor analyse; ``np.asarray(rows, dtype=float)`` maakt er weer NaN
+        van."""
+        return [[None if _missing(v) else v for v in row] for row in self._samples]
+
     def to_dict(self) -> dict:
-        """Voor opslag en analyse. Een onbekende PV-waarde wordt ``None``:
-        NaN is geen geldige JSON. Wie rekent, zet hem terug met ``float('nan')``
-        (numpy doet dat zelf bij ``dtype=float``)."""
-        return {
-            "columns": ["ts", "t_indoor", "t_outdoor", "q_hp_w", "q_solar_wm2", "pv_w"],
-            "samples": [
-                row[:5] + [None if math.isnan(row[5]) else row[5]] for row in self._samples
-            ],
-        }
+        """Kolommen en rijen, zoals een analyse ze leest. Niet wat er op schijf
+        staat; zie ``to_storage``."""
+        return {"columns": list(COLUMNS), "samples": self.rows()}
+
+    def to_storage(self) -> dict:
+        """Compact voor de Store: één tekstblok, een regel per monster.
+
+        Als lijst van lijsten schreef HA elk getal op een eigen regel: 2,2 MB
+        voor 74 dagen met zes kolommen (~105 tekens per monster). Zo is het
+        ~70 tekens per monster met vijftien kolommen. Het tijdstip staat als
+        verschil met het vorige monster (meestal 300), onbekend is een leeg veld.
+        """
+        lines = []
+        prev = None
+        for row in self._samples:
+            ts = int(row[0])
+            head = str(ts if prev is None else ts - prev)
+            prev = ts
+            lines.append(",".join([head, *(_fmt(v) for v in row[1:])]))
+        return {"format": 2, "columns": list(COLUMNS), "rows": "\n".join(lines)}
 
     @classmethod
     def from_dict(cls, data: dict, max_samples: int = MAX_SAMPLES) -> HighResLog:
+        """Leest de compacte opslag (``rows``) en de oude lijst (``samples``,
+        vijf, zes of alle kolommen)."""
         log = cls(max_samples=max_samples)
-        for row in data.get("samples", []):
-            # Een half geschreven of met de hand aangepast bestand mag het
-            # logboek niet slopen: sla onbruikbare rijen over in plaats van
-            # de hele buffer weg te gooien.
-            # Vijf kolommen: van vóór de zonnesensor (v0.10.6-beta.12). Die
-            # rijen krijgen een onbekende PV-waarde, ze vallen niet weg.
-            if isinstance(row, list) and len(row) in (5, 6):
+        if isinstance(data.get("rows"), str):
+            cols = data.get("columns") or list(COLUMNS)
+            prev = None
+            for line in data["rows"].split("\n"):
+                parts = line.split(",")
+                # Een half geschreven of met de hand aangepast bestand mag het
+                # logboek niet slopen: onbruikbare regels overslaan.
                 try:
-                    pv = row[5] if len(row) == 6 else None
-                    log._samples.append([
-                        int(row[0]), float(row[1]), float(row[2]),
-                        float(row[3]), float(row[4]),
-                        float(pv) if pv is not None else math.nan,
-                    ])
-                except (TypeError, ValueError):
+                    step = int(parts[0])
+                    ts = step if prev is None else prev + step
+                    values = [float(p) if p != "" else math.nan for p in parts[1:]]
+                except (TypeError, ValueError, IndexError):
                     continue
+                prev = ts
+                row = _by_name(cols[1:], values)
+                if row is not None:
+                    log._samples.append([ts, *row])
+            return log
+        for row in data.get("samples", []):
+            # Vijf kolommen: van vóór de zonnesensor (v0.10.6-beta.12); zes: tot
+            # v0.10.7-beta.8. Die rijen krijgen onbekende waarden, ze vallen niet weg.
+            if not isinstance(row, list) or len(row) < 5:
+                continue
+            try:
+                values = [math.nan if v is None else float(v) for v in row[1:]]
+                log._samples.append([int(row[0]), *_by_name(COLUMNS[1:len(row)], values)])
+            except (TypeError, ValueError):
+                continue
         return log
+
+
+def _missing(v) -> bool:
+    return isinstance(v, float) and math.isnan(v)
+
+
+def _rounded(v, digits: int) -> float:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return math.nan
+    if not math.isfinite(f):
+        return math.nan
+    return float(round(f)) if digits == 0 else round(f, digits)
+
+
+def _fmt(v) -> str:
+    if _missing(v):
+        return ""
+    f = float(v)
+    return str(int(f)) if f.is_integer() else repr(f)
+
+
+def _by_name(names, values) -> list[float] | None:
+    """Waarden per kolomnaam op de plek in ``COLUMNS`` zetten; onbekende
+    kolommen vallen weg, ontbrekende worden NaN. None als een vaste kolom
+    (behalve pv_w) ontbreekt."""
+    by = dict(zip(names, values))
+    row = [by.get(c, math.nan) for c in COLUMNS[1:]]
+    if any(_missing(v) for v in row[:4]):
+        return None
+    return row
+
+
+class _Store(Store):
+    """Versie 1 (lijst van lijsten) leest ``from_dict`` zelf; niets om te doen."""
+
+    async def _async_migrate_func(
+        self, old_major_version: int, old_minor_version: int, old_data: dict
+    ) -> dict:
+        if old_major_version > STORAGE_VERSION:
+            raise NotImplementedError(
+                f"meetlogboek is van een nieuwere versie ({old_major_version})"
+            )
+        return old_data
 
 
 class HighResLogStore:
     """Persist HighResLog across HA restarts."""
 
     def __init__(self, hass: HomeAssistant) -> None:
-        self._store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+        self._store = _Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self.log = HighResLog()
         self._dirty = False
         #: Opslaan blijft geblokkeerd tot er één keer met succes is gelezen.
@@ -223,15 +331,15 @@ class HighResLogStore:
     def _snapshot(self) -> dict:
         """Wat de uitgestelde opslag wegschrijft, bepaald op het moment zelf."""
         self._dirty = False
-        return self.log.to_dict()
+        return self.log.to_storage()
 
     async def async_save(self) -> None:
         """Wegschrijven, maar alleen als er iets bij is gekomen.
 
-        Bewust niet bij elk monster: een vol logboek is ongeveer een
-        megabyte en veel installaties draaien op een SD-kaart.
+        Bewust niet bij elk monster: een vol logboek is ruim een megabyte en
+        veel installaties draaien op een SD-kaart.
         """
         if not self._dirty or not self._loaded:
             return
-        await self._store.async_save(self.log.to_dict())
+        await self._store.async_save(self.log.to_storage())
         self._dirty = False

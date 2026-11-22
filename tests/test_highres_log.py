@@ -33,7 +33,7 @@ class TestRecord:
         monsters is dat het verschil tussen een megabyte en het meervoud daarvan."""
         log = HighResLog()
         log.record(T0, 20.123456789, 3.987654321, 2500.6789, 120.456789, 1234.567)
-        assert log.to_dict()["samples"][0][1:] == [20.12, 3.99, 2501, 120.5, 1235]
+        assert log.to_dict()["samples"][0][1:6] == [20.12, 3.99, 2501, 120.5, 1235]
 
     def test_slaat_te_dichte_monsters_over(self):
         """Een herstart-storm of handmatige aanroep mag het venster niet
@@ -102,6 +102,8 @@ class TestSerialisatie:
         niet meer terug te lezen."""
         assert HighResLog().to_dict()["columns"] == [
             "ts", "t_indoor", "t_outdoor", "q_hp_w", "q_solar_wm2", "pv_w",
+            "t_supply", "t_return", "flow_lph", "p_el_w", "setpoint",
+            "ceiling", "max_water", "sound", "demand",
         ]
 
     def test_corrupte_rijen_worden_overgeslagen(self):
@@ -125,7 +127,7 @@ class TestStore:
     def _store(self, load_result):
         from unittest.mock import AsyncMock, MagicMock, patch
         from custom_components.quatt_stooklijn.highres_log import HighResLogStore
-        with patch("custom_components.quatt_stooklijn.highres_log.Store") as St:
+        with patch("custom_components.quatt_stooklijn.highres_log._Store") as St:
             inst = St.return_value
             if isinstance(load_result, BaseException):
                 inst.async_load = AsyncMock(side_effect=load_result)
@@ -185,7 +187,7 @@ class TestStore:
         assert delay == SAVE_DELAY.total_seconds()
         # Wat er weggeschreven wordt, wordt pas op het moment zelf bepaald.
         store.record(T0 + SAMPLE_INTERVAL, 20.1, 4.0, 0.0, 0.0)
-        assert len(func()["samples"]) == 2
+        assert len(HighResLog.from_dict(func())) == 2
 
     def test_volgende_monsters_schuiven_de_opslag_niet_op(self):
         """Elke aanroep van async_delay_save zet de timer opnieuw; per monster
@@ -287,3 +289,121 @@ class TestZonnesensor:
         log.record(T0, 20.0, 5.0, 2000, 100.0)
         arr = np.asarray(log.to_dict()["samples"], dtype=float)
         assert np.isnan(arr[0, 5])
+
+
+class TestExtraKolommen:
+    """Sinds v0.10.7-beta.9: aanvoer, retour, debiet, opgenomen vermogen,
+    setpoint en de knoppen, voor het afgiftemodel, de COP en de naspeler."""
+
+    EXTRA = {"t_supply": 34.567, "t_return": 29.123, "flow_lph": 812.4, "p_el_w": 1234.6,
+             "setpoint": 20.5, "ceiling": 38.04, "max_water": 2, "sound": 0, "demand": 1}
+
+    def test_extra_waarden_afgerond_op_hun_plek(self):
+        log = HighResLog()
+        log.record(T0, 20.0, 4.0, 2500.0, 0.0, None, extra=self.EXTRA)
+        row = log.to_dict()["samples"][0]
+        assert row[6:] == [34.57, 29.12, 812, 1235, 20.5, 38.0, 2, 0, 1]
+
+    def test_ontbrekende_extra_houdt_het_monster_niet_tegen(self):
+        log = HighResLog()
+        assert log.record(T0, 20.0, 4.0, 2500.0, 0.0, None,
+                          extra={"t_supply": float("nan"), "t_return": None})
+        assert log.to_dict()["samples"][0][6:] == [None] * 9
+
+    def test_compacte_opslag_rondreis(self):
+        import json
+        log = HighResLog()
+        for i in range(5):
+            log.record(T0 + i * SAMPLE_INTERVAL, 20.0 + i / 10, 4.0, 2500.0, 12.5,
+                       1500.0 if i % 2 else None, extra=self.EXTRA if i != 3 else None)
+        opgeslagen = json.loads(json.dumps(log.to_storage()))
+        assert isinstance(opgeslagen["rows"], str)
+        assert HighResLog.from_dict(opgeslagen).to_dict() == log.to_dict()
+
+    def test_tijd_als_verschil(self):
+        log = HighResLog()
+        log.record(T0, 20.0, 4.0, 0.0, 0.0)
+        log.record(T0 + SAMPLE_INTERVAL, 20.0, 4.0, 0.0, 0.0)
+        regels = log.to_storage()["rows"].split("\n")
+        assert regels[1].split(",")[0] == "300"
+
+    def test_teruglopende_klok_overleeft_de_opslag(self):
+        log = HighResLog()
+        log.record(T0, 20.0, 4.0, 0.0, 0.0)
+        log.record(T0 - SAMPLE_INTERVAL, 20.1, 4.0, 0.0, 0.0)
+        terug = HighResLog.from_dict(log.to_storage())
+        assert [r[0] for r in terug.to_dict()["samples"]] == [
+            r[0] for r in log.to_dict()["samples"]]
+
+    def test_kleiner_dan_het_oude_formaat(self):
+        """Met vijftien kolommen nog kleiner dan het oude formaat met zes: dat
+        schreef HA elk getal op een eigen regel."""
+        import json
+        log = HighResLog()
+        for i in range(288):
+            log.record(T0 + i * SAMPLE_INTERVAL, 20.12, 3.99, 2501.0, 120.5, 1235.0,
+                       extra=self.EXTRA)
+        oud = len(json.dumps({"samples": [r[:6] for r in log.to_dict()["samples"]]}, indent=2))
+        nieuw = len(json.dumps(log.to_storage(), indent=2))
+        assert nieuw < 0.8 * oud
+
+    def test_kapotte_regel_kost_alleen_die_regel(self):
+        log = HighResLog()
+        log.record(T0, 20.0, 4.0, 0.0, 0.0)
+        log.record(T0 + SAMPLE_INTERVAL, 20.0, 4.0, 0.0, 0.0)
+        log.record(T0 + 2 * SAMPLE_INTERVAL, 20.0, 4.0, 0.0, 0.0)
+        data = log.to_storage()
+        regels = data["rows"].split("\n")
+        regels[1] = "300,onzin"
+        data["rows"] = "\n".join(regels)
+        assert len(HighResLog.from_dict(data)) == 2
+
+    def test_oud_formaat_met_zes_kolommen_krijgt_onbekende_extra(self):
+        oud = {"samples": [[1_790_000_000, 20.0, 4.0, 2500.0, 10.0, 1500.0]]}
+        row = HighResLog.from_dict(oud).to_dict()["samples"][0]
+        assert row[:6] == [1_790_000_000, 20.0, 4.0, 2500.0, 10.0, 1500.0]
+        assert row[6:] == [None] * 9
+
+    def test_nieuwere_opslagversie_wordt_niet_overschreven(self):
+        """Een terugstap naar een oudere integratie mag het logboek niet wissen;
+        andersom: deze versie weigert een nog nieuwer formaat."""
+        import asyncio
+        from custom_components.quatt_stooklijn.highres_log import STORAGE_VERSION, _Store
+        st = _Store.__new__(_Store)
+        with pytest.raises(NotImplementedError):
+            asyncio.run(st._async_migrate_func(STORAGE_VERSION + 1, 1, {"rows": ""}))
+        assert asyncio.run(st._async_migrate_func(1, 1, {"samples": []})) == {"samples": []}
+
+
+class TestExtraUitHetSturingseffect:
+    """De MPC-sensor leest de extra kolommen niet zelf uit, maar neemt ze over
+    van de meting van het sturingseffect (elke vijf minuten)."""
+
+    def _mpc(self, sample, at, knobs=("mpc", "uit", False)):
+        from types import SimpleNamespace
+        from custom_components.quatt_stooklijn.sensor import QuattMpcSensor
+        s = QuattMpcSensor.__new__(QuattMpcSensor)
+        s.steering = SimpleNamespace(last_sample=sample, last_sample_at=at,
+                                     last_knob_states=knobs)
+        return s
+
+    def test_verse_meting(self):
+        from custom_components.quatt_stooklijn.analysis.steering_effect import Sample
+        nu = T0
+        sample = Sample(config="x", supply=35.0, t_return=30.0, flow_lph=800.0,
+                        p_el_w=900.0, setpoint=20.5, ceiling=38.0)
+        extra = self._mpc(sample, nu - timedelta(minutes=4))._highres_extra(nu)
+        assert extra == {"t_supply": 35.0, "t_return": 30.0, "flow_lph": 800.0,
+                         "p_el_w": 900.0, "setpoint": 20.5, "ceiling": 38.0,
+                         "max_water": 2, "sound": 0, "demand": 0.0}
+
+    def test_oude_meting_is_onbekend(self):
+        from custom_components.quatt_stooklijn.analysis.steering_effect import Sample
+        nu = T0
+        sample = Sample(config="x", supply=35.0)
+        assert self._mpc(sample, nu - timedelta(minutes=11))._highres_extra(nu) == {}
+
+    def test_zonder_sturingseffect(self):
+        from custom_components.quatt_stooklijn.sensor import QuattMpcSensor
+        s = QuattMpcSensor.__new__(QuattMpcSensor)
+        assert s._highres_extra(T0) == {}

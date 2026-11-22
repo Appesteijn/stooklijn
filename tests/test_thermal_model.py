@@ -1121,7 +1121,7 @@ class TestZaaienVanuitDeSensor:
         nu = time.time()
         rijen = [[nu - 300 * i, 19.5 if i % 2 else 19.7, 5.0, 2000.0, 0.0, None] for i in range(400)]
         sensor._highres_store = MagicMock()
-        sensor._highres_store.log.to_dict.return_value = {"samples": rijen}
+        sensor._highres_store.log.rows.return_value = rijen
         sensor._refresh_u_prior()
         assert sensor._thermal_store.model.raw_params["P_c"] == pytest.approx(
             287.15 * (19.6 - 16.53))

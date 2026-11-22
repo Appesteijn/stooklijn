@@ -59,6 +59,7 @@ from .const import (
 from .discovery import (
     ROLE_BOILER_HEAT,
     ROLE_FLOW_RATE,
+    ROLE_RETURN_TEMP,
     ROLE_INDOOR_TEMP,
     ROLE_OUTDOOR_TEMP,
     ROLE_POWER_INPUT,
@@ -118,6 +119,11 @@ class QuattSteeringEffectSensor(SensorEntity):
         # Voor de kaart "Sturing: wat past bij jouw installatie", bijgewerkt
         # bij elke meting (zie _sample).
         self._knobs: dict | None = None
+        # De laatste meting met de stand van de knoppen, voor het meetlogboek
+        # van de MPC-sensor (zie QuattMpcSensor._async_highres_sample).
+        self.last_sample: Sample | None = None
+        self.last_sample_at: datetime | None = None
+        self.last_knob_states: tuple[str, str, bool] | None = None
         self._regelaar: str | None = None
         self._boiler_measured = False
         #: Opslaan pas na een geslaagde lezing, anders overschrijft de eerste
@@ -171,6 +177,7 @@ class QuattSteeringEffectSensor(SensorEntity):
             minutes = max(0.0, (now - self._last_ts).total_seconds() / 60.0)
 
         sample = self._sample()
+        self.last_sample, self.last_sample_at = sample, now
         self._config_now = sample.config
         self._day.add(sample, minutes, MIN_FLOW_LPH)
         self._last_ts = now
@@ -188,6 +195,7 @@ class QuattSteeringEffectSensor(SensorEntity):
             except Exception:  # noqa: BLE001 — meten mag nooit de sensor breken
                 setpoint = None
         sound = self._sound_state(cfg)
+        self.last_knob_states = (max_water, sound, demand)
         self._knobs = {
             "max_aanvoertemperatuur": {"stand": max_water, "naam": state_name(max_water)},
             "soundslider": {"stand": sound, "naam": state_name(sound)},
@@ -205,6 +213,7 @@ class QuattSteeringEffectSensor(SensorEntity):
             p_heat_w=self._value(ROLE_TOTAL_POWER, cfg),
             p_gas_w=p_gas,
             supply=self._value(ROLE_SUPPLY_TEMP, cfg),
+            t_return=self._value(ROLE_RETURN_TEMP, cfg),
             ceiling=ceiling,
             flow_lph=self._value(ROLE_FLOW_RATE, cfg),
             base_temp=self._base_temp(),

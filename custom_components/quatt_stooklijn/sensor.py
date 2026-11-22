@@ -509,9 +509,13 @@ async def async_setup_entry(
     # Wat de knoppen opleveren, per instelling: comfort, verbruik, starts, gas.
     # Altijd aan, ook zonder knop: "alles uit" is de referentie.
     from .steering_effect import QuattSteeringEffectSensor
-    entities.append(
-        QuattSteeringEffectSensor(hass, coordinator, entry, mpc_sensor, starts_sensor)
+    steering_sensor = QuattSteeringEffectSensor(
+        hass, coordinator, entry, mpc_sensor, starts_sensor
     )
+    entities.append(steering_sensor)
+    # Het meetlogboek neemt aanvoer, retour, debiet, opgenomen vermogen,
+    # setpoint en de knoppen over uit de meting van het sturingseffect.
+    mpc_sensor.steering = steering_sensor
 
     async_add_entities(entities)
 
@@ -940,6 +944,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     #: Zie SolarForecastLog.lead_factor; op klasseniveau zodat een sensor die
     #: nog niet geladen is (of in tests via __new__ gemaakt) gewoon None heeft.
     solar_lead_factor: float | None = None
+    #: Het sturingseffect; levert de extra kolommen van het meetlogboek.
+    steering: Any = None
 
     _attr_has_entity_name = True
     _attr_translation_key = "mpc_recommended_supply_temp"
@@ -1241,13 +1247,13 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     def highres_samples(self) -> list[list[float]]:
         """Momentopname van het meetlogboek, voor analyse buiten de event loop.
 
-        Een kopie van de lijst, geen kopie van de rijen — die worden na het
-        vastleggen niet meer aangeraakt, dus een executor-thread mag er
-        rustig overheen lopen terwijl er hier nieuwe monsters bij komen.
+        Nieuwe rijen in de volgorde van ``highres_log.COLUMNS``, onbekend als
+        None, dus een executor-thread mag er rustig overheen lopen terwijl er
+        hier nieuwe monsters bij komen.
         """
         if not self._highres_loaded:
             return []
-        return list(self._highres_store.log.to_dict()["samples"])
+        return self._highres_store.log.rows()
 
     @property
     def thermal_params(self) -> dict:
@@ -1662,10 +1668,41 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         # Warmtepomp plus ketel, zoals het huismodel (zie _house_heat_w). De
         # kolom heet nog q_hp; vóór v0.10.7-beta.6 was het alleen de warmtepomp.
         q_hp = self._house_heat_w()
+        now = dt_util.utcnow()
         self._highres_store.record(
-            dt_util.utcnow(), t_indoor, t_outdoor, q_hp, q_solar_wm2,
-            self._pv_power_w(),
+            now, t_indoor, t_outdoor, q_hp, q_solar_wm2,
+            self._pv_power_w(), extra=self._highres_extra(now),
         )
+
+    def _highres_extra(self, now: datetime) -> dict[str, float | None]:
+        """Aanvoer, retour, debiet, opgenomen vermogen, setpoint en de knoppen
+        uit de laatste meting van het sturingseffect, mits vers.
+
+        Niet opnieuw uitgelezen: het sturingseffect meet dezelfde dingen al elke
+        vijf minuten. Ouder dan tien minuten (of nog geen meting) is onbekend.
+        """
+        from .analysis.steering_effect import KNOB_CODES
+
+        steer = self.steering
+        sample = getattr(steer, "last_sample", None)
+        at = getattr(steer, "last_sample_at", None)
+        if sample is None or at is None or abs((now - at).total_seconds()) > 600:
+            return {}
+        extra: dict[str, float | None] = {
+            "t_supply": sample.supply,
+            "t_return": sample.t_return,
+            "flow_lph": sample.flow_lph,
+            "p_el_w": sample.p_el_w,
+            "setpoint": sample.setpoint,
+            "ceiling": sample.ceiling,
+        }
+        knobs = getattr(steer, "last_knob_states", None)
+        if knobs:
+            max_water, sound, demand = knobs
+            extra["max_water"] = KNOB_CODES.get(max_water)
+            extra["sound"] = KNOB_CODES.get(sound)
+            extra["demand"] = 1.0 if demand else 0.0
+        return extra
 
     def _refresh_u_prior(self) -> None:
         """Keep the RC model's U anchor in step with the batch regression.
@@ -1703,7 +1740,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
 
         if getattr(self, "_highres_loaded", False):
             cutoff = dt_util.utcnow().timestamp() - 14 * 86400
-            temps = [r[1] for r in self._highres_store.log.to_dict()["samples"] if r[0] >= cutoff]
+            temps = [r[1] for r in self._highres_store.log.rows() if r[0] >= cutoff]
             if len(temps) >= 288:      # minstens een etmaal aan vijfminutenmonsters
                 return float(np.median(temps))
         return self._resolve_room_setpoint()[0]
