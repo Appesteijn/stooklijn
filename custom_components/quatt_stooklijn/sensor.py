@@ -38,6 +38,7 @@ from homeassistant.util import dt as dt_util
 
 from .analysis.model_benchmark import Comparison, compare
 from .analysis.min_power import MinPowerCurve, learn_min_power
+from .analysis.shift_room_temp import TRACK_WINDOW_HOURS
 from .analysis.thermal_model import (
     AdviceDemand,
     OnlineRCModel,
@@ -1352,9 +1353,13 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         None, dus een executor-thread mag er rustig overheen lopen terwijl er
         hier nieuwe monsters bij komen.
         """
+        return self.highres_rows()
+
+    def highres_rows(self, since: float | None = None) -> list[list[float]]:
+        """Zoals ``highres_samples``, met ``since`` alleen het recente deel."""
         if not self._highres_loaded:
             return []
-        return self._highres_store.log.rows()
+        return self._highres_store.log.rows(since)
 
     @property
     def thermal_params(self) -> dict:
@@ -1842,7 +1847,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
 
         if getattr(self, "_highres_loaded", False):
             cutoff = dt_util.utcnow().timestamp() - 14 * 86400
-            temps = [r[1] for r in self._highres_store.log.rows() if r[0] >= cutoff]
+            temps = self._highres_store.log.column(1, since=cutoff)
             if len(temps) >= 288:      # minstens een etmaal aan vijfminutenmonsters
                 return float(np.median(temps))
         return self._resolve_room_setpoint()[0]
@@ -2538,7 +2543,9 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         now = time.monotonic()
         cached = self._start_2r2c
         if cached is None or cached[1] != key or now - cached[0] > MPC_2R2C_START_TTL_S:
-            start = start_state(params, self.highres_samples, dt_util.utcnow().timestamp())
+            now_ts = dt_util.utcnow().timestamp()
+            start = start_state(
+                params, self.highres_rows(now_ts - (TRACK_WINDOW_HOURS + 1) * 3600), now_ts)
             self._start_2r2c = (now, key, start)
         else:
             start = cached[2]
@@ -3377,7 +3384,7 @@ class QuattSolarForecastSensor(
 
         now = dt_util.utcnow().timestamp()
         log_dict = self._mpc.solar_forecast_log.to_dict()
-        rows = [r for r in self._mpc.highres_samples if r[0] >= now - KEEP_HOURS * 3600]
+        rows = self._mpc.highres_rows(now - KEEP_HOURS * 3600)
         entity = self._mpc.pv_power_entity
         self._running = True
         await self._mpc.async_learn_pv_orientation()
@@ -5076,7 +5083,8 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
                 kamer = forecast_room_temperature(
                     TwoStateParams.from_dict(
                         result.params_use if approved else result.params),
-                    self._mpc.highres_samples,
+                    self._mpc.highres_rows(
+                        first_utc.timestamp() - (TRACK_WINDOW_HOURS + 1) * 3600),
                     first_utc.timestamp(),
                     temps,
                     solar,

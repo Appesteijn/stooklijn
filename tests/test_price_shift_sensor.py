@@ -620,14 +620,14 @@ class TestKamertemperatuur:
             options=NORMAAL_DAL, temps=STOOKDAG,
             benchmark=self._benchmark(accepted=False),
         )
-        s._mpc.highres_samples = self._logboek()
+        s._mpc.highres_rows = lambda since=None, _r=self._logboek(): _r
         r = s._evaluate(NU)
         assert r["_kamer"]["reden"].startswith("2R2C voorspelt nog niet")
         assert all(u["kamer_verschoven_c"] is None for u in r["_uren"])
 
     def test_goedgekeurd_model_vult_elk_kwartier(self):
         s = _sensor(options=NORMAAL_DAL, temps=STOOKDAG, benchmark=self._benchmark())
-        s._mpc.highres_samples = self._logboek()
+        s._mpc.highres_rows = lambda since=None, _r=self._logboek(): _r
         r = s._evaluate(NU)
         assert r["_kamer"]["reden"] is None
         assert r["_kamer"]["afwijking_min_k"] <= r["_kamer"]["afwijking_max_k"]
@@ -642,7 +642,7 @@ class TestKamertemperatuur:
         for naam, bm in (("poort", self._benchmark()),
                          ("gebruik", self._benchmark(params_use=anders))):
             s = _sensor(options=NORMAAL_DAL, temps=STOOKDAG, benchmark=bm)
-            s._mpc.highres_samples = self._logboek()
+            s._mpc.highres_rows = lambda since=None, _r=self._logboek(): _r
             uitslag[naam] = s._evaluate(NU)["_kamer"]
         assert uitslag["poort"]["goedgekeurd"] is False
         assert uitslag["gebruik"]["goedgekeurd"] is True
@@ -651,13 +651,13 @@ class TestKamertemperatuur:
 
     def test_kapot_logboek_laat_de_meting_staan(self):
         s = _sensor(options=NORMAAL_DAL, temps=STOOKDAG, benchmark=self._benchmark())
-        s._mpc.highres_samples = [r[:2] for r in self._logboek()]
+        s._mpc.highres_rows = lambda since=None, _r=[r[:2] for r in self._logboek()]: _r
         r = s._evaluate(NU)
         assert r["_kamer"]["reden"]
         assert r["besparing_eur"] is not None
 
     def test_kamer_gaat_niet_de_store_in(self):
         s = _sensor(options=NORMAAL_DAL, temps=STOOKDAG, benchmark=self._benchmark())
-        s._mpc.highres_samples = self._logboek()
+        s._mpc.highres_rows = lambda since=None, _r=self._logboek(): _r
         _run_daily(s)
         assert s._days and not any(k.startswith("_") for k in s._days[0])

@@ -1120,8 +1120,9 @@ class TestZaaienVanuitDeSensor:
         sensor._highres_loaded = True
         nu = time.time()
         rijen = [[nu - 300 * i, 19.5 if i % 2 else 19.7, 5.0, 2000.0, 0.0, None] for i in range(400)]
+        from custom_components.quatt_stooklijn.highres_log import HighResLog
         sensor._highres_store = MagicMock()
-        sensor._highres_store.log.rows.return_value = rijen
+        sensor._highres_store.log = HighResLog.from_dict({"samples": rijen})
         sensor._refresh_u_prior()
         assert sensor._thermal_store.model.raw_params["P_c"] == pytest.approx(
             287.15 * (19.6 - 16.53))

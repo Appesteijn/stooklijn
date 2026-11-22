@@ -173,11 +173,22 @@ class HighResLog:
         ts = [row[0] for row in self._samples]
         return (max(ts) - min(ts)) / 3600.0
 
-    def rows(self) -> list[list[float | None]]:
+    def rows(self, since: float | None = None) -> list[list[float | None]]:
         """Alle monsters als rijen in de volgorde van ``COLUMNS``, onbekend als
         None. Voor analyse; ``np.asarray(rows, dtype=float)`` maakt er weer NaN
-        van."""
-        return [[None if _missing(v) else v for v in row] for row in self._samples]
+        van.
+
+        Met ``since`` alleen de monsters vanaf dat tijdstip. Het hele logboek
+        omzetten kost ~25 ms op een pc (vijftien kolommen); wie maar een paar
+        dagen nodig heeft, hoort dat in de event loop niet te betalen.
+        """
+        return [[None if _missing(v) else v for v in row] for row in self._samples
+                if since is None or row[0] >= since]
+
+    def column(self, index: int, since: float | None = None) -> list[float]:
+        """Eén kolom als lijst, zonder onbekende waarden."""
+        return [row[index] for row in self._samples
+                if (since is None or row[0] >= since) and not _missing(row[index])]
 
     def to_dict(self) -> dict:
         """Kolommen en rijen, zoals een analyse ze leest. Niet wat er op schijf

@@ -348,6 +348,24 @@ class TestZonnesensor:
         assert np.isnan(arr[0, 5])
 
 
+class TestRecentDeel:
+    """Review 22-11: het hele logboek omzetten kost ~25 ms per aanroep in de
+    event loop; wie een paar dagen nodig heeft, vraagt alleen die."""
+
+    def test_rows_vanaf(self):
+        log = _fill(HighResLog(), 10)
+        grens = (T0 + 6 * SAMPLE_INTERVAL).timestamp()
+        assert [r[0] for r in log.rows(since=grens)] == [r[0] for r in log.rows()][6:]
+
+    def test_kolom_zonder_onbekend(self):
+        log = HighResLog()
+        log.record(T0, 20.0, 4.0, 0.0, 0.0)
+        log.record(T0 + SAMPLE_INTERVAL, float("nan"), 4.0, 0.0, 0.0)
+        log.record(T0 + 2 * SAMPLE_INTERVAL, 20.2, 4.0, 0.0, 0.0)
+        assert log.column(1) == [20.0, 20.2]
+        assert log.column(1, since=(T0 + SAMPLE_INTERVAL).timestamp()) == [20.2]
+
+
 class TestExtraKolommen:
     """Sinds v0.10.7-beta.9: aanvoer, retour, debiet, opgenomen vermogen,
     setpoint en de knoppen, voor het afgiftemodel, de COP en de naspeler."""
