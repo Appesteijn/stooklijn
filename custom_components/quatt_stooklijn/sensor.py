@@ -905,7 +905,7 @@ def _calc_heating_curve_breakpoints(
     flow_nominal: float = NOMINAL_FLOW_LPH,
     outdoor_temps: tuple = ADVICE_BREAKPOINT_TEMPS,
     emitter=None,
-    t_room: float = 20.0,
+    t_room: float | None = None,
 ) -> list[dict]:
     """Bereken optimale aanvoertemperatuur bij standaard buitentemperaturen.
 
@@ -915,9 +915,13 @@ def _calc_heating_curve_breakpoints(
 
     Met ``emitter`` (afgiftemodel, geleerd uit de recorder) in plaats van een
     vaste retour van 28 °C en 800 l/u. Die vaste retour lag op het gemeten huis
-    gemiddeld 1,8 K te hoog (november 2026).
+    gemiddeld 1,8 K te hoog (november 2026). De kamer is dan die waarbij het
+    afgiftemodel geleerd is (``room_c``), tenzij ``t_room`` gegeven is.
     """
     from .analysis.utils import calc_heat_demand
+
+    if emitter is not None and t_room is None:
+        t_room = emitter.room_c
 
     breakpoints = []
     for t_out in outdoor_temps:
@@ -3877,12 +3881,24 @@ def _calc_quatt_advice(
     # --- Maximale watertemperatuur ---
     # De enige van deze instellingen die een CiC-gebruiker zelf in de app kan
     # zetten. Het advies is bewust een ondergrens: wat het huis bij -10°C
-    # volgens het model nodig heeft. Omlaag adviseren doen we niet — het model
-    # rekent met een nominale retour, en een te krap plafond kost comfort.
-    nodig = next(
-        (bp["aanvoer_temp"] for bp in breakpoints or () if bp["buiten_temp"] == -10),
-        None,
-    )
+    # volgens het model nodig heeft. Omlaag adviseren doen we niet: een te
+    # krap plafond kost comfort. Daarom het hoogste van afgiftemodel en vaste
+    # retour. Het afgiftemodel is geleerd op de uren die er waren (in november
+    # tot ~6 kW) en wordt hier doorgetrokken naar het vermogen bij -10 °C;
+    # dat is niet getoetst, en hier mag het niet ~1,8 K lager uitkomen dan
+    # voorheen (review 22-11).
+    def _bij_min10(punten) -> float | None:
+        return next(
+            (bp["aanvoer_temp"] for bp in punten or () if bp["buiten_temp"] == -10),
+            None,
+        )
+
+    nodig = _bij_min10(breakpoints)
+    if nodig is not None and emitter is not None:
+        vast = _bij_min10(_calc_heating_curve_breakpoints(
+            hl.slope, hl.intercept, outdoor_temps=(-10,)))
+        if vast is not None:
+            nodig = max(nodig, vast)
     attrs["max_water_huidig"] = max_water_setting
     attrs["max_water_nodig_bij_min10"] = nodig
     attrs["max_water_automatisch"] = max_water_auto

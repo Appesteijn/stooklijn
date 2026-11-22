@@ -90,6 +90,32 @@ class TestStooklijnpunten:
         assert met[0]["aanvoer_temp"] > met[-1]["aanvoer_temp"]
 
 
+    def test_kamer_waarbij_geleerd_is(self):
+        """Review 22-11: de punten rekenden vast met 20 °C kamer. Nu met de
+        kamer van de stookuren waarop het model geleerd is."""
+        from dataclasses import replace
+        from custom_components.quatt_stooklijn.sensor import _calc_heating_curve_breakpoints
+        m, _ = fit_emitter(*_uren())
+        assert m.room_c == pytest.approx(20.0, abs=0.1)
+        warm = replace(m, room_c=21.5)
+        a = _calc_heating_curve_breakpoints(-280.0, 280.0 * 16.5, emitter=m)
+        b = _calc_heating_curve_breakpoints(-280.0, 280.0 * 16.5, emitter=warm)
+        assert b[0]["aanvoer_temp"] == pytest.approx(a[0]["aanvoer_temp"] + 1.5, abs=0.15)
+        assert EmitterModel.from_dict(warm.to_dict()).room_c == 21.5
+
+
+    def test_max_water_nooit_lager_dan_met_vaste_retour(self):
+        """Review 22-11: het afgiftemodel, doorgetrokken naar -10 °C, mag de
+        ondergrens voor de max. watertemperatuur niet verlagen."""
+        from custom_components.quatt_stooklijn.sensor import _calc_quatt_advice
+        from tests.test_advice_sensor import TestQuattAdviceLogic
+        m, _ = fit_emitter(*_uren())
+        data = TestQuattAdviceLogic._make_data(None, slope=-280.0, intercept=280.0 * 16.5)
+        zonder = _calc_quatt_advice(data, None, False, 40.0)
+        met = _calc_quatt_advice(data, None, False, 40.0, emitter=m)
+        assert met["max_water_nodig_bij_min10"] >= zonder["max_water_nodig_bij_min10"]
+
+
 class TestVooruitblik:
     def _args(self, **kw):
         base = dict(

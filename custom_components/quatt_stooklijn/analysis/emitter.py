@@ -67,6 +67,10 @@ class EmitterModel:
     #: zijn minst het minimumvermogen), want deze tabel kent alleen de uren
     #: waarin de pomp het hele uur draaide en mist dus de zachte dagen.
     supply_by_outdoor: list[tuple[float, float]] = field(default_factory=list)
+    #: De kamertemperatuur waarbij het geleerd is (mediaan van de stookuren):
+    #: wat het huis werkelijk aanhoudt. Voor de stooklijnpunten, die anders
+    #: een kamer moeten aannemen; het setpoint zou ze 's nachts laten zakken.
+    room_c: float = 20.0
 
     def mean_water(self, power_w: float, t_room: float) -> float:
         if power_w <= 0:
@@ -92,6 +96,7 @@ class EmitterModel:
             "k": round(self.k, 2), "n": round(self.n, 3),
             "debiet_lph": round(self.flow_lph), "uren": self.hours,
             "fout_aanvoer_k": round(self.mae_k, 2),
+            "kamer_c": round(self.room_c, 2),
             "aanvoer_per_buitentemp": [[round(a, 1), round(b, 2)]
                                        for a, b in self.supply_by_outdoor],
         }
@@ -104,6 +109,7 @@ class EmitterModel:
                 hours=int(d["uren"]), mae_k=float(d["fout_aanvoer_k"]),
                 supply_by_outdoor=[(float(a), float(b))
                                    for a, b in d.get("aanvoer_per_buitentemp", [])],
+                room_c=float(d.get("kamer_c", 20.0)),
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -152,7 +158,8 @@ def fit_emitter(
     table = [(float(b), float(np.median(sup[ok][bins == b])))
              for b in np.unique(bins) if (bins == b).sum() >= 3]
     return EmitterModel(k=model.k, n=model.n, flow_lph=model.flow_lph, hours=n_ok,
-                        mae_k=mae, supply_by_outdoor=table), "geleerd"
+                        mae_k=mae, supply_by_outdoor=table,
+                        room_c=float(np.median(rooms))), "geleerd"
 
 
 def _carnot(t_supply: float, t_outdoor: float) -> float:
