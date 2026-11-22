@@ -33,6 +33,12 @@ BIAS_WINDOW_HOURS = 14 * 24
 #: Vooruitkijktijden waarover de correctiefactor gaat: de horizon van een
 #: aansturing, niet het lopende uur.
 BIAS_LEADS = (1, 2, 3, 4, 5, 6)
+#: Zonuren (verwachting of lopend uur ≥ ``MIN_DAYLIGHT_WM2``) die nodig zijn
+#: voordat ``lead_factor`` iets zegt. Twee à drie weken novemberdagen.
+LEAD_FACTOR_MIN_HOURS = 60
+#: Grenzen aan ``lead_factor``. Wat daarbuiten valt is eerder een storing in
+#: de ophaling dan een eigenschap van de verwachting.
+LEAD_FACTOR_BOUNDS = (0.7, 1.3)
 
 
 class SolarForecastLog:
@@ -83,6 +89,47 @@ class SolarForecastLog:
         if not slot:
             return None
         return slot[min(slot)]
+
+    def lead_factor(
+        self,
+        now_ts: float,
+        window_hours: int = BIAS_WINDOW_HOURS,
+        leads: tuple[int, ...] = BIAS_LEADS,
+        min_hours: int = LEAD_FACTOR_MIN_HOURS,
+    ) -> float | None:
+        """Hoe de verwachting 1–6 uur vooruit zich verhoudt tot de waarde van
+        het lopende uur (vooruitkijktijd 0), voor hetzelfde uur.
+
+        Dit is de correctie die bij de huismodellen past. Die leren hun
+        zonfactor op de Open-Meteo-waarde van het lopende uur, niet op gemeten
+        zon. De ``correctiefactor`` uit ``score`` (gemeten / verwacht) zou de
+        zon dan een tweede keer omlaag halen: de geleerde g heeft een
+        structureel te hoge Open-Meteo al ingecalculeerd.
+
+        None zolang er te weinig zonuren zijn; anders begrensd op
+        ``LEAD_FACTOR_BOUNDS``.
+        """
+        done = [s for s in self._f
+                if s + 3600 <= now_ts and s >= now_ts - window_hours * 3600]
+        num = den = 0.0
+        hours = 0
+        for s in done:
+            slot = self._f[s]
+            now_value = slot.get(0)
+            if now_value is None:
+                continue
+            used = False
+            for lead in leads:
+                fc = slot.get(lead)
+                if fc is not None and max(fc, now_value) >= MIN_DAYLIGHT_WM2:
+                    num += now_value
+                    den += fc
+                    used = True
+            hours += used
+        if hours < min_hours or den <= 0:
+            return None
+        lo, hi = LEAD_FACTOR_BOUNDS
+        return round(min(hi, max(lo, num / den)), 3)
 
     def to_dict(self) -> dict:
         return {

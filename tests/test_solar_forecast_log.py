@@ -127,3 +127,52 @@ class TestScoren:
         s = SolarForecastLog().score(T0)
         assert s["per_vooruitkijktijd"]["3"] == {"n": 0}
         assert s["correctiefactor"] is None
+
+
+class TestVooruitblikFactor:
+    """De factor die de vooruitblik gebruikt: lopend uur / verwachting vooruit.
+
+    Niet gemeten / verwacht: de huismodellen leren hun zonfactor op de
+    Open-Meteo-waarde van het lopende uur. Live 22-11-2026 gaf gemeten /
+    verwacht 0,77; die toepassen zou de zon dubbel omlaag halen.
+    """
+
+    @staticmethod
+    def _dagen(log, n_days, nu_waarde, vooruit_waarde):
+        """Per dag 8 zonuren; elk uur een ophaling met lead 0 en leads 1–6."""
+        for d in range(n_days):
+            for h in range(8, 16):
+                start = T0 + d * 24 * H + h * H
+                for lead in range(0, 7):
+                    slot = log._f.setdefault(start, {})
+                    slot[lead] = nu_waarde if lead == 0 else vooruit_waarde
+
+    def test_verwachting_vooruit_te_hoog(self):
+        log = SolarForecastLog()
+        self._dagen(log, 10, 160.0, 200.0)
+        assert log.lead_factor(T0 + 11 * 24 * H) == pytest.approx(0.8)
+
+    def test_te_weinig_zonuren_geen_factor(self):
+        log = SolarForecastLog()
+        self._dagen(log, 2, 160.0, 200.0)       # 16 zonuren
+        assert log.lead_factor(T0 + 3 * 24 * H) is None
+
+    def test_begrensd(self):
+        log = SolarForecastLog()
+        self._dagen(log, 10, 20.0, 200.0)
+        assert log.lead_factor(T0 + 11 * 24 * H) == 0.7
+
+    def test_nachten_tellen_niet(self):
+        log = SolarForecastLog()
+        self._dagen(log, 10, 160.0, 200.0)
+        for d in range(10):
+            for h in range(0, 6):
+                log._f[T0 + d * 24 * H + h * H] = {0: 0.0, 1: 0.0, 2: 0.0}
+        assert log.lead_factor(T0 + 11 * 24 * H) == pytest.approx(0.8)
+
+    def test_zonder_lopend_uur_telt_het_uur_niet(self):
+        log = SolarForecastLog()
+        self._dagen(log, 10, 160.0, 200.0)
+        for s in log._f:
+            log._f[s].pop(0)
+        assert log.lead_factor(T0 + 11 * 24 * H) is None

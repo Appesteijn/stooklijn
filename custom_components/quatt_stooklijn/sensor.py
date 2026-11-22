@@ -937,6 +937,10 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     - Aanvoertemp: bij elke state-change van buitentemp / solar / flow / retour
     """
 
+    #: Zie SolarForecastLog.lead_factor; op klasseniveau zodat een sensor die
+    #: nog niet geladen is (of in tests via __new__ gemaakt) gewoon None heeft.
+    solar_lead_factor: float | None = None
+
     _attr_has_entity_name = True
     _attr_translation_key = "mpc_recommended_supply_temp"
     _attr_native_unit_of_measurement = "°C"
@@ -995,6 +999,9 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             coordinator.hass, 1, SOLAR_FORECAST_LOG_STORAGE_KEY
         )
         self._solar_forecast_loaded = False
+        # Verhouding lopend uur / verwachting 1–6 uur vooruit; None zolang er te
+        # weinig zonuren zijn. Zie SolarForecastLog.lead_factor.
+        self.solar_lead_factor: float | None = None
         # Geleerd, niet ingesteld: richting van de panelen (uit een jaar
         # PV-statistiek) en van de ramen (nachtelijke modelvergelijking).
         self.pv_azimuth: float | None = None
@@ -1345,6 +1352,11 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             # begint om middernacht en niet bij dit uur, en op een dag met een
             # DST-overgang klopt uur-rekenwerk sowieso niet.
             rad = self._solar_radiation_at(now_local + timedelta(hours=i))
+            # Uren vooruit naar wat Open-Meteo zegt als het uur er is: daarop
+            # hebben de huismodellen hun zonfactor geleerd. Niet naar gemeten
+            # zon, zie SolarForecastLog.lead_factor.
+            if rad is not None and i > 0 and self.solar_lead_factor is not None:
+                rad = rad * self.solar_lead_factor
             # Voor de simulatie moet er een getal staan. Nul is hier de veilige
             # kant: geen zon meerekenen vraagt eerder te veel warmte dan te
             # weinig. ``shortwave_wm2`` blijft None zodat in de tabel zichtbaar
@@ -1523,6 +1535,9 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         # Ook na een mislukte lezing: dan begint het opnieuw. Dit zijn
         # verwachtingen, geen metingen; er gaat niets onvervangbaars verloren.
         self._solar_forecast_loaded = True
+        self.solar_lead_factor = self.solar_forecast_log.lead_factor(
+            dt_util.utcnow().timestamp()
+        )
 
     # -- zon zoals de ramen hem zien ---------------------------------------
 
@@ -1625,6 +1640,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             self._solar_forecast_store.async_delay_save(
                 self.solar_forecast_log.to_dict, 60
             )
+            self.solar_lead_factor = self.solar_forecast_log.lead_factor(now)
 
     async def _async_highres_sample(self, _now=None) -> None:
         """Leg elke vijf minuten een monster vast.
@@ -2169,6 +2185,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 round(current_rad_wm2) if current_rad_wm2 is not None else None
             ),
             "solar_forecast_fresh": self._solar_forecast_is_fresh,
+            "zon_vooruitblik_factor": self.solar_lead_factor,
             "stored_heat_kwh": stored_heat_kwh(
                 model.raw_params["C"] if model.raw_params else None,
                 get_float_state(self.hass, self._indoor_temp_entity),
@@ -2917,6 +2934,9 @@ def _score_solar_forecast(log, rows, entity, where, hourly, now, tz) -> dict:
         el, _az, _e0 = sun_position(mids, where.lat, where.lon)
         clear = {h: float(c) for h, c in zip(hours, clearsky_ghi(el))}
     score = log.score(now, measured or None, clear)
+    # De factor die de vooruitblik gebruikt; ``correctiefactor`` (gemeten /
+    # verwacht) is alleen ter informatie, zie SolarForecastLog.lead_factor.
+    score["correctiefactor_vooruitblik"] = log.lead_factor(now)
 
     # Vandaag, voor de grafiek: wat er een uur vooruit verwacht werd, wat de
     # laatste verwachting was, en wat er gemeten is.

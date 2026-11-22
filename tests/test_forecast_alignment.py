@@ -64,3 +64,17 @@ def test_temperatuur_en_zon_horen_bij_hetzelfde_uur(monkeypatch, minute):
     assert datetime.fromisoformat(meta[0]["datetime"]) == datetime(
         2026, 10, 10, 10, tzinfo=TZ
     )
+
+
+def test_vooruitblikfactor_alleen_op_de_uren_vooruit(monkeypatch):
+    """Uur 0 is de waarde van nu, daarop leren de modellen; alleen de uren
+    erna worden naar die schaal gebracht (SolarForecastLog.lead_factor)."""
+    now_local = datetime(2026, 10, 10, 10, 15, tzinfo=TZ)
+    _patched_clock(monkeypatch, now_local)
+    s = _sensor(now_local)
+    _, zonder, meta_zonder = s.build_forecast_arrays(None, n_hours=4)
+    s.solar_lead_factor = 0.5
+    _, met, meta = s.build_forecast_arrays(None, n_hours=4)
+    assert met[0] == zonder[0]
+    assert met[1:] == [v * 0.5 for v in zonder[1:]]
+    assert meta[1]["shortwave_wm2"] == met[1]

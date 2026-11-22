@@ -34,6 +34,12 @@ je leest is anders.
   klopten: het advies "Buitentemperatuur + kamer" kan wel degelijk sturen (als
   je het als bron kiest), het huismodel kan sturen via "Huismodel + kamer", en
   het leert van het uurgemiddelde met ketel in plaats van één meting per uur.
+- **Zon in de vooruitblik op de schaal waarop het huismodel leert.** De uren
+  vooruit gaan met een factor naar wat Open-Meteo zegt als het uur er is
+  (`zon_vooruitblik_factor`, pas na 60 zonuren, begrensd op 0,7–1,3). Bewust
+  niet de factor gemeten / verwacht van de zonverwachtingssensor: de huismodellen
+  leren hun zonfactor op de Open-Meteo-waarde van het lopende uur, en die factor
+  zou de zon dan dubbel omlaag halen.
 
 ## v0.10.7-beta.8 — 2026-11-22
 
