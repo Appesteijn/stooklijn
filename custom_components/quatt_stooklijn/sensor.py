@@ -782,7 +782,10 @@ class QuattSupplyTempSensor(
                 self.hass,
                 candidate_entities(
                     self.hass, self._entry.entry_id,
-                    (ROLE_OUTDOOR_TEMP, ROLE_FLOW_RATE, ROLE_RETURN_TEMP),
+                    # De kamer en het kamerdoel tellen mee zodra de pomp
+                    # stilstaat en het afgiftemodel rekent.
+                    (ROLE_OUTDOOR_TEMP, ROLE_FLOW_RATE, ROLE_RETURN_TEMP,
+                     ROLE_INDOOR_TEMP, ROLE_ROOM_SETPOINT),
                 ),
                 self._handle_state_change,
             )
@@ -807,7 +810,11 @@ class QuattSupplyTempSensor(
         t_return = get_float_state(self.hass, self._return_temp_entity)
         flow_lph = get_float_state(self.hass, self._flow_entity)
 
-        if t_outdoor is None or t_return is None:
+        # De retour is alleen nodig als de pomp draait; stilstaand rekent het
+        # afgiftemodel zonder.
+        if t_outdoor is None or (
+            t_return is None and self._emitter_when_pump_stopped(flow_lph) is None
+        ):
             return None
 
         from .analysis.utils import calc_heat_demand
@@ -866,7 +873,7 @@ class QuattSupplyTempSensor(
             or self.coordinator.data.heat_loss_hp.slope is None
             or self.coordinator.data.heat_loss_hp.intercept is None
             or t_outdoor is None
-            or t_return is None
+            or (t_return is None and self._emitter_when_pump_stopped(flow_lph) is None)
         ):
             status = MPC_ADVICE_NO_INPUT
         elif heat_demand_raw is not None and heat_demand_raw <= 0:

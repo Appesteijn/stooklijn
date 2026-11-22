@@ -222,6 +222,13 @@ class TestStooklijnStatus:
         _, zonder = self._attrs(**{OUTDOOR: 5.0, RETURN: 15.0, FLOW: 0})
         assert waarde > zonder
 
+    def test_stilstaande_pomp_heeft_de_retour_niet_nodig(self):
+        from custom_components.quatt_stooklijn.analysis.emitter import EmitterModel
+        m = EmitterModel(k=200.0, n=1.3, flow_lph=800.0, hours=100, mae_k=0.3)
+        attrs, waarde = self._attrs(emitter=m, **{OUTDOOR: 5.0, FLOW: 0, INDOOR: 20.5})
+        assert waarde is not None
+        assert attrs[MPC_ADVICE_STATUS_ATTR] == MPC_ADVICE_OK
+
     def test_zonder_kamersensor_het_setpoint(self):
         """Tweede review 22-11: zonder kamersensor rekende deze bron met een
         vaste 20 °C, de andere bronnen met het kamerdoel."""
