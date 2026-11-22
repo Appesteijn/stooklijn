@@ -228,9 +228,12 @@ allemaal september en oktober): gemeten −0,25 K; 1R1C fout −0,04, vrij 2R2C
 - **Stookloze vensters wegen extra** (`COOLING_WEIGHT` 0,5).
 - **Goedkeuring voor gebruik** (`Comparison.approved`) vraagt de gewone toets,
   de toets met de weken omgedraaid, een fit op het hele logboek, en een
-  afkoeltoets: minstens 10 vensters, gemiddelde fout ≤ 0,10 K, en niet
-  slechter dan het 1R1C. Pas dan rekenen uitlooptijd en driftgrens met het
-  2R2C. De kamerlijnen (vooruitblik en prijsverschuiving) tonen al eerder een
+  afkoeltoets: minstens 10 vensters, gemiddelde fout ≤ 0,10 K én ≤ 15 % van
+  de gemeten daling (ondergrens 0,03 K), en niet slechter dan het 1R1C. De
+  relatieve grens kwam erbij na beta.9: live haalde het 2R2C de vaste 0,10 K
+  met +0,068 K op −0,248 K (27 %), en gaf een uitlooptijd van 237 minuten
+  tegen 145 bij het 1R1C. Pas dan rekent de driftgrens met het 2R2C; de
+  veilige uitlooptijd rekent met beide en neemt de kortste. De kamerlijnen (vooruitblik en prijsverschuiving) tonen al eerder een
   2R2C, de fit die de poort haalde, ter informatie; na goedkeuring rekenen ze
   met dezelfde parameters als de driftgrens (`params_use`). Een goedkeuring
   vervalt na 48 uur zonder nieuwe meting (`_approved_for_use`). Het advies

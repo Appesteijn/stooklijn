@@ -431,6 +431,12 @@ class Comparison:
 COOLING_MIN_WINDOWS = 10
 #: Gemiddelde fout van het 2R2C over een stookloos venster van vier uur.
 COOLING_MAX_BIAS_K = 0.10
+#: En hoogstens dit deel van de gemeten daling. Een vaste 0,10 K liet bij een
+#: daling van 0,25 K 40 % speling; de uitlooptijd zat daardoor live ruim een
+#: kwart te hoog (22-11-2026: +0,068 K op −0,248 K). Met een ondergrens, zodat
+#: een kleine daling geen onhaalbare eis wordt.
+COOLING_MAX_BIAS_REL = 0.15
+COOLING_MIN_BIAS_K = 0.03
 
 
 def anchors_from_rows(
@@ -609,9 +615,16 @@ def _cooling_verdict(cooling: dict) -> tuple[bool, str]:
     # onwaar en keurde zo goed (review 22-11-2026).
     if not (np.isfinite(bias) and np.isfinite(rmse)):
         return False, "afkoeling niet te toetsen (fout is geen getal)"
-    if abs(bias) > COOLING_MAX_BIAS_K:
+    measured = cooling["model"].get("gemeten_k")
+    limit = COOLING_MAX_BIAS_K
+    if measured is not None and np.isfinite(measured):
+        limit = min(limit, max(COOLING_MIN_BIAS_K, COOLING_MAX_BIAS_REL * abs(measured)))
+    if abs(bias) > limit:
         richting = "te traag" if bias > 0 else "te snel"
-        return False, f"afkoeling {richting} voorspeld ({bias:+.2f} K over {cooling['uren']:.0f} u)"
+        deel = (f", {100 * abs(bias) / abs(measured):.0f} % van de gemeten daling"
+                if measured else "")
+        return False, (f"afkoeling {richting} voorspeld ({bias:+.2f} K over "
+                       f"{cooling['uren']:.0f} u{deel})")
     ref = cooling.get("referentie")
     if ref is not None and np.isfinite(ref["fout_rmse_k"]) and rmse > ref["fout_rmse_k"]:
         return False, "afkoeling slechter voorspeld dan het huidige huismodel"

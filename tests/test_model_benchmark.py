@@ -465,9 +465,9 @@ class TestGoedkeuringVoorGebruik:
     """v0.10.7-beta.9: beide splitsingen, een fit op alles en de afkoeltoets
     voordat uitlooptijd en driftgrens het 2R2C gebruiken."""
 
-    def _koeling(self, n=20, fout=0.05, rmse=0.1, ref_rmse=0.2):
+    def _koeling(self, n=20, fout=0.03, rmse=0.1, ref_rmse=0.2, gemeten=-0.25):
         c = {"n": n, "uren": 4.0,
-             "model": {"n": n, "gemeten_k": -0.25, "fout_gem_k": fout, "fout_rmse_k": rmse}}
+             "model": {"n": n, "gemeten_k": gemeten, "fout_gem_k": fout, "fout_rmse_k": rmse}}
         if ref_rmse is not None:
             c["referentie"] = {"n": n, "gemeten_k": -0.25, "fout_gem_k": -0.04,
                                "fout_rmse_k": ref_rmse}
@@ -483,6 +483,20 @@ class TestGoedkeuringVoorGebruik:
     def test_te_trage_afkoeling(self):
         ok, why = mb._cooling_verdict(self._koeling(fout=0.2))
         assert not ok and "te traag" in why
+
+    def test_te_veel_ten_opzichte_van_de_gemeten_daling(self):
+        """Live 22-11: +0,068 K op een daling van 0,248 K is 27 %; onder de
+        vaste 0,10 K, maar de uitlooptijd zat ruim een kwart te hoog."""
+        ok, why = mb._cooling_verdict(self._koeling(fout=0.068, gemeten=-0.248))
+        assert not ok and "27 % van de gemeten daling" in why
+
+    def test_kleine_daling_houdt_een_ondergrens(self):
+        assert mb._cooling_verdict(self._koeling(fout=0.025, gemeten=-0.08))[0] is True
+        assert mb._cooling_verdict(self._koeling(fout=0.035, gemeten=-0.08))[0] is False
+
+    def test_grote_daling_houdt_de_vaste_grens(self):
+        assert mb._cooling_verdict(self._koeling(fout=0.09, gemeten=-1.0))[0] is True
+        assert mb._cooling_verdict(self._koeling(fout=0.11, gemeten=-1.0))[0] is False
 
     def test_slechter_dan_het_1r1c(self):
         ok, why = mb._cooling_verdict(self._koeling(rmse=0.25))
