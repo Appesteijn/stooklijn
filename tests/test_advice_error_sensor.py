@@ -98,6 +98,40 @@ def _supply_sensor(slope=-200.0, intercept=4000.0, **states):
     return sensor
 
 
+class TestAanvoercorrectie:
+    """Live 22-11: −1,4 °C afwijking, waarvan 0,88 K een niet-gekalibreerde
+    aanvoersensor. Zolang de controle dat meldt, telt het niet als adviesfout."""
+
+    def _met_controle(self, gemeld):
+        from custom_components.quatt_stooklijn.supply_check import (
+            OffsetTracker, SupplySensorCheck)
+        check = SupplySensorCheck.__new__(SupplySensorCheck)
+        check._pair = (SUPPLY, "sensor.hp2_uit")
+        check.tracker = OffsetTracker([[1_795_000_000 + 300 * i, 0.88] for i in range(200)])
+        check._reported = 0.88 if gemeld else None
+        sensor = _error_sensor(**{FLOW: 800, HEAT: 3000, ADVISED: 33.0, SUPPLY: 35.0})
+        sensor.hass.data = {"quatt_stooklijn": {"e1_supply_check": check}}
+        return sensor
+
+    def test_gemelde_afwijking_wordt_afgetrokken(self):
+        sensor = self._met_controle(gemeld=True)
+        with _sources():
+            assert sensor.native_value == pytest.approx(-1.1)
+            assert sensor.extra_state_attributes["aanvoer_correctie_k"] == 0.88
+
+    def test_zonder_melding_geen_correctie(self):
+        sensor = self._met_controle(gemeld=False)
+        with _sources():
+            assert sensor.native_value == -2.0
+            assert sensor.extra_state_attributes["aanvoer_correctie_k"] is None
+
+    def test_andere_sensor_geen_correctie(self):
+        sensor = self._met_controle(gemeld=True)
+        sensor.hass.data["quatt_stooklijn"]["e1_supply_check"]._pair = ("sensor.ander", "x")
+        with _sources():
+            assert sensor.native_value == -2.0
+
+
 class TestProductieGate:
     """De foutsensor zwijgt zolang er geen warmte het huis in gaat."""
 

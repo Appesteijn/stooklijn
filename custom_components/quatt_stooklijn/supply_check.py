@@ -26,9 +26,16 @@ Een monster telt daarom pas als de compressortoestand en het stoken minstens
 (die zit tussen de units en de aanvoersensor). Het oordeel valt op de mediaan
 van minstens ``MIN_SAMPLES`` monsters: één verdwaalde meting verandert niets.
 
-**Bewust geen correctie.** De integratie past de aanvoer niet zelf aan. Een
-regelaar toetst het plafond dat we schrijven aan zijn eigen aanvoersensor; als
-wij met een gecorrigeerde waarde rekenen en hij niet, lopen de twee uiteen.
+**Bewust geen correctie in wat stuurt.** De integratie past de aanvoer niet
+aan waar ze rekent of schrijft. Een regelaar toetst het plafond dat we
+schrijven aan zijn eigen aanvoersensor; als wij met een gecorrigeerde waarde
+rekenen en hij niet, lopen de twee uiteen. Om dezelfde reden leert het
+afgiftemodel op de ongecorrigeerde aanvoer: de stooklijnpunten gaan naar een
+regelaar die met diezelfde sensor meet. Alleen de afwijkingssensoren (advies −
+gemeten aanvoer) trekken de afwijking eraf zolang de melding openstaat
+(``correction_for``): die tonen hoe ver het advies ernaast zit, en lieten
+anders de meetfout zien als modelfout (live 22-11-2026: −1,4 °C, waarvan
+0,88 K de sensor).
 """
 
 from __future__ import annotations
@@ -205,6 +212,17 @@ class SupplySensorCheck:
         self._pair: tuple[str | None, str | None] | None = None
         #: De afwijking waarmee de melding het laatst is aangemaakt; None = geen melding.
         self._reported: float | None = None
+
+    def correction_for(self, entity_id: str | None) -> float | None:
+        """De afwijking van ``entity_id``, zolang die gemeld wordt; anders None.
+
+        Alleen voor weergave (de afwijkingssensoren), niet voor wat stuurt.
+        """
+        if not entity_id or self._pair is None or entity_id != self._pair[0]:
+            return None
+        if self._reported is None:
+            return None
+        return self.tracker.offset()
 
     @property
     def issue_id(self) -> str:

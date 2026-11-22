@@ -3612,7 +3612,27 @@ class QuattAdviceErrorSensor(
         actual = get_float_state(self.hass, self._supply_temp_entity)
         if advised is None or actual is None:
             return None
-        return round(advised - actual, 1)
+        return round(advised - (actual - (self._supply_correction() or 0.0)), 1)
+
+    def _supply_correction(self) -> float | None:
+        """Wat de aanvoersensorcontrole als afwijking meldt (supply_check.py).
+
+        Alleen hier, in een sensor die niets stuurt: anders toont de afwijking
+        de meetfout van een niet-gekalibreerde sensor als fout in het advies.
+        """
+        check = self.hass.data.get(DOMAIN, {}).get(f"{self._entry.entry_id}_supply_check")
+        if check is None:
+            return None
+        offset = check.correction_for(self._supply_temp_entity)
+        return round(offset, 2) if isinstance(offset, (int, float)) else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {
+            "aanvoersensor": self._supply_temp_entity,
+            # Afgetrokken van de gemeten aanvoer; None = geen afwijking gemeld.
+            "aanvoer_correctie_k": self._supply_correction(),
+        }
 
 
 class QuattCopPerformanceSensor(
