@@ -195,14 +195,7 @@ class HighResLog:
         regel kost dan hooguit tot het volgende anker, in plaats van alle
         latere tijdstippen te verschuiven.
         """
-        lines = []
-        prev = None
-        for i, row in enumerate(self._samples):
-            ts = int(row[0])
-            head = str(ts if prev is None or i % ANCHOR_EVERY == 0 else ts - prev)
-            prev = ts
-            lines.append(",".join([head, *(_fmt(v) for v in row[1:])]))
-        return {"format": 2, "columns": list(COLUMNS), "rows": "\n".join(lines)}
+        return _compact(self._samples)
 
     @classmethod
     def from_dict(cls, data: dict, max_samples: int = MAX_SAMPLES) -> HighResLog:
@@ -249,6 +242,18 @@ class HighResLog:
             except (TypeError, ValueError):
                 continue
         return log
+
+
+def _compact(samples) -> dict:
+    """Zie ``HighResLog.to_storage``; los, zodat het in de executor kan."""
+    lines = []
+    prev = None
+    for i, row in enumerate(samples):
+        ts = int(row[0])
+        head = str(ts if prev is None or i % ANCHOR_EVERY == 0 else ts - prev)
+        prev = ts
+        lines.append(",".join([head, *(_fmt(v) for v in row[1:])]))
+    return {"format": 2, "columns": list(COLUMNS), "rows": "\n".join(lines)}
 
 
 def _missing(v) -> bool:
@@ -300,6 +305,7 @@ class HighResLogStore:
     """Persist HighResLog across HA restarts."""
 
     def __init__(self, hass: HomeAssistant) -> None:
+        self._hass = hass
         self._store = _Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self.log = HighResLog()
         self._dirty = False
@@ -313,7 +319,9 @@ class HighResLogStore:
         data = await self._store.async_load()
         if data:
             try:
-                self.log = HighResLog.from_dict(data)
+                # In de executor: een vol logboek inlezen kost ~120 ms.
+                self.log = await self._hass.async_add_executor_job(
+                    HighResLog.from_dict, data)
                 _LOGGER.info(
                     "Meetlogboek geladen: %d monsters, %s uur",
                     len(self.log),
@@ -359,5 +367,14 @@ class HighResLogStore:
         """
         if not self._dirty or not self._loaded:
             return
-        await self._store.async_save(self.log.to_storage())
+        # Het opmaken (~150 ms bij een vol logboek) in de executor, op een
+        # kopie: er kunnen intussen monsters bijkomen, en die blijven dan
+        # "nog niet opgeslagen".
+        rows = list(self.log._samples)
         self._dirty = False
+        try:
+            data = await self._hass.async_add_executor_job(_compact, rows)
+            await self._store.async_save(data)
+        except BaseException:
+            self._dirty = True
+            raise

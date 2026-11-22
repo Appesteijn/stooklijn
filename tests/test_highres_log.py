@@ -134,7 +134,9 @@ class TestStore:
             else:
                 inst.async_load = AsyncMock(return_value=load_result)
             inst.async_save = AsyncMock()
-            return HighResLogStore(MagicMock()), inst
+            hass = MagicMock()
+            hass.async_add_executor_job = AsyncMock(side_effect=lambda f, *a: f(*a))
+            return HighResLogStore(hass), inst
 
     def test_schrijft_niet_weg_na_een_mislukte_lezing(self):
         """Het geval dat telt: HA's Store gooit zelf, bijvoorbeeld op ongeldige
@@ -208,6 +210,30 @@ class TestStore:
         func()  # de uitgestelde opslag gaat af
         store.record(T0 + SAMPLE_INTERVAL, 20.0, 4.0, 0.0, 0.0)
         assert inner.async_delay_save.call_count == 2
+
+    def test_opmaken_in_de_executor(self):
+        """Review 22-11: opmaken kostte ~150 ms in de event loop per opslag."""
+        import asyncio
+        from custom_components.quatt_stooklijn.highres_log import _compact
+        store, inner = self._store(None)
+        asyncio.run(store.async_load())
+        store.record(T0, 20.0, 4.0, 0.0, 0.0)
+        asyncio.run(store.async_save())
+        assert store._hass.async_add_executor_job.await_args.args[0] is _compact
+        assert HighResLog.from_dict(inner.async_save.await_args.args[0]).rows() == store.log.rows()
+
+    def test_mislukte_opslag_blijft_te_doen(self):
+        import asyncio
+        from unittest.mock import AsyncMock
+        store, inner = self._store(None)
+        asyncio.run(store.async_load())
+        store.record(T0, 20.0, 4.0, 0.0, 0.0)
+        inner.async_save = AsyncMock(side_effect=OSError("vol"))
+        with pytest.raises(OSError):
+            asyncio.run(store.async_save())
+        inner.async_save = AsyncMock()
+        asyncio.run(store.async_save())
+        inner.async_save.assert_awaited_once()
 
     def test_geen_uitgestelde_opslag_na_een_mislukte_lezing(self):
         """Ook niet via deze route een leeg logboek over een vol bestand."""
