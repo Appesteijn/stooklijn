@@ -54,6 +54,8 @@ can tell you depends entirely on how much data it has seen.
 | Immediately | Mirror sensors, data sources overview, live COP estimate |
 | First run | Heat loss regression and balance point, using Home Assistant's long-term statistics — these often go back months, so results can be meaningful straight away |
 | After ~2 days of heating | The online thermal model converges (48 hourly updates) and the look-ahead, coast time and stored heat start using it |
+| 10 minutes after the first start, then daily | The emitter model is learned from the recorder (needs 48 heating hours in the last 60 days): heating curve points and the hours ahead in the look-ahead use it instead of a fixed return temperature |
+| After weeks with the heat pump off now and then | The 2R2C house model can be approved for use. It needs at least 10 four-hour periods without heating, so an installation that starts in winter waits for spring or autumn |
 | After the first cold period | Knee detection becomes reliable — it needs hours where the heat pump ran at full capacity below 10 °C |
 | Over the following winters | Knee detection and the Quatt advice keep sharpening as the knee data store fills |
 
@@ -277,7 +279,8 @@ Almost every Home Assistant installation has this: the built-in [Met.no integrat
 - **Gas comparison** (optional) — Compare heat pump performance with historical gas consumption from before installation
 - **Supply advice and look-ahead** — Calculates a recommended supply temperature in three variants (*Outdoor temperature*, *Outdoor temperature + room*, *House model + room*), plus a 12-hour look-ahead with the learned house model and the weather forecast. The sensors write nothing themselves; see [Choosing how to steer](#choosing-how-to-steer)
 - **Online thermisch model** — Learns how fast your house warms up and cools down (thermal mass Wh/K, solar gain) every hour, with heat loss and constant heat gain held at the heat-loss regression. It feeds the look-ahead, coast time, stored heat and price shift; see [Which model is used where](#which-model-is-used-where)
-- **Model comparison** — Scores a two-node (2R2C) house model against the running model on held-out data, once a day. It only measures; the 2R2C model drives nothing
+- **Model comparison** — Scores a two-node (2R2C) house model against the running model on held-out data, once a day. Once it is approved for use (it also has to predict cooling with the heat pump off), it feeds the drift limit of the price shift, the room lines and the coast time; it never steers a knob. See [2R2C model](#2r2c-model)
+- **Emitter model** — Learns from the recorder how much water temperature your radiators or floor need for a given heat output, `P = k · (T_water − T_room)^n`. Used for the heating curve points, the hours ahead in the look-ahead and the advice while the pump is stopped. See [Emitter model](#emitter-model)
 - **Quatt advies** — Shows exactly which parameters to ask Quatt to adjust (stookgrens, nominaal vermogen, stooklijn breakpoints)
 - **Soundslider control** (optional, CiC only) — Limits the power through the soundslider of the Quatt (day and night maximum sound level) until the supply matches the chosen advice, with separate day/night limits
 - **Max supply temperature** (optional) — Writes the chosen advice plus a margin to the controller's maximum supply temperature setting
@@ -311,7 +314,7 @@ Entity IDs are `sensor.quatt_warmteanalyse_<name>`, with the names below.
 | `openquatt_power_house_kalibratie` | — | Advised Power House parameters (cold temp, rated power, zero-power temp) |
 | `warmtevraag` | W | House heat demand, feeds OpenQuatt's Power House feedforward |
 | `databronnen` | — | Which integration delivers which measurement, with candidates and switch times |
-| `modelvergelijking` | — | Result of the daily 2R2C comparison — see [2R2C model](#2r2c-model-measured-only) |
+| `modelvergelijking` | — | Result of the daily 2R2C comparison, with `goedgekeurd_voor_gebruik` (approved for use) and the replay — see [2R2C model](#2r2c-model) |
 
 **Mirror sensors** (one per role, stable entity ID regardless of which integration delivers — use these in dashboards and automations):
 
@@ -331,12 +334,12 @@ Each carries `source_entity`, `source_integration`, `candidates` and `switched_a
 | Sensor | Unit | Description |
 |--------|------|-------------|
 | `geschatte_actuele_cop` | — | Interpolated COP at current outdoor temperature |
-| `aanbevolen_aanvoertemperatuur` | °C | Advice *Outdoor temperature* (source `stooklijn`): the heat-loss line, outdoor temperature only |
+| `aanbevolen_aanvoertemperatuur` | °C | Advice *Outdoor temperature* (source `stooklijn`): the heat-loss line, outdoor temperature only. With the pump stopped the supply comes from the emitter model (`aanvoer_uit`) |
 | `mpc_aanbevolen_aanvoertemperatuur` | °C | Advice *Outdoor temperature + room* (source `mpc`): the heat-loss line plus catch-up for a room below setpoint |
 | `1r1c_aanbevolen_aanvoertemperatuur` | °C | Advice *House model + room* (source `1r1c`): the learning house model (1R1C) with the same catch-up; passes *Outdoor temperature + room* through (`terugval: true`) until the model is online |
 | `stooklijn_fout_aanvoertemperatuur` | °C | Deviation: advice *Outdoor temperature* − actual supply |
 | `mpc_fout_aanvoertemperatuur` | °C | Deviation: advice *Outdoor temperature + room* − actual supply |
-| `veilige_uitlooptijd` | min | How long the house can coast with the heat pump off before hitting the comfort floor; attribute `recovery_on_min_minutes` is how long getting back to the room setpoint takes with the heat pump at its minimum output |
+| `veilige_uitlooptijd` | min | How long the house can coast with the heat pump off before hitting the comfort floor. With an approved 2R2C both house models compute it and the shorter one wins (`model_source`, both in `per_model`). Attribute `recovery_on_min_minutes` is how long getting back to the room setpoint takes with the heat pump at its minimum output |
 | `opgeslagen_warmte` | kWh | Heat stored in the building above the comfort floor: what the house has to lose before it reaches that floor. Negative when the room is below it. Available once the online model has converged |
 | `max_aanvoertemperatuur_instelling` | °C | Value last written to the heat pump's max supply temperature (only when [max supply temperature](#max-supply-temperature) is enabled) |
 | `geluidsniveau` | — | Current soundslider setting (`building87` / `silent` / `library` / `normal`) — only when soundslider control is enabled |
@@ -344,8 +347,9 @@ Each carries `source_entity`, `source_integration`, `candidates` and `switched_a
 | `cop_prestatie` | — | Efficiency against this installation's own norm at the same outdoor temperature and the same half of the season — see [Judging a change](#judging-a-change) |
 | `zonverwachting` | W/m² | Mean error of the Open-Meteo sun forecast three hours ahead; attribute `per_vooruitkijktijd` has the error per lead time (1, 2, 3, 6, 12 h), next to "keep the current clearness" when a sun sensor is set — see [Solar gain correction](#solar-gain-correction) |
 | `prijsverschuiving` | EUR | Predicted savings, summed per day, had heat demand been shifted to cheaper hours — only when a tariff is configured, see [Price shift](#price-shift-shadow-measurement) |
+| `plan_nu` | W | The heat output of the current quarter hour in the shifted price plan, next to the flat output, the matching setpoint shift and (with the emitter model) supply temperature. Shadow only: it controls nothing |
 
-Both error sensors return no value while the pump is idle (flow below 30 L/h): comparing advice against actual supply temperature is meaningless without circulation.
+Both error sensors return no value while the pump is idle (flow below 30 L/h): comparing advice against actual supply temperature is meaningless without circulation. When the supply sensor check reports an offset (an uncalibrated sensor reading higher than the heat pump's own outlet), that offset is subtracted here (`aanvoer_correctie_k`), so a measuring error does not show up as an advice error. Nothing that steers or learns is corrected: your controller measures with that same sensor.
 
 **Binary sensors:**
 
@@ -388,11 +392,11 @@ The sensor produces two things, from different inputs.
 1. Reads the current outdoor, room and return temperature, the flow and the room setpoint
 2. Takes the heat loss of the house at the current outdoor temperature from the heat-loss regression: `U × (balance point − outdoor)`. The balance point is fitted on daily averages, so the average solar gain is already in it
 3. Adds a catch-up term for a room below its setpoint: `10 × U × (setpoint − room)`. A room above its setpoint lowers the advice the same way. Above the balance point there is no catch-up demand
-4. Limits that power to what the heat pump can deliver at this outdoor temperature, and converts it to a supply temperature, limited to 20–55 °C. No demand means no value
+4. Limits that power to what the heat pump can deliver at this outdoor temperature, and converts it to a supply temperature, limited to 20–55 °C. With the pump running that uses the measured return and flow; with the pump stopped the return is cooled-down water, so the [emitter model](#emitter-model) is used instead. No demand means no value
 
 The catch-up term is proportional to the heat loss on purpose. Until v0.10.6 the advice tried to make up a shortfall within one hour, which scales with the thermal mass of the house: on a heavy floor a few tenths of a degree pushed the advice up by several degrees. With `10 × U`, a shortfall of 0.3 °C asks for 3 × U extra: about 850 W for a house that loses 285 W/K.
 
-**The look-ahead** (the 12-hour table on the *Huismodel en vooruitblik* tab) simulates the house forward with the outdoor temperature forecast from your weather entity and the radiation forecast from Open-Meteo.
+**The look-ahead** (the 12-hour table on the *Huismodel en vooruitblik* tab) simulates the house forward with the outdoor temperature forecast from your weather entity and the radiation forecast from Open-Meteo. Hour +0 converts power to supply temperature with the measured return; the hours after that with the emitter model, because the return of now says little about the return in six hours.
 
 Until the house model has learned enough (`model_source: batch_fallback`), there is no room to simulate. The table then shows the advice for each hour at the forecast outdoor temperature, with the catch-up term only in hour +0: how fast the room catches up depends on the thermal mass, which is exactly what is not known yet. From +1 on, a shortfall is therefore underestimated. The room and buffer columns stay empty, and the attribute `vooruitblik_basis` says which of the two the table uses (`huismodel` or `zonder_huismodel`).
 
@@ -417,6 +421,8 @@ Horizontal radiation with one fixed factor does not fit all seasons: a low winte
 
 Nothing about orientation needs to be entered. The direction of the panels is learned once a day from a year of PV statistics: at the right direction, the clear-sky output has the same shape over the whole day. The direction of the windows is learned roughly (east, south-east, south, south-west, west) in the nightly model comparison; finer is not possible, and not needed — on the measured house everything between 135° and 250° predicted equally well. The tilt of the panels is fixed at 30°; 15–35° made no difference.
 
+The house models learn their solar factor on what Open-Meteo reports for the current hour, and that differs from what it forecast for the same hour a few hours earlier. The look-ahead therefore scales the hours ahead to the scale of the current hour (`zon_vooruitblik_factor`, from 60 daylight hours on, limited to 0.7–1.3). It deliberately does not use the measured/forecast factor of the sun forecast sensor: that would lower the sun twice.
+
 The `zonverwachting` sensor records, at every fetch, what Open-Meteo expects for the next twelve hours, and later scores that against what came: measured with the sun sensor, or without one against the last forecast for the same hour. That is the groundwork for control that takes the sun of the coming hours into account.
 
 ### The sensors write nothing
@@ -439,17 +445,29 @@ heat stays exactly the same. Once the heat pump's minimum output has been learne
 every hour of the plan is either off or at least that minimum: below it the heat pump delivers in
 on/off blocks, and the plan does the same. γ is chosen per day by the same scan as before — the calmest value
 that captures nearly all of the gain without exceeding the firmware ceiling. The room may drift at
-most 0.3 K below and 0.5 K above the flat path. The extra heat loss from preheating
+most 0.3 K below and 0.5 K above the flat path; that drift is computed with the approved 2R2C when
+there is one, otherwise with the 1R1C (attribute `driftmodel`). The extra heat loss from preheating
 (`UA · drift` per warmer hour) is charged against the savings. A colder house does not count as a
 gain. The day's predicted savings go into the total. Days without heat demand are skipped. Without
 a weather forecast for at least three quarters of the window there is no result (the reason is
 shown), and the nightly run retries up to four times at 15-minute intervals before skipping the
 day.
 
+**Supply temperature costs COP.** Packing heat into fewer hours needs a higher supply temperature.
+With the [emitter model](#emitter-model) the shifted plan gets a COP corrected by the ratio of two
+Carnot values against the flat path (`cop_met_aanvoer`). Both powers are clamped at the minimum
+output first: below it the heat pump runs on/off at that minimum anyway. The COP at supply
+temperature cannot be learned from the measurements themselves, because the supply follows the
+heating curve and so moves along with the outdoor temperature.
+
+Each stored day carries its calculation method. Days from an earlier method do not count in the
+total; since v0.10.7-beta.9 (2R2C drift limit and supply COP) the total therefore started again.
+Within one method the attribute `per_model` splits the total by drift model and supply COP.
+
 Alongside it, a pure COP shift (towards the hours with the best COP) is priced at the same tariffs
 (`besparing_alleen_cop_eur`). The difference between the two is what the price adds. The
-attribute `komend_etmaal` shows the plan for the next 24 hours hour by hour and refreshes every
-hour.
+attribute `komend_etmaal` shows the plan for the next 24 hours per quarter hour and refreshes every
+hour. The `plan_nu` sensor reads the current quarter hour from it.
 
 **Minimum output.** A heat pump does not modulate down to zero. The integration learns its lowest
 continuous heat output per outdoor temperature from its own 5-minute log, using only samples in the
@@ -485,10 +503,10 @@ The sensor state is one of:
 | `nominaal_vermogen_bron` | `openquatt` (see the Power House calibration instead), `handmatig` (entered) or `onbekend` |
 | `nominaal_vermogen_advies` | Human-readable advice text |
 | `max_water_huidig` | Maximum water temperature as currently set (°C), or `null` if it cannot be read |
-| `max_water_nodig_bij_min10` | Supply temperature the house needs at -10°C, from the measured heat loss |
+| `max_water_nodig_bij_min10` | Supply temperature the house needs at -10°C, from the measured heat loss. With the emitter model the higher of the emitter model and the fixed 28 °C return: at -10 °C the emitter model is extrapolated beyond what it has seen |
 | `max_water_automatisch` | `true` when this integration adjusts the maximum water temperature itself |
 | `max_water_advies` | Human-readable advice text. A minimum only: it never advises lowering the setting |
-| `stooklijn_punten` | 6 optimal heating curve breakpoints (-10°C to +15°C), for reference |
+| `stooklijn_punten` | 6 optimal heating curve breakpoints (-10°C to +15°C), for reference. `stooklijn_punten_bron` says whether they come from the emitter model (at the room temperature it was learned at) or a fixed 28 °C return and 800 L/h |
 | `stooklijn_advies` | Only with OpenQuatt (Heating Curve mode): the points for its six `Curve Tsupply` numbers (-20°C to +15°C). `null` for a Quatt CiC, which does not run on a heating curve |
 | `aantal_aanpassingen` | Number of verified differences |
 
@@ -658,7 +676,7 @@ State = number of breakpoints (6). Attributes:
 |-----------|-------------|
 | `breakpoints` | Full list of `{buiten_temp, aanvoer_temp}` dicts |
 | `bp_1_buiten` .. `bp_6_buiten` | Outdoor temperature per breakpoint (°C) |
-| `bp_1_aanvoer` .. `bp_6_aanvoer` | Optimal supply temperature per breakpoint (°C) |
+| `bp_1_aanvoer` .. `bp_6_aanvoer` | Optimal supply temperature per breakpoint (°C), from the emitter model once it is learned, otherwise a fixed 28 °C return |
 
 **`sensor.quatt_warmteanalyse_openquatt_balance_point`** — Optimal balance temperature (°C)
 
@@ -782,7 +800,7 @@ The integration combines five data sources for the best balance of coverage, acc
 
 ## Prediction models
 
-The integration uses four house models and two helper curves. The heat-loss regression (the *heat-loss line*) is the basis of all advice. The two thermal models (1R1C and 2R2C) describe how fast the room warms up and cools down. The 2R2C only measures; the 1R1C feeds forecasts and estimates, and steers a knob only when you choose the source *House model + room*.
+The integration uses four house models, an emitter model and two helper curves. The heat-loss regression (the *heat-loss line*) is the basis of all advice. The two thermal models (1R1C and 2R2C) describe how fast the room warms up and cools down. The 1R1C feeds forecasts and estimates, and steers a knob only when you choose the source *House model + room*. The 2R2C takes over some estimates once it is approved for use; it never steers a knob. The emitter model turns heat output into supply temperature.
 
 ### Which model is used where
 
@@ -791,7 +809,8 @@ The integration uses four house models and two helper curves. The heat-loss regr
 | **Heat-loss regression** | A straight line: heat demand = U × (balance point − outdoor) | Daily averages over a season |
 | **Stooklijn / freeze curve** | The heating curve, the knee, and what the heat pump can deliver per outdoor temperature | Minute data of the heat pump |
 | **1R1C** (online) | One thermal mass: U, C, solar factor, constant heat gain | Hourly (RLS), with the hourly mean of heat pump plus boiler from the 5-minute log; U and the constant heat gain are held at the heat-loss regression |
-| **2R2C** | Air and building mass as two separate nodes | A nightly fit on the 5-minute log |
+| **2R2C** | Air and building mass as two separate nodes | A nightly fit on the 5-minute log, with U and the total free heat held at the heat-loss regression |
+| **Emitter model** | Water temperature above the room needed for a heat output | Daily, from 60 days of hourly means in the recorder |
 
 Helper curves: the **COP curve** (efficiency per outdoor temperature) and the **minimum output** of the heat pump (learned from the log).
 
@@ -804,14 +823,21 @@ Helper curves: the **COP curve** (efficiency per outdoor temperature) and the **
 | Max supply temperature | One of the three advices (your choice; default *Outdoor temperature + room*) |
 | Soundslider control | One of the three advices (your choice; default *Outdoor temperature + room*) |
 | Advice *House model + room* (`1r1c`) | **1R1C** + the same catch-up term; *Outdoor temperature + room* until the model is online |
-| Look-ahead: power and supply temperature per hour | The same formula as *Outdoor temperature + room* |
+| Look-ahead: power per hour | The same formula as *Outdoor temperature + room* |
+| Look-ahead: supply temperature per hour | Measured return in hour +0, **emitter model** after that |
+| Advice with the pump stopped | **Emitter model** instead of the return |
+| Heating curve points (Quatt advies, OpenQuatt) | Heat-loss regression + **emitter model** (fixed 28 °C return until it is learned) |
 | Look-ahead: room temperature and buffer | **1R1C** |
-| Look-ahead: room temperature (2R2C) | **2R2C**, shown only |
-| Safe coast time, recovery at minimum output | **1R1C** + minimum output |
+| Look-ahead: room temperature (2R2C) | **2R2C**, shown only; with the approved parameters once approved |
+| Predictive shadow advice (`advies_voorspellend`) | Catch-up term on the room in three hours according to the approved **2R2C**; shown only |
+| Safe coast time, recovery at minimum output | The shorter of **1R1C** and approved **2R2C**, + minimum output |
 | Stored heat | **1R1C** (its C) |
-| Price shift: baseline and drift limit | **1R1C** + COP curve |
-| Price shift: room temperature chart | **2R2C** |
+| Price shift: baseline | **1R1C** + COP curve |
+| Price shift: drift limit | Approved **2R2C**, otherwise **1R1C** |
+| Price shift: room temperature chart | **2R2C**, the fit that passed the gate; the approved parameters once approved |
+| Price shift: COP of the shifted plan | COP curve × Carnot correction from the **emitter model** |
 | Model comparison | 2R2C (horizontal sun and window sun) against 1R1C against "doing nothing" |
+| Replay | Approved **2R2C** as the house, the heat-loss advice with different catch-up factors as the controller |
 | Chart "Huis thermisch profiel" | Heat-loss regression + stooklijn + freeze curve |
 
 Because the 1R1C takes U and its constant heat gain from the heat-loss regression, its steady state is the same line: U × (room − outdoor) − U × (room − balance point) = U × (balance point − outdoor). What it adds is the dynamics: how much heat the house stores (C) and how strongly it reacts to the sun.
@@ -846,20 +872,34 @@ C × dT_indoor/dt = Q_hp − U × (T_indoor − T_outdoor) + g × radiation + P_
 
 ### Advice and look-ahead
 
-See [Supply advice and look-ahead](#supply-advice-and-look-ahead) for the advice. In short: heat loss from the regression plus a catch-up term for a room below its setpoint, capped at what the heat pump can deliver, converted to a supply temperature with the measured return temperature and flow. The 12-hour look-ahead applies the same formula per hour, with the room temperature the 1R1C predicts for that hour.
+See [Supply advice and look-ahead](#supply-advice-and-look-ahead) for the advice. In short: heat loss from the regression plus a catch-up term for a room below its setpoint, capped at what the heat pump can deliver, converted to a supply temperature with the measured return temperature and flow (with the emitter model while the pump is stopped). The 12-hour look-ahead applies the same formula per hour, with the room temperature the 1R1C predicts for that hour.
 
-### 2R2C model (measured only)
+### 2R2C model
 
-The 1R1C model treats the house as one whole with one speed of response. The 2R2C model splits it into a fast node (the air and what moves directly with it) and a slow node (the building mass). It drives nothing: `sensor.quatt_warmteanalyse_modelvergelijking` measures whether it predicts better than the running 1R1C model and better than "doing nothing" (assuming the room temperature stays the same).
+The 1R1C model treats the house as one whole with one speed of response. The 2R2C model splits it into a fast node (the air and what moves directly with it) and a slow node (the building mass). `sensor.quatt_warmteanalyse_modelvergelijking` measures whether it predicts better than the running 1R1C model and better than "doing nothing" (assuming the room temperature stays the same).
 
 - **Input:** the integration's own log, with readings every 5 minutes
-- **Fitting and testing:** fitted on 5-minute data over 6 hours ahead, tested per hour over 12 hours ahead. Calendar weeks alternate between training and testing, so the test data is not part of the fit
-- **Gate:** at least 336 hours of training data (a weekly block only counts from 72 hours), and an RMSE at least 5% below both the 1R1C model and "doing nothing"
-- **With a sun sensor:** a second fit uses the sun as it comes through the windows, measured with the PV installation. On the measured house that was 14 % better than horizontal radiation
-- **When:** 10 minutes after a (re)start and every 24 hours after that. The result is not stored, so after a restart it briefly shows `nog niet gemeten`
-- **Sensor states:** `nog niet gemeten` (not measured yet), `te weinig data` (too little data), `fit mislukt` (fit failed), `niet beter` (not better) or `beter` (better)
+- **Anchors:** U and the total free heat are held at the heat-loss regression (free heat = U × (median room − balance point) − solar factor × mean sun; the balance point already contains the average sun). Fitted freely, the storage of the two nodes cannot be told apart from a few weeks of data, and the model hardly cooled down with the heat pump off
+- **Fitting and testing:** fitted on 5-minute data over 6 hours ahead, tested per hour over 12 hours ahead. Calendar weeks alternate between training and testing, so the test data is not part of the fit. Periods without heating weigh extra in the fit
+- **Gate (`beter`):** at least 336 hours of training data (a weekly block only counts from 72 hours), and an RMSE at least 5% below both the 1R1C model and "doing nothing"
+- **Approved for use (`goedgekeurd_voor_gebruik`):** the gate, the same test with training and test weeks swapped, a fit on the whole log, and a cooling test: at least 10 four-hour periods with the heat pump off and no sun, a mean error of at most 0.10 K *and* at most 15 % of the measured drop (lower bound 0.03 K), and no worse than the 1R1C. Without a new measurement the approval lapses after 48 hours. On the measured house the 2R2C passed the fixed 0.10 K with +0.07 K on a drop of 0.25 K, cooled down a quarter too slowly and gave a coast time of 237 minutes against 145; that is why the relative limit exists
+- **What an approved 2R2C does:** it computes the drift limit and room chart of the price shift, the 2R2C room line in the look-ahead, the predictive shadow advice, and the safe coast time together with the 1R1C (the shorter one wins). It never steers a knob and never sets the advice
+- **Replay:** with an approved 2R2C the comparison also replays the last 21 days in a closed loop: the 2R2C is the house, the measured weather is the weather, and the heat-loss advice with catch-up factor 0, 5, 10, 20 or predictive is the controller. Same weather for every variant, so it compares in one night what A/B testing takes weeks for. It is a model result, not a measurement; the [steering effect](#steering-effect) remains the check
+- **With a sun sensor:** a second fit uses the sun as it comes through the windows, measured with the PV installation, with the same anchors. On the measured house that was 14 % better than horizontal radiation
+- **When:** 10 minutes after a (re)start and every 24 hours after that. The result is stored and restored after a restart if it is at most 48 hours old
+- **Sensor states:** `nog niet gemeten` (not measured yet), `te weinig data` (too little data), `fit mislukt` (fit failed), `niet beter` (not better) or `beter` (better). Whether it is in use, and why not, is in `goedgekeurd_voor_gebruik` and `goedkeuring`
 
-`beter` only says the prediction error is lower. The individual parameters can differ a lot between periods, because a few weeks of data cannot separate them well.
+`beter` only says the prediction error is lower. An installation that starts in winter has no periods without heating, so the 2R2C stays out of use until spring or autumn; that is intended.
+
+### Emitter model
+
+Radiators and floor heating release heat as `P = k · (T_water,mean − T_room)^n`, with n around 1.3 for radiators and 1.1 for floor heating. With the flow that gives the supply temperature: `T_supply = T_mean + P / (1.16 · flow) / 2`.
+
+- **Input:** hourly means of supply, return, flow, heat output, room and outdoor temperature from the recorder, over 60 days, once a day. Only hours in which the pump seems to have run the whole hour count: enough heat and flow, and the heat from flow × ΔT matches the measured heat. It needs 48 such hours
+- **Exponent:** chosen on the error in the supply temperature, between 1.0 and 1.6
+- **Measured house (November 2026, tested on other weeks than learned):** mean deviation of the supply 0.4 K, against 1.8 K too high with a fixed 28 °C return and 800 L/h, and 0.6 K with the return of four hours earlier. The return of the current hour stays best for *now* (0.09 K), so the advice with the pump running keeps using it
+- **Stored:** the model survives a restart; attribute `afgiftemodel` on `mpc_aanbevolen_aanvoertemperatuur`, with `afgiftemodel_reden` when it could not be learned
+- **Supply sensor offset:** it learns on the supply sensor as it is, offset included, on purpose: the heating curve points go to a controller that measures with that same sensor
 
 ### XGBoost (experimental, not active)
 
@@ -879,7 +919,10 @@ Hourly mean ───→ [1R1C] ← U and P_c from the regression ────�
                      ├──→ advice House model + room ────────────────────────────────────────────────┘
                      └──→ C, solar factor ──→ look-ahead room temperature, coast time,
                                               stored heat, price shift
-5-minute log ───→ [2R2C] (nightly fit) ──→ model comparison, 2R2C columns and charts (shown only)
+5-minute log ───→ [2R2C] (nightly fit) ──→ model comparison, replay; once approved: drift limit,
+                                              room lines, coast time (shorter of 1R1C and 2R2C)
+Recorder ──────→ [Emitter model] (daily) ──→ heating curve points, look-ahead supply, advice with pump stopped,
+                                              supply COP in the price shift
 ```
 
 ## Short cycling
