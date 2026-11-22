@@ -557,9 +557,13 @@ def calculate_demand_shift(
         for t, c, p_flat, p_shift, p_min in zip(
             forecast_temps, cops, flat_arr, shifted, floor
         ):
+            # Allebei geklemd: een restje dat _blocks onder het minimum laat
+            # staan, pendelt ook op het minimum en krijgt dus geen bonus
+            # (review 22-11, tweede ronde: 285 W tegen 2400 W gaf 30 %).
             ref = max(float(p_flat), float(p_min))
+            run = max(float(p_shift), float(p_min))
             if ref > 0 and p_shift > 0:
-                c = c * cop_supply_factor(t, supply_of(float(p_shift)), supply_of(ref))
+                c = c * cop_supply_factor(t, supply_of(run), supply_of(ref))
             adj.append(c)
         cops_shifted = adj
         result.supply_cop_applied = True

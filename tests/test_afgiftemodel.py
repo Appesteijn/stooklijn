@@ -151,6 +151,22 @@ class TestPrijsverschuiving:
         # Alleen de stappen boven het minimum (dubbele blokken) kosten iets.
         assert met.cost_shifted_eur < zonder.cost_shifted_eur * 1.10
 
+    def test_restje_onder_het_minimum_geen_bonus(self):
+        """Tweede review 22-11: alleen de referentie was geklemd, dus een
+        restje onder het minimum kreeg een COP-factor boven 1 (30 % besparing
+        op een zachte dag, 0 % zonder aanvoer-COP)."""
+        from custom_components.quatt_stooklijn.analysis.demand_shift import (
+            calculate_demand_shift)
+        m = EmitterModel(k=150.0, n=1.3, flow_lph=800.0, hours=100, mae_k=0.3)
+        curve = {t: 3.0 + 0.1 * (t + 10) for t in range(-15, 20)}
+        prices = [0.30 if 1 <= i <= 2 else 0.15 for i in range(4)]
+        kw = dict(prices=prices, baseline=[285.0] * 4, min_power_w=[2400.0] * 4)
+        zonder = calculate_demand_shift([12.0] * 4, curve, 250.0, None, 0.5, **kw)
+        met = calculate_demand_shift([12.0] * 4, curve, 250.0, None, 0.5,
+                                     supply_of=lambda p: m.supply(p, 20.0), **kw)
+        assert met.cost_shifted_eur >= zonder.cost_shifted_eur - 1e-9
+        assert (met.expected_saving or 0) <= (zonder.expected_saving or 0) + 1e-9
+
 
 class TestAdviesBijStilstaandePomp:
     def _mpc(self, emitter, indoor=20.5):
