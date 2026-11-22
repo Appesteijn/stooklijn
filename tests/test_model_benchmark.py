@@ -498,6 +498,35 @@ class TestGoedkeuringVoorGebruik:
                       params_use={"U": 2.0}, measured_ts=nu - leeftijd_u * 3600)
         assert _approved_for_use(u, nu) is verwacht
 
+    def test_kaart_ziet_een_verlopen_goedkeuring(self, monkeypatch):
+        """Tweede review 22-11: het attribuut kende de 48 uur niet, dus de
+        kaart zei nog "In gebruik"."""
+        import custom_components.quatt_stooklijn.sensor as mod
+        nu = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
+        u = _uitkomst(accepted=True, reason="beter", approved=True,
+                      approval_reason="goedgekeurd", params_use={"U": 2.0},
+                      measured_ts=nu.timestamp() - 49 * 3600)
+        monkeypatch.setattr(mod.dt_util, "utcnow", lambda: nu)
+        a = _sensor(u).extra_state_attributes
+        assert a["goedgekeurd_voor_gebruik"] is False
+        assert a["goedkeuring"].startswith("verlopen")
+        u2 = _uitkomst(accepted=True, reason="beter", approved=True,
+                       approval_reason="goedgekeurd", params_use={"U": 2.0},
+                       measured_ts=nu.timestamp() - 3600)
+        assert _sensor(u2).extra_state_attributes["goedgekeurd_voor_gebruik"] is True
+
+    def test_state_wordt_herschreven_als_de_goedkeuring_verloopt(self, monkeypatch):
+        import custom_components.quatt_stooklijn.sensor as mod
+        nu = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
+        monkeypatch.setattr(mod.dt_util, "utcnow", lambda: nu)
+        later = MagicMock()
+        monkeypatch.setattr(mod, "async_call_later", later)
+        s = _sensor(_uitkomst(accepted=True, reason="beter", approved=True,
+                              params_use={"U": 2.0}, measured_ts=nu.timestamp() - 3600))
+        s.hass = MagicMock()
+        s._schedule_expiry()
+        assert later.call_args.args[1] == pytest.approx(47 * 3600 + 1)
+
     def test_zonder_meettijd_geen_goedkeuring(self):
         from custom_components.quatt_stooklijn.sensor import _approved_for_use
         u = _uitkomst(accepted=True, reason="beter", approved=True, params_use={"U": 2.0})

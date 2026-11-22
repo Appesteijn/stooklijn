@@ -3046,6 +3046,15 @@ class QuattModelBenchmarkSensor(
         if self._result is None:
             return {"gemeten": False}
         attrs = {"gemeten": True, **self._result.to_dict()}
+        if self._result.approved and not _approved_for_use(
+            self._result, dt_util.utcnow().timestamp()
+        ):
+            # Zelfde grens als de afnemers; anders zegt de kaart "In gebruik"
+            # terwijl alles al op het 1R1C rekent.
+            attrs["goedgekeurd_voor_gebruik"] = False
+            attrs["goedkeuring"] = (
+                "verlopen: geen nieuwe meting in "
+                f"{int(APPROVAL_MAX_AGE.total_seconds() // 3600)} uur")
         # Gevelzon (ZONNEWARMTE_PLAN.md). De zonfactoren ook los, zodat een
         # grafiek per meting kan laten zien of ze stabiliseren.
         window = getattr(self, "_window", None)
@@ -3066,6 +3075,8 @@ class QuattModelBenchmarkSensor(
             _LOGGER.warning("Bewaarde modelvergelijking onleesbaar", exc_info=True)
             stored = None
         self._restore(stored, dt_util.utcnow().timestamp())
+        self._schedule_expiry()
+        self.async_on_remove(self._cancel_expiry)
         self.async_on_remove(
             async_track_time_interval(
                 self.hass, self._async_run, self.INTERVAL
@@ -3091,6 +3102,31 @@ class QuattModelBenchmarkSensor(
 
     def _storage(self) -> dict:
         return {**self._result.to_storage(), "naspeler": self._replay}
+
+    _expiry_unsub = None
+
+    def _cancel_expiry(self) -> None:
+        if self._expiry_unsub is not None:
+            self._expiry_unsub()
+            self._expiry_unsub = None
+
+    def _schedule_expiry(self) -> None:
+        """De state opnieuw schrijven zodra de goedkeuring verloopt. Zonder
+        nieuwe meting schrijft deze sensor anders niets, en blijft de kaart
+        "In gebruik" zeggen."""
+        self._cancel_expiry()
+        result = self._result
+        if result is None or not _approved_for_use(result, dt_util.utcnow().timestamp()):
+            return
+        delay = (result.measured_ts + APPROVAL_MAX_AGE.total_seconds()
+                 - dt_util.utcnow().timestamp() + 1.0)
+
+        @callback
+        def _expired(_now) -> None:
+            self._expiry_unsub = None
+            self.async_write_ha_state()
+
+        self._expiry_unsub = async_call_later(self.hass, max(1.0, delay), _expired)
 
     async def _async_run(self, _now=None) -> None:
         """Meet opnieuw. Een mislukte meting laat de vorige uitkomst staan."""
@@ -3129,6 +3165,7 @@ class QuattModelBenchmarkSensor(
         self._result = result
         self._replay = replay_out
         self._window = window
+        self._schedule_expiry()
         self._store.async_delay_save(self._storage, 30)
         _LOGGER.info(
             "Modelvergelijking: 2R2C %s K, huidig %s K, niets doen %s K — %s; "
