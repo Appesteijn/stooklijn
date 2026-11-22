@@ -259,4 +259,9 @@ log-vermogen.
 De COP op aanvoertemperatuur is uit de meting niet te leren: de aanvoer volgt
 de stooklijn (een fit op buiten én aanvoer gaf een verkeerd teken). De
 prijsverschuiving gebruikt daarom de verhouding van twee Carnot-waarden ten
-opzichte van de vlakke reeks (`cop_supply_factor`).
+opzichte van de vlakke reeks (`cop_supply_factor`). Beide vermogens worden
+eerst geklemd op het minimumvermogen: daaronder pendelt de installatie op dat
+minimum, met de aanvoer die daarbij hoort. Alleen de referentie klemmen gaf een
+restje onder het minimum een COP-bonus (review 22-11: 30 % besparing op een
+zachte dag, 0 % zonder aanvoer-COP); geen van beide klemmen strafte een blok op
+het minimum af tegen een vermogen dat de installatie niet kan leveren.
