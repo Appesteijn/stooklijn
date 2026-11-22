@@ -153,12 +153,34 @@ class TestRichtingRamenKiezen:
         monkeypatch.setattr(si, "window_rows",
                             lambda rows, where, hourly: ([[where.window_azimuth]], {"pv_dekking": 1.0}))
         monkeypatch.setattr(mb, "compare_variant",
-                            lambda v, reverse=False: {"rmse_k": rmse[(int(v[0][0]), reverse)],
-                                                      "params": {"g": 10.0}})
+                            lambda v, reverse=False, **kw: {"rmse_k": rmse[(int(v[0][0]), reverse)],
+                                                            "params": {"g": 10.0}})
         r = _window_variant_with_learned_direction([], WAAR, [])
         assert r["richting_ramen"] == 180
         assert r["rmse_k"] == .22                      # de gewone splitsing van de winnaar
         assert r["rmse_per_richting"]["135"] == .25
+
+    def test_zelfde_ankers_als_de_hoofdvergelijking(self, monkeypatch):
+        """Review 22-11: de variant werd vrij gefit, de hoofdvergelijking
+        verankerd. Nu per richting ankers uit de eigen zonkolom."""
+        import custom_components.quatt_stooklijn.analysis.model_benchmark as mb
+        import custom_components.quatt_stooklijn.analysis.solar_input as si
+        from custom_components.quatt_stooklijn.sensor import (
+            _window_variant_with_learned_direction,
+        )
+
+        monkeypatch.setattr(si, "window_rows",
+                            lambda rows, where, hourly: ([[where.window_azimuth]], {}))
+        gezien = []
+        monkeypatch.setattr(mb, "anchors_from_rows",
+                            lambda v, u, bp: ("anker", v[0][0], u, bp))
+        monkeypatch.setattr(mb, "compare_variant",
+                            lambda v, reverse=False, anchors=None: gezien.append(anchors)
+                            or {"rmse_k": 0.2, "params": {}})
+        r = _window_variant_with_learned_direction([], WAAR, [], 280.0, 16.5)
+        assert gezien and all(a is not None and a[2:] == (280.0, 16.5) for a in gezien)
+        assert len({a[1] for a in gezien}) > 1          # eigen ankers per richting
+        assert r["geankerd"] is True
 
     def test_te_weinig_pv(self, monkeypatch):
         import custom_components.quatt_stooklijn.analysis.solar_input as si

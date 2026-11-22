@@ -3073,7 +3073,7 @@ class QuattModelBenchmarkSensor(
                 replay_out = await self.hass.async_add_executor_job(
                     _run_replay, result.params_use, rows, u, bp
                 )
-            window = await self._async_window_variant(rows)
+            window = await self._async_window_variant(rows, u, bp)
         except Exception:
             _LOGGER.warning("Modelvergelijking mislukt", exc_info=True)
             return
@@ -3091,8 +3091,14 @@ class QuattModelBenchmarkSensor(
         )
         self.async_write_ha_state()
 
-    async def _async_window_variant(self, rows: list[list[float]]) -> dict | None:
+    async def _async_window_variant(
+        self, rows: list[list[float]], u: float | None = None, bp: float | None = None,
+    ) -> dict | None:
         """Het 2R2C met de zon op de ramen, gemeten met de zonnesensor.
+
+        Met dezelfde ankers als de hoofdvergelijking (U en de totale gratis
+        warmte, de gemiddelde zon uit de eigen zonkolom), anders zegt het
+        verschil tussen beide ook iets over de ankers en niet alleen over de zon.
 
         PV staat pas sinds v0.10.6-beta.12 in het meetlogboek. Voor de oudere
         monsters wordt hij aangevuld uit de uurstatistiek van de recorder,
@@ -3112,7 +3118,7 @@ class QuattModelBenchmarkSensor(
             )
             where = self._mpc.solar_orientation
             result = await self.hass.async_add_executor_job(
-                _window_variant_with_learned_direction, rows, where, hourly
+                _window_variant_with_learned_direction, rows, where, hourly, u, bp
             )
         except Exception:
             _LOGGER.warning("Modelvergelijking met gevelzon mislukt", exc_info=True)
@@ -3145,7 +3151,9 @@ def _compare_anchored(rows, model, u, balance_point, now_ts):
                    now_ts=now_ts)
 
 
-def _window_variant_with_learned_direction(rows, where, hourly) -> dict:
+def _window_variant_with_learned_direction(
+    rows, where, hourly, u=None, balance_point=None,
+) -> dict:
     """De gevelzonvariant voor elke kandidaat-raamrichting; de beste wint.
 
     Gekozen op het gemiddelde van beide week-splitsingen: met één splitsing
@@ -3155,7 +3163,7 @@ def _window_variant_with_learned_direction(rows, where, hourly) -> dict:
     """
     from dataclasses import replace
 
-    from .analysis.model_benchmark import compare_variant
+    from .analysis import model_benchmark as mb
     from .analysis.solar_input import window_rows
 
     per_richting: dict[int, float] = {}
@@ -3165,8 +3173,10 @@ def _window_variant_with_learned_direction(rows, where, hourly) -> dict:
         variant, info = window_rows(rows, replace(where, window_azimuth=float(cand)), hourly)
         if variant is None:
             return {**info, "reden": "te weinig PV-data in het meetlogboek"}
-        a = compare_variant(variant)
-        b = compare_variant(variant, reverse=True)
+        # Per richting eigen ankers: de gemiddelde zon hangt aan de zonkolom.
+        anchors = mb.anchors_from_rows(variant, u, balance_point)
+        a = mb.compare_variant(variant, anchors=anchors)
+        b = mb.compare_variant(variant, reverse=True, anchors=anchors)
         if a.get("rmse_k") is None or b.get("rmse_k") is None:
             return {**info, **a}
         per_richting[cand] = round((a["rmse_k"] + b["rmse_k"]) / 2, 3)
@@ -3175,6 +3185,7 @@ def _window_variant_with_learned_direction(rows, where, hourly) -> dict:
     return {
         **info,
         **gewoon[best],
+        "geankerd": anchors is not None,
         "richting_ramen": float(best),
         "rmse_per_richting": {str(k): v for k, v in per_richting.items()},
     }
