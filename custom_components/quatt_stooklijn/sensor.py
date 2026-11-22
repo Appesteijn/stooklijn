@@ -1050,7 +1050,9 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     # buitentemp, zon, flow of retour. Dat hoort niet elke keer de recorder in;
     # het dashboard leest het attribuut rechtstreeks. Bij zes uur was dat al
     # verspilling, bij twaalf het dubbele.
-    _unrecorded_attributes = frozenset({"forecast"})
+    # Afgiftemodel (met tabel per graad) en het voorspellende schaduwadvies
+    # (een dict) om dezelfde reden: ze veranderen hooguit per etmaal of uur.
+    _unrecorded_attributes = frozenset({"forecast", "afgiftemodel", "advies_voorspellend"})
 
     def __init__(
         self,
