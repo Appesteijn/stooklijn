@@ -3,7 +3,7 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
-## v0.10.7-beta.8 — nog niet uitgebracht
+## v0.10.7-beta.8 — 2026-11-22
 
 - **De soundslider zet je eigen geluidsniveaus terug.** Bij het inschakelen
   onthoudt de integratie wat er in de Quatt-app stond voor dag en nacht. Die
