@@ -994,6 +994,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     #: recorder; None tot dat lukt.
     emitter: Any = None
     emitter_reason: str = "nog niet geleerd"
+    _emitter_at: datetime | None = None
 
     _attr_has_entity_name = True
     _attr_translation_key = "mpc_recommended_supply_temp"
@@ -1053,6 +1054,13 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             coordinator.hass, 1, SOLAR_FORECAST_LOG_STORAGE_KEY
         )
         self._solar_forecast_loaded = False
+        # Afgiftemodel: bewaard, zodat het na een herstart of opgeslagen optie
+        # meteen weer rekent (zonder sprongen de stooklijnpunten ~1,8 K terug
+        # naar de vaste retour tot het eerstvolgende leren).
+        self._emitter_store = Store(
+            coordinator.hass, 1, f"{DOMAIN}.emitter_{entry.entry_id}"
+        )
+        self._emitter_at: datetime | None = None
         # Verhouding lopend uur / verwachting 1–6 uur vooruit; None zolang er te
         # weinig zonuren zijn. Zie SolarForecastLog.lead_factor.
         self.solar_lead_factor: float | None = None
@@ -1460,6 +1468,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         # Laad thermal model + forecast direct bij opstarten
         await self._async_load_thermal_model()
         await self._async_load_highres_log()
+        await self._async_load_emitter()
         await self._async_refresh_forecast()
         await self._async_refresh_solar_radiation()
 
@@ -1805,21 +1814,50 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         self._refresh_u_prior()
         super()._handle_coordinator_update()
 
+    def _set_emitter(self, model) -> None:
+        self.emitter = model
+        self.coordinator.emitter = model
+
+    async def _async_load_emitter(self) -> None:
+        """Het bewaarde afgiftemodel terugzetten. Faalt dat, dan leert het
+        uurwerk een nieuw."""
+        from .analysis.emitter import EmitterModel
+
+        try:
+            stored = await self._emitter_store.async_load() or {}
+        except Exception:
+            _LOGGER.warning("Afgiftemodel laden mislukt", exc_info=True)
+            return
+        model = EmitterModel.from_dict(stored.get("model") or {})
+        if model is None:
+            return
+        try:
+            at = dt_util.parse_datetime(str(stored.get("geleerd_op")))
+        except ValueError:
+            at = None
+        if at is None:
+            return
+        self._set_emitter(model)
+        self.emitter_reason = "geleerd"
+        self._emitter_at = at
+
     async def async_learn_emitter(self) -> None:
         """Leer het afgiftemodel uit de uurgemiddelden van de recorder.
 
         Eens per etmaal. Aanvoer, retour, debiet, warmte, kamer en buiten over
-        ``emitter.WINDOW_DAYS`` dagen. Mislukt het, dan blijft het vorige model
-        staan. Het model wordt ook op de coordinator gezet, voor de
-        stooklijnpunten van het Quatt-advies en de OpenQuatt-stooklijn.
+        ``emitter.WINDOW_DAYS`` dagen. Lukt het niet, dan blijft het vorige
+        model staan. Alleen een poging die tot een fit kwam telt als "vandaag
+        geleerd": ontbreken de rollen of faalt de recorder, dan het volgende
+        uur opnieuw. Het model wordt ook op de coordinator gezet, voor de
+        stooklijnpunten van het Quatt-advies en de OpenQuatt-stooklijn, en
+        bewaard.
         """
         from .analysis.emitter import WINDOW_DAYS, fit_emitter
 
         now = dt_util.utcnow()
-        last = getattr(self, "_emitter_at", None)
+        last = self._emitter_at
         if last is not None and now - last < timedelta(hours=24):
             return
-        self._emitter_at = now
         cfg = {**self._entry.data, **self._entry.options}
         roles = (ROLE_SUPPLY_TEMP, ROLE_RETURN_TEMP, ROLE_FLOW_RATE, ROLE_TOTAL_POWER,
                  ROLE_INDOOR_TEMP, ROLE_OUTDOOR_TEMP)
@@ -1843,10 +1881,15 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         except Exception:
             _LOGGER.warning("Afgiftemodel leren mislukt", exc_info=True)
             return
+        self._emitter_at = now
         self.emitter_reason = reason
         if model is not None:
-            self.emitter = model
-            self.coordinator.emitter = model
+            self._set_emitter(model)
+            self._emitter_store.async_delay_save(
+                lambda m=model, t=now: {"model": m.to_dict(),
+                                        "geleerd_op": t.isoformat()}, 10)
+        elif self.emitter is not None:
+            self.emitter_reason = f"{reason}; vorig model blijft staan"
 
     def _unit(self, entity_id: str) -> str:
         state = self.hass.states.get(entity_id)

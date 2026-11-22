@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
 import numpy as np
 import pytest
 
@@ -179,3 +183,68 @@ class TestAdviesBijStilstaandePomp:
         s, p = self._mpc(None)
         with p:
             assert s._emitter_args(0.0) == {}
+
+
+class TestBewaren:
+    """Het afgiftemodel overleeft een herstart; een mislukte poging blokkeert
+    geen etmaal (review 22-11-2026)."""
+
+    def _mpc(self):
+        from unittest.mock import MagicMock
+        from custom_components.quatt_stooklijn.sensor import QuattMpcSensor
+        s = QuattMpcSensor.__new__(QuattMpcSensor)
+        s.hass = MagicMock()
+        s.hass.states.get.return_value = SimpleNamespace(attributes={"unit_of_measurement": "W"})
+        s.coordinator = SimpleNamespace()
+        s._entry = SimpleNamespace(entry_id="e", data={}, options={})
+        s._emitter_store = MagicMock()
+        s._emitter_store.async_load = AsyncMock(return_value=None)
+        s.hass.async_add_executor_job = AsyncMock(side_effect=lambda f, *a: f(*a))
+        return s
+
+    def _reeksen(self):
+        sup, ret, flow, q, room, t_out = _uren()
+        ents = ["s", "r", "f", "q", "k", "b"]
+        return ents, {e: {i: float(v[i]) for i in range(len(v))}
+                      for e, v in zip(ents, (sup, ret, flow, q, room, t_out))}
+
+    def _leer(self, s, ents, means):
+        from custom_components.quatt_stooklijn import sensor as mod
+        it = iter(ents)
+        with patch.object(mod, "async_source_entity", side_effect=lambda *a, **k: next(it)), \
+                patch.object(mod, "async_hourly_means", means):
+            asyncio.run(s.async_learn_emitter())
+
+    def test_geleerd_wordt_bewaard_en_teruggezet(self):
+        ents, series = self._reeksen()
+        s = self._mpc()
+        self._leer(s, ents, AsyncMock(return_value=series))
+        assert s.emitter is not None and s.coordinator.emitter is s.emitter
+        data = s._emitter_store.async_delay_save.call_args[0][0]()
+
+        t = self._mpc()
+        t._emitter_store.async_load = AsyncMock(return_value=data)
+        asyncio.run(t._async_load_emitter())
+        assert t.coordinator.emitter is t.emitter
+        assert t.emitter.supply(4000, 20.0) == pytest.approx(s.emitter.supply(4000, 20.0), abs=0.05)
+        assert t._emitter_at is not None
+
+    def test_recorderfout_probeert_het_volgende_uur_opnieuw(self):
+        ents, series = self._reeksen()
+        s = self._mpc()
+        self._leer(s, ents, AsyncMock(side_effect=RuntimeError("recorder")))
+        assert s._emitter_at is None and s.emitter is None
+        self._leer(s, ents, AsyncMock(return_value=series))
+        assert s.emitter is not None
+
+    def test_ontbrekende_rol_probeert_het_volgende_uur_opnieuw(self):
+        ents, _ = self._reeksen()
+        s = self._mpc()
+        self._leer(s, [None] + ents[1:], AsyncMock())
+        assert s._emitter_at is None
+
+    def test_kapotte_opslag_geen_model(self):
+        s = self._mpc()
+        s._emitter_store.async_load = AsyncMock(return_value={"model": {"k": 1}})
+        asyncio.run(s._async_load_emitter())
+        assert s.emitter is None
