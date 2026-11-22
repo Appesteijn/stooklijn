@@ -130,6 +130,23 @@ class TestPrijsverschuiving:
         assert met.shifted == zonder.shifted
         assert met.expected_saving < zonder.expected_saving
 
+    def test_onder_het_minimum_is_het_minimum_de_referentie(self):
+        """Vlak 800 W met een minimum van 2400 W: de installatie pendelt toch al
+        op 2400 W. Een blok op het minimum kost dan geen COP (review 22-11:
+        met 800 W als referentie kwam de verschuiving 43 % duurder uit)."""
+        from custom_components.quatt_stooklijn.analysis.demand_shift import (
+            calculate_demand_shift)
+        m = EmitterModel(k=150.0, n=1.3, flow_lph=800.0, hours=100, mae_k=0.3)
+        curve = {t: 3.0 + 0.1 * (t + 10) for t in range(-15, 20)}
+        prices = [0.30 if 7 <= i <= 20 else 0.15 for i in range(24)]
+        kw = dict(prices=prices, baseline=[800.0] * 24, min_power_w=[2400.0] * 24)
+        zonder = calculate_demand_shift([8.0] * 24, curve, 250.0, None, 0.5, **kw)
+        met = calculate_demand_shift([8.0] * 24, curve, 250.0, None, 0.5,
+                                     supply_of=lambda p: m.supply(p, 20.0), **kw)
+        assert met.supply_cop_applied
+        # Alleen de stappen boven het minimum (dubbele blokken) kosten iets.
+        assert met.cost_shifted_eur < zonder.cost_shifted_eur * 1.10
+
 
 class TestAdviesBijStilstaandePomp:
     def _mpc(self, emitter, indoor=20.5):

@@ -544,10 +544,22 @@ def calculate_demand_shift(
     if supply_of is not None:
         from .emitter import cop_supply_factor
 
+        # De referentie is wat de installatie in de vlakke reeks werkelijk
+        # levert. Ligt het vlakke vermogen onder het minimum, dan pendelt hij
+        # op dat minimum, met de aanvoer die daarbij hoort, niet op die van
+        # een vermogen dat hij niet kan leveren. Een blok op het minimum kost
+        # dan geen COP (review 22-11-2026: radiatorhuis bij 8 °C, 800 W vlak
+        # tegen een blok van 2400 W gaf 0,72 in plaats van 0,94).
+        floor = (np.array(min_power_w, dtype=float)
+                 if min_power_w is not None and len(min_power_w) == len(flat)
+                 else np.zeros(len(flat)))
         adj = []
-        for t, c, p_flat, p_shift in zip(forecast_temps, cops, flat_arr, shifted):
-            if p_flat > 0 and p_shift > 0:
-                c = c * cop_supply_factor(t, supply_of(float(p_shift)), supply_of(float(p_flat)))
+        for t, c, p_flat, p_shift, p_min in zip(
+            forecast_temps, cops, flat_arr, shifted, floor
+        ):
+            ref = max(float(p_flat), float(p_min))
+            if ref > 0 and p_shift > 0:
+                c = c * cop_supply_factor(t, supply_of(float(p_shift)), supply_of(ref))
             adj.append(c)
         cops_shifted = adj
         result.supply_cop_applied = True

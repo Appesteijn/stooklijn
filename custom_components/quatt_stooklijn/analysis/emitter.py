@@ -62,7 +62,10 @@ class EmitterModel:
     #: Gemiddelde |fout| in de aanvoer op de eigen uren (K).
     mae_k: float
     #: De aanvoer die bij een buitentemperatuur hoort, zoals de installatie
-    #: stookte: (buitentemperatuur, aanvoer) per graad. Voor de COP-correctie.
+    #: stookte: (buitentemperatuur, aanvoer) per graad. Ter informatie op de
+    #: sensor; de COP-correctie rekent ten opzichte van de vlakke reeks (op
+    #: zijn minst het minimumvermogen), want deze tabel kent alleen de uren
+    #: waarin de pomp het hele uur draaide en mist dus de zachte dagen.
     supply_by_outdoor: list[tuple[float, float]] = field(default_factory=list)
 
     def mean_water(self, power_w: float, t_room: float) -> float:
