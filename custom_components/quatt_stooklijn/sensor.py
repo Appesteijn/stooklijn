@@ -759,7 +759,18 @@ class QuattSupplyTempSensor(
             config=cfg, conf_key=CONF_INDOOR_TEMP_ENTITY,
         )
         t_room = get_float_state(self.hass, entity) if entity else None
-        return t_room if t_room is not None else 20.0
+        if t_room is not None:
+            return t_room
+        # Geen kamersensor: het kamerdoel, zoals de andere bronnen
+        # (QuattMpcSensor._resolve_room_setpoint), niet een vaste 20 °C.
+        setpoint_entity = async_source_entity(
+            self.hass, self._entry.entry_id, ROLE_ROOM_SETPOINT,
+            config=cfg, conf_key=CONF_ROOM_SETPOINT_ENTITY,
+        )
+        value = get_float_state(self.hass, setpoint_entity) if setpoint_entity else None
+        if value is not None and ROOM_SETPOINT_MIN <= value <= ROOM_SETPOINT_MAX:
+            return value
+        return float(cfg.get(CONF_ROOM_SETPOINT_FALLBACK, DEFAULT_ROOM_SETPOINT))
 
     async def async_added_to_hass(self) -> None:
         """Register state listeners for live input sensors."""

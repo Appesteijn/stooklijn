@@ -35,6 +35,7 @@ from tests.test_room_setpoint import (
     INDOOR,
     OUTDOOR,
     RETURN,
+    SETPOINT,
     _analysis,
     _hass as _hass_states,
     _sources,
@@ -220,6 +221,17 @@ class TestStooklijnStatus:
         assert attrs["aanvoer_uit"] == "afgiftemodel"
         _, zonder = self._attrs(**{OUTDOOR: 5.0, RETURN: 15.0, FLOW: 0})
         assert waarde > zonder
+
+    def test_zonder_kamersensor_het_setpoint(self):
+        """Tweede review 22-11: zonder kamersensor rekende deze bron met een
+        vaste 20 °C, de andere bronnen met het kamerdoel."""
+        from custom_components.quatt_stooklijn.analysis.emitter import EmitterModel
+        m = EmitterModel(k=200.0, n=1.3, flow_lph=800.0, hours=100, mae_k=0.3)
+        _, warm = self._attrs(emitter=m, **{OUTDOOR: 5.0, RETURN: 15.0, FLOW: 0,
+                                            SETPOINT: 21.5})
+        _, gewoon = self._attrs(emitter=m, **{OUTDOOR: 5.0, RETURN: 15.0, FLOW: 0,
+                                              SETPOINT: 20.0})
+        assert warm == pytest.approx(gewoon + 1.5, abs=0.11)
 
     def test_draaiende_pomp_houdt_de_retour(self):
         from custom_components.quatt_stooklijn.analysis.emitter import EmitterModel
