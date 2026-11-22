@@ -315,6 +315,18 @@ CONF_SOUND_NIGHT_END_HOUR = "sound_night_end_hour"
 # v0.10.7-beta.4 altijd deed, dus de standaard verandert niets.
 CONF_SOUND_LEVEL_SOURCE = "sound_level_source"
 DEFAULT_SOUND_LEVEL_SOURCE = "mpc"
+
+# Stuurbron → naam voor de gebruiker (zie advice_sources). Eén plek: de kaarten
+# lezen hem uit het attribuut ``bron_naam``, het sturingseffect bouwt er zijn
+# labels mee, en een test houdt de keuzelijst in de vertalingen hieraan gelijk.
+# Hier en niet in advice_sources, omdat analysis/ zonder Home Assistant moet
+# kunnen draaien. Tot v0.10.7-beta.8 heetten ze Stooklijn, MPC en
+# Huismodel (1R1C); de interne waarden zijn gebleven.
+SOURCE_NAMES: dict[str, str] = {
+    "stooklijn": "Buitentemperatuur",
+    "mpc": "Buitentemperatuur + kamer",
+    "1r1c": "Huismodel + kamer",
+}
 SOUND_LEVEL_OPTIONS = ["building87", "silent", "library", "normal"]
 DEFAULT_SOUND_LEVEL_MAX = "normal"  # standaard: geen beperking
 DEFAULT_SOUND_NIGHT_START_HOUR = 23
@@ -352,7 +364,13 @@ CONF_CH_MAX_WATER_HYSTERESIS = "ch_max_water_hysteresis"
 CONF_CH_MAX_WATER_INTERVAL = "ch_max_water_interval"
 CONF_CH_MAX_WATER_MARGIN = "ch_max_water_margin"
 
-DEFAULT_CH_MAX_WATER_SOURCE = "stooklijn"   # "stooklijn" | "mpc"
+# Standaard voor een nieuwe installatie: "Buitentemperatuur + kamer", gelijk
+# aan de soundslider. Een knop die warmte begrenst moet kunnen loslaten als de
+# kamer achterblijft. Tot v0.10.7-beta.9 was dit "stooklijn"; een installatie
+# die de knop al aan had zonder opgeslagen bron houdt "stooklijn" (migratie in
+# __init__._async_pin_ch_max_water_source).
+DEFAULT_CH_MAX_WATER_SOURCE = "mpc"
+LEGACY_CH_MAX_WATER_SOURCE = "stooklijn"
 DEFAULT_CH_MAX_WATER_HYSTERESIS = 1.0       # °C
 DEFAULT_CH_MAX_WATER_INTERVAL = 30          # minuten
 # Ruimte tussen advies en plafond. Het advies is de aanvoer die het huis nodig

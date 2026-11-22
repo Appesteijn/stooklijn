@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from custom_components.quatt_stooklijn import advice_sources as bron
-from custom_components.quatt_stooklijn.analysis.steering_effect import config_label
+from custom_components.quatt_stooklijn.analysis.steering_effect import config_key, config_label
 from custom_components.quatt_stooklijn.analysis.thermal_model import (
     OnlineRCModel,
     rc_advice_demand,
@@ -144,5 +144,7 @@ class TestTerugvalZichtbaar:
         assert bron.is_fallback(None, "e1", "1r1c") is False
 
     def test_label_in_het_sturingseffect(self):
-        assert config_label("1r1c", "uit", False).startswith("max. aanvoertemp: Huismodel (1R1C) ·")
-        assert "Huismodel (1R1C), terugval op MPC" in config_label("1r1c_terugval", "uit", False)
+        assert config_label(config_key("1r1c", "uit", False)).startswith(
+            "max. aanvoertemperatuur: Huismodel + kamer ·")
+        assert "Huismodel + kamer, leert nog" in config_label(
+            config_key("1r1c_terugval", "uit", False))

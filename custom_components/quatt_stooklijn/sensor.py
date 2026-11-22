@@ -54,6 +54,7 @@ from .analysis.thermal_model import (
 from homeassistant.helpers.storage import Store
 
 from .const import (
+    SOURCE_NAMES,
     CONF_DAL_END_HOUR,
     CONF_DAL_START_HOUR,
     CONF_DAL_WEEKEND,
@@ -833,6 +834,8 @@ class QuattSupplyTempSensor(
 
         return {
             MPC_ADVICE_STATUS_ATTR: status,
+            # De naam van deze stuurbron, zoals in de opties (SOURCE_NAMES).
+            "bron_naam": SOURCE_NAMES["stooklijn"],
             "outdoor_temp": t_outdoor,
             "return_temp": t_return,
             "flow_lph": flow_lph,
@@ -2137,6 +2140,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         return {
             # Waarom de state er wel of niet staat; zie MPC_ADVICE_STATUS_ATTR.
             MPC_ADVICE_STATUS_ATTR: self._current_advice()[1],
+            # De naam van deze stuurbron, zoals in de opties (SOURCE_NAMES).
+            "bron_naam": SOURCE_NAMES["mpc"],
             "outdoor_temp": t_outdoor,
             "return_temp": t_return,
             "flow_lph": flow_lph,
@@ -2554,8 +2559,13 @@ class QuattRcAdviceSensor(
         demand = advice["demand"]
         return {
             MPC_ADVICE_STATUS_ATTR: advice["status"],
-            # True: het huismodel is nog niet online en dit is het MPC-advies.
+            # True: het huismodel is nog niet online en dit is het advies van
+            # "Buitentemperatuur + kamer".
             "terugval": advice["terugval"],
+            "bron_naam": (
+                f"{SOURCE_NAMES['1r1c']}, leert nog" if advice["terugval"]
+                else SOURCE_NAMES["1r1c"]
+            ),
             "stationair_w": round(demand.stationary_w) if demand else None,
             "inhaal_w": round(demand.catchup_w) if demand else None,
             "vraag_w": round(demand.capped_w) if demand else None,
@@ -4760,6 +4770,9 @@ class QuattChMaxWaterSensor(SensorEntity, RestoreEntity):
             # in deze sessie nog niets geschreven heeft.
             "hersteld": not written_now and self._restored_value is not None,
             "source": ctrl._source,
+            # De naam van die bron voor de kaart; ``source`` blijft de interne
+            # waarde, zodat automations er niet op breken.
+            "bron_naam": SOURCE_NAMES.get(ctrl._source, ctrl._source),
             "source_entity": ctrl.source_entity,
             # Graden bovenop het advies. Zonder dit veld lijkt een limiet die
             # twee graden boven het advies staat een fout in de schrijfactie.

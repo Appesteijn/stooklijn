@@ -30,10 +30,10 @@
         "data": {
           "flow_entity": "Flow rate sensor (L/h)",
           "return_temp_entity": "Return temperature sensor (°C)",
-          "weather_entity": "Weather forecast entity (for MPC forecast)",
+          "weather_entity": "Weather forecast entity (for the look-ahead)",
           "indoor_temp_entity": "Indoor temperature sensor (°C, for solar gain calibration)",
-          "sound_level_enabled": "Enable soundslider compensation (moves the soundslider of your Quatt, and with it the heat pump power)",
-          "sound_level_source": "Soundslider compensation: which model controls it",
+          "sound_level_enabled": "Enable soundslider control (limits the power through the soundslider of your Quatt)",
+          "sound_level_source": "Soundslider control: which source steers",
           "sound_level_max_day": "Soundslider: highest setting during the day",
           "sound_level_max_night": "Soundslider: highest setting at night",
           "sound_night_start_hour": "Soundslider: night starts at (hour, 0–23, e.g. 23) — same as the night times in the Quatt app",
@@ -46,9 +46,9 @@
           "weather_entity": "Outdoor temperature for the coming hours, for the look-ahead and the price shift.",
           "indoor_temp_entity": "For the room correction and the learning house model. Preferably a sensor in the living room.",
           "sound_level_enabled": "Controls the day and night setting of the soundslider in your Quatt.",
-          "sound_level_source": "Heating curve: outdoor temperature only. MPC: plus room correction. House model (1R1C): the learning house model plus room correction. Compare them with the Steering effect sensor.",
-          "sound_level_max_day": "The compensation never goes above this setting during the day. building87 is the quietest, normal the strongest.",
-          "sound_level_max_night": "The compensation never goes above this setting at night. building87 is the quietest, normal the strongest.",
+          "sound_level_source": "Start with Outdoor temperature + room. Choose Outdoor temperature if the room temperature or setpoint is not measured reliably. House model + room is for measuring whether the learning model steers better; it does not suit underfloor heating with a boiler that assists. The Steering effect card shows what works best for your house after a few weeks per setting.",
+          "sound_level_max_day": "During the day the control never goes above this level, nor above your own level in the Quatt app. building87 is the quietest, normal the most powerful.",
+          "sound_level_max_night": "At night the control never goes above this level, nor above your own level in the Quatt app. building87 is the quietest, normal the most powerful.",
           "sound_night_start_hour": "Local time, 0–23. Keep equal to the night times in the Quatt app: otherwise the integration controls the day setting while the Quatt is already on its night setting, or the other way round.",
           "sound_night_end_hour": "Local time, 0–23. Keep equal to the night times in the Quatt app.",
           "supply_temp_entity": "To compare the advice with, and to see whether the supply reaches the max supply temperature."
@@ -66,7 +66,7 @@
     "step": {
       "init": {
         "title": "Update configuration",
-        "description": "Grouped by topic. Collapsed sections are off or rarely needed. The heat demand to OpenQuatt Power House is set up in OpenQuatt (the source helper), not here.",
+        "description": "Grouped by topic. Collapsed sections are off or rarely needed. The heat demand to OpenQuatt (for Power House) is set up in OpenQuatt (the source helper), not here.",
         "sections": {
           "huis": {
             "name": "House and comfort",
@@ -86,10 +86,10 @@
           },
           "max_aanvoertemperatuur": {
             "name": "Max supply temperature",
-            "description": "Writes the advice plus the margin as maximum supply temperature to the controller at every interval: the CiC, or OpenQuatt outside Power House. Do not use with OpenQuatt in Power House: there this setting is a safety limiter. Use the heat demand in OpenQuatt instead.",
+            "description": "Writes the advice plus the margin as maximum supply temperature to the controller at every interval: the CiC, or OpenQuatt outside Power House. Do not use with OpenQuatt in Power House: there this setting is a safety limiter; use the heat demand to OpenQuatt instead. On a CiC: use this or the soundslider control, not both at once.",
             "data": {
               "ch_max_water_enabled": "On",
-              "ch_max_water_source": "Which model controls it",
+              "ch_max_water_source": "Which source steers",
               "ch_max_water_margin": "Margin above the advice (°C)",
               "ch_max_water_entity": "Setting in your Quatt",
               "ch_max_water_hysteresis": "Minimum change (°C)",
@@ -97,7 +97,7 @@
             },
             "data_description": {
               "ch_max_water_enabled": "Writes the maximum supply temperature to your Quatt. Off = the integration writes nothing.",
-              "ch_max_water_source": "Heating curve: outdoor temperature only. MPC: plus room correction. House model (1R1C): the learning house model plus room correction. Compare them with the Steering effect sensor.",
+              "ch_max_water_source": "Start with Outdoor temperature + room. Choose Outdoor temperature if the room temperature or setpoint is not measured reliably. House model + room is for measuring whether the learning model steers better; it does not suit underfloor heating with a boiler that assists. The Steering effect card shows what works best for your house after a few weeks per setting.",
               "ch_max_water_margin": "The heat pump already throttles before the maximum supply temperature. Without a margin it delivers too little and the room cannot catch up. Default 2 °C.",
               "ch_max_water_entity": "The entity for the maximum supply temperature. Empty = automatic: the CiC, or OpenQuatt when it runs the outdoor units.",
               "ch_max_water_hysteresis": "Only write when the new value differs this much from the last one. Keeps the setting from changing at every small fluctuation.",
@@ -105,11 +105,11 @@
             }
           },
           "soundslider": {
-            "name": "Soundslider (CiC only)",
-            "description": "Moves the soundslider of your Quatt, day and night, and with it the maximum power. While this is on, the integration sets back a setting you change in the Quatt app within ten minutes.",
+            "name": "Soundslider control (CiC only)",
+            "description": "Limits the power through the sound level of your Quatt, day and night, until the supply matches the advice. CiC only. Use this or the max supply temperature, not both at once. Your own setting returns when you turn this off; a setting you change in the Quatt app while this is on is set back within ten minutes.",
             "data": {
               "sound_level_enabled": "On",
-              "sound_level_source": "Which model controls it",
+              "sound_level_source": "Which source steers",
               "sound_level_max_day": "Highest setting during the day",
               "sound_level_max_night": "Highest setting at night",
               "sound_night_start_hour": "Night starts at (hour)",
@@ -117,9 +117,9 @@
             },
             "data_description": {
               "sound_level_enabled": "Controls the day and night setting of the soundslider in your Quatt.",
-              "sound_level_source": "Heating curve: outdoor temperature only. MPC: plus room correction. House model (1R1C): the learning house model plus room correction. Compare them with the Steering effect sensor.",
-              "sound_level_max_day": "The compensation never goes above this setting during the day. building87 is the quietest, normal the strongest.",
-              "sound_level_max_night": "The compensation never goes above this setting at night. building87 is the quietest, normal the strongest.",
+              "sound_level_source": "Start with Outdoor temperature + room. Choose Outdoor temperature if the room temperature or setpoint is not measured reliably. House model + room is for measuring whether the learning model steers better; it does not suit underfloor heating with a boiler that assists. The Steering effect card shows what works best for your house after a few weeks per setting.",
+              "sound_level_max_day": "During the day the control never goes above this level, nor above your own level in the Quatt app. building87 is the quietest, normal the most powerful.",
+              "sound_level_max_night": "At night the control never goes above this level, nor above your own level in the Quatt app. building87 is the quietest, normal the most powerful.",
               "sound_night_start_hour": "Local time, 0–23. Keep equal to the night times in the Quatt app: otherwise the integration controls the day setting while the Quatt is already on its night setting, or the other way round.",
               "sound_night_end_hour": "Local time, 0–23. Keep equal to the night times in the Quatt app."
             }
@@ -246,7 +246,7 @@
         "name": "Outdoor temperature"
       },
       "ch_max_water_setting": {
-        "name": "Max supply temperature setting"
+        "name": "Max supply temperature (written)"
       },
       "coast_time": {
         "name": "Safe coast time"
@@ -306,10 +306,10 @@
         "name": "Sun forecast"
       },
       "mpc_recommended_supply_temp": {
-        "name": "MPC recommended supply temperature"
+        "name": "Recommended supply temperature (outdoor + room)"
       },
       "mpc_supply_temp_error": {
-        "name": "MPC supply temperature error"
+        "name": "Supply temperature deviation (outdoor + room)"
       },
       "openquatt_balance_point": {
         "name": "OpenQuatt balance point"
@@ -330,7 +330,7 @@
         "name": "Quatt heating curve slope"
       },
       "recommended_supply_temp": {
-        "name": "Recommended supply temperature"
+        "name": "Recommended supply temperature (outdoor)"
       },
       "retourtemperatuur": {
         "name": "Return temperature"
@@ -342,7 +342,7 @@
         "name": "Data sources"
       },
       "stooklijn_supply_temp_error": {
-        "name": "Heating curve supply temperature error"
+        "name": "Supply temperature deviation (outdoor)"
       },
       "stored_heat": {
         "name": "Stored heat"
@@ -360,7 +360,7 @@
         "name": "Steering effect"
       },
       "rc_recommended_supply_temp": {
-        "name": "1R1C recommended supply temperature"
+        "name": "Recommended supply temperature (house model + room)"
       }
     },
     "binary_sensor": {
@@ -370,7 +370,7 @@
     },
     "switch": {
       "sound_level_compensation": {
-        "name": "Soundslider compensation"
+        "name": "Soundslider control"
       }
     },
     "text": {
@@ -407,9 +407,9 @@
   "selector": {
     "advice_source": {
       "options": {
-        "stooklijn": "Heating curve — outdoor temperature only (from your heating days)",
-        "mpc": "MPC — heating curve plus room correction (higher when the room is below setpoint, lower when above); does not use the learning house model",
-        "1r1c": "House model (1R1C) — the learning house model (heat loss, sun, internal gains) plus room correction; uses MPC until the model is online"
+        "stooklijn": "Outdoor temperature — uses only the outdoor temperature, along your house's heat-loss line; does not know whether the room is warm enough (was Heating curve)",
+        "mpc": "Outdoor temperature + room — the same line, higher when the room is below the setpoint and lower when above; the starting point (was MPC)",
+        "1r1c": "House model + room — the learning house model (heat loss, current sun, constant heat gain) with the same room correction; steers like Outdoor temperature + room while the model is still learning (was House model (1R1C))"
       }
     }
   }

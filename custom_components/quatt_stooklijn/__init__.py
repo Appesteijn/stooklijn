@@ -7,7 +7,7 @@ import logging
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, callback
 
 from .ch_max_water import ChMaxWaterController
 from .supply_check import SupplySensorCheck
@@ -23,6 +23,7 @@ from .const import (
     CONF_CH_MAX_WATER_MARGIN,
     CONF_SOUND_LEVEL_ENABLED,
     DEFAULT_CH_MAX_WATER_SOURCE,
+    LEGACY_CH_MAX_WATER_SOURCE,
     DEFAULT_CH_MAX_WATER_HYSTERESIS,
     DEFAULT_CH_MAX_WATER_INTERVAL,
     DEFAULT_CH_MAX_WATER_MARGIN,
@@ -37,6 +38,31 @@ from .coordinator import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@callback
+def _async_pin_ch_max_water_source(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Houd een draaiende max. aanvoertemperatuur op de bron waarop hij stuurde.
+
+    Sinds v0.10.7-beta.9 is de standaardbron "Buitentemperatuur + kamer"
+    (``mpc``), was "Buitentemperatuur" (``stooklijn``). Een installatie die de
+    knop aan heeft zonder opgeslagen bron, zou anders na de update stil op een
+    andere bron gaan sturen. Vóór de update-listener aanroepen: zo volgt er
+    geen herlaad.
+    """
+    merged = {**entry.data, **entry.options}
+    if not merged.get(CONF_CH_MAX_WATER_ENABLED, False):
+        return
+    if CONF_CH_MAX_WATER_SOURCE in entry.data or CONF_CH_MAX_WATER_SOURCE in entry.options:
+        return
+    hass.config_entries.async_update_entry(
+        entry,
+        options={**entry.options, CONF_CH_MAX_WATER_SOURCE: LEGACY_CH_MAX_WATER_SOURCE},
+    )
+    _LOGGER.info(
+        "Max. aanvoertemperatuur: bron vastgezet op '%s' (de standaard is veranderd)",
+        LEGACY_CH_MAX_WATER_SOURCE,
+    )
 
 
 async def _async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -187,6 +213,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Quatt Stooklijn from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
+    _async_pin_ch_max_water_source(hass, entry)
     merged_config = {**entry.data, **entry.options}
     coordinator = QuattStooklijnCoordinator(hass, merged_config)
     hass.data[DOMAIN][entry.entry_id] = coordinator

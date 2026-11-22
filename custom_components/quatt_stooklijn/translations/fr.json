@@ -30,10 +30,10 @@
         "data": {
           "flow_entity": "Capteur de débit (L/h)",
           "return_temp_entity": "Capteur de température de retour (°C)",
-          "weather_entity": "Entité de prévisions météo (pour la prévision MPC)",
+          "weather_entity": "Entité de prévisions météo (pour l'aperçu)",
           "indoor_temp_entity": "Capteur de température intérieure (°C, pour la calibration solaire)",
-          "sound_level_enabled": "Activer la compensation du soundslider (déplace le soundslider de votre Quatt, et donc la puissance)",
-          "sound_level_source": "Compensation du soundslider : quel modèle pilote",
+          "sound_level_enabled": "Activer le pilotage du soundslider (limite la puissance via le soundslider de votre Quatt)",
+          "sound_level_source": "Pilotage du soundslider : quelle source pilote",
           "sound_level_max_day": "Soundslider : position maximale de jour",
           "sound_level_max_night": "Soundslider : position maximale de nuit",
           "sound_night_start_hour": "Soundslider : début de nuit (heure, 0–23, ex. 23) — comme les heures de nuit de l'app Quatt",
@@ -46,9 +46,9 @@
           "weather_entity": "La température extérieure des heures à venir, pour la prévision et le décalage tarifaire.",
           "indoor_temp_entity": "Pour la correction de pièce et le modèle de maison auto-apprenant. De préférence un capteur au séjour.",
           "sound_level_enabled": "Pilote la position de jour et de nuit du soundslider de votre Quatt.",
-          "sound_level_source": "Courbe de chauffe : température extérieure seule. MPC : plus correction de pièce. Modèle de maison (1R1C) : le modèle auto-apprenant plus correction de pièce. Comparez-les avec le capteur Effet du pilotage.",
-          "sound_level_max_day": "La compensation ne dépasse jamais cette position le jour. building87 est le plus silencieux, normal le plus puissant.",
-          "sound_level_max_night": "La compensation ne dépasse jamais cette position la nuit. building87 est le plus silencieux, normal le plus puissant.",
+          "sound_level_source": "Commencez par Température extérieure + pièce. Choisissez Température extérieure si la température de la pièce ou la consigne ne sont pas mesurées de façon fiable. Modèle de maison + pièce sert à mesurer si le modèle auto-apprenant pilote mieux ; il ne convient pas au plancher chauffant avec une chaudière d'appoint. La carte Effet du pilotage montre ce qui marche le mieux chez vous après quelques semaines par réglage.",
+          "sound_level_max_day": "Le pilotage ne dépasse jamais ce niveau le jour, ni votre propre niveau dans l'app Quatt. building87 est le plus silencieux, normal le plus puissant.",
+          "sound_level_max_night": "Le pilotage ne dépasse jamais ce niveau la nuit, ni votre propre niveau dans l'app Quatt. building87 est le plus silencieux, normal le plus puissant.",
           "sound_night_start_hour": "Heure locale, 0–23. À garder identique aux heures de nuit de l'app Quatt : sinon l'intégration pilote la position de jour alors que la Quatt est déjà sur celle de nuit, ou l'inverse.",
           "sound_night_end_hour": "Heure locale, 0–23. À garder identique aux heures de nuit de l'app Quatt.",
           "supply_temp_entity": "Pour comparer le conseil, et voir si le départ atteint la température de départ max."
@@ -66,7 +66,7 @@
     "step": {
       "init": {
         "title": "Mettre à jour la configuration",
-        "description": "Regroupé par thème. Les sections repliées sont désactivées ou rarement utiles. La demande de chaleur vers OpenQuatt Power House se règle dans OpenQuatt (l'assistant de source), pas ici.",
+        "description": "Regroupé par thème. Les sections repliées sont désactivées ou rarement utiles. La demande de chaleur vers OpenQuatt (pour Power House) se règle dans OpenQuatt (l'assistant de source), pas ici.",
         "sections": {
           "huis": {
             "name": "Maison et confort",
@@ -86,10 +86,10 @@
           },
           "max_aanvoertemperatuur": {
             "name": "Température de départ max.",
-            "description": "Écrit à chaque intervalle le conseil plus la marge comme température de départ maximale vers le régulateur : la CiC, ou OpenQuatt hors Power House. Ne pas utiliser avec OpenQuatt en Power House : ce réglage y est un limiteur de sécurité. Utilisez alors la demande de chaleur dans OpenQuatt.",
+            "description": "Écrit à chaque intervalle le conseil plus la marge comme température de départ maximale vers le régulateur : la CiC, ou OpenQuatt hors Power House. Ne pas utiliser avec OpenQuatt en Power House : ce réglage y est un limiteur de sécurité ; utilisez alors la demande de chaleur vers OpenQuatt. Sur une CiC : utilisez ceci ou le pilotage du soundslider, pas les deux à la fois.",
             "data": {
               "ch_max_water_enabled": "Activé",
-              "ch_max_water_source": "Quel modèle pilote",
+              "ch_max_water_source": "Quelle source pilote",
               "ch_max_water_margin": "Marge au-dessus du conseil (°C)",
               "ch_max_water_entity": "Réglage dans votre Quatt",
               "ch_max_water_hysteresis": "Changement minimal (°C)",
@@ -97,7 +97,7 @@
             },
             "data_description": {
               "ch_max_water_enabled": "Écrit la température de départ maximale vers votre Quatt. Désactivé = l'intégration n'écrit rien.",
-              "ch_max_water_source": "Courbe de chauffe : température extérieure seule. MPC : plus correction de pièce. Modèle de maison (1R1C) : le modèle auto-apprenant plus correction de pièce. Comparez-les avec le capteur Effet du pilotage.",
+              "ch_max_water_source": "Commencez par Température extérieure + pièce. Choisissez Température extérieure si la température de la pièce ou la consigne ne sont pas mesurées de façon fiable. Modèle de maison + pièce sert à mesurer si le modèle auto-apprenant pilote mieux ; il ne convient pas au plancher chauffant avec une chaudière d'appoint. La carte Effet du pilotage montre ce qui marche le mieux chez vous après quelques semaines par réglage.",
               "ch_max_water_margin": "La pompe à chaleur module déjà avant la température de départ maximale. Sans marge elle fournit trop peu et la pièce ne rattrape pas. Par défaut 2 °C.",
               "ch_max_water_entity": "L'entité de la température de départ maximale. Vide = automatique : la CiC, ou OpenQuatt s'il pilote les unités extérieures.",
               "ch_max_water_hysteresis": "N'écrire que si la nouvelle valeur s'écarte autant de la précédente. Évite que le réglage change à chaque petite fluctuation.",
@@ -105,11 +105,11 @@
             }
           },
           "soundslider": {
-            "name": "Soundslider (CiC uniquement)",
-            "description": "Déplace le soundslider de votre Quatt, le jour et la nuit, et donc la puissance maximale. Tant que c'est activé, l'intégration rétablit dans les dix minutes une position modifiée dans l'app Quatt.",
+            "name": "Pilotage du soundslider (CiC uniquement)",
+            "description": "Limite la puissance via le niveau sonore de votre Quatt, le jour et la nuit, jusqu'à ce que le départ corresponde au conseil. CiC uniquement. Utilisez ceci ou la température de départ max., pas les deux à la fois. Votre propre réglage revient quand vous le désactivez ; une position modifiée dans l'app Quatt pendant que c'est activé est rétablie dans les dix minutes.",
             "data": {
               "sound_level_enabled": "Activé",
-              "sound_level_source": "Quel modèle pilote",
+              "sound_level_source": "Quelle source pilote",
               "sound_level_max_day": "Position maximale de jour",
               "sound_level_max_night": "Position maximale de nuit",
               "sound_night_start_hour": "Début de nuit (heure)",
@@ -117,9 +117,9 @@
             },
             "data_description": {
               "sound_level_enabled": "Pilote la position de jour et de nuit du soundslider de votre Quatt.",
-              "sound_level_source": "Courbe de chauffe : température extérieure seule. MPC : plus correction de pièce. Modèle de maison (1R1C) : le modèle auto-apprenant plus correction de pièce. Comparez-les avec le capteur Effet du pilotage.",
-              "sound_level_max_day": "La compensation ne dépasse jamais cette position le jour. building87 est le plus silencieux, normal le plus puissant.",
-              "sound_level_max_night": "La compensation ne dépasse jamais cette position la nuit. building87 est le plus silencieux, normal le plus puissant.",
+              "sound_level_source": "Commencez par Température extérieure + pièce. Choisissez Température extérieure si la température de la pièce ou la consigne ne sont pas mesurées de façon fiable. Modèle de maison + pièce sert à mesurer si le modèle auto-apprenant pilote mieux ; il ne convient pas au plancher chauffant avec une chaudière d'appoint. La carte Effet du pilotage montre ce qui marche le mieux chez vous après quelques semaines par réglage.",
+              "sound_level_max_day": "Le pilotage ne dépasse jamais ce niveau le jour, ni votre propre niveau dans l'app Quatt. building87 est le plus silencieux, normal le plus puissant.",
+              "sound_level_max_night": "Le pilotage ne dépasse jamais ce niveau la nuit, ni votre propre niveau dans l'app Quatt. building87 est le plus silencieux, normal le plus puissant.",
               "sound_night_start_hour": "Heure locale, 0–23. À garder identique aux heures de nuit de l'app Quatt : sinon l'intégration pilote la position de jour alors que la Quatt est déjà sur celle de nuit, ou l'inverse.",
               "sound_night_end_hour": "Heure locale, 0–23. À garder identique aux heures de nuit de l'app Quatt."
             }
@@ -246,7 +246,7 @@
         "name": "Température extérieure"
       },
       "ch_max_water_setting": {
-        "name": "Réglage température de départ max"
+        "name": "Température de départ max. (écrite)"
       },
       "coast_time": {
         "name": "Temps d'inertie sûr"
@@ -306,10 +306,10 @@
         "name": "Prévision solaire"
       },
       "mpc_recommended_supply_temp": {
-        "name": "Température de départ recommandée MPC"
+        "name": "Température de départ recommandée (extérieur + pièce)"
       },
       "mpc_supply_temp_error": {
-        "name": "Écart de température de départ MPC"
+        "name": "Écart température de départ (extérieur + pièce)"
       },
       "openquatt_balance_point": {
         "name": "Point d'équilibre OpenQuatt"
@@ -330,7 +330,7 @@
         "name": "Pente de courbe Quatt"
       },
       "recommended_supply_temp": {
-        "name": "Température de départ recommandée"
+        "name": "Température de départ recommandée (extérieur)"
       },
       "retourtemperatuur": {
         "name": "Température de retour"
@@ -342,7 +342,7 @@
         "name": "Sources de données"
       },
       "stooklijn_supply_temp_error": {
-        "name": "Écart de température de départ courbe"
+        "name": "Écart température de départ (extérieur)"
       },
       "stored_heat": {
         "name": "Chaleur stockée"
@@ -360,7 +360,7 @@
         "name": "Effet du pilotage"
       },
       "rc_recommended_supply_temp": {
-        "name": "Température de départ recommandée 1R1C"
+        "name": "Température de départ recommandée (modèle de maison + pièce)"
       }
     },
     "binary_sensor": {
@@ -370,7 +370,7 @@
     },
     "switch": {
       "sound_level_compensation": {
-        "name": "Compensation du soundslider"
+        "name": "Pilotage du soundslider"
       }
     },
     "text": {
@@ -407,9 +407,9 @@
   "selector": {
     "advice_source": {
       "options": {
-        "stooklijn": "Courbe de chauffe — température extérieure seule (d'après vos jours de chauffe)",
-        "mpc": "MPC — courbe de chauffe plus correction de pièce (monte si la pièce est sous la consigne, baisse au-dessus) ; n'utilise pas le modèle de maison auto-apprenant",
-        "1r1c": "Modèle de maison (1R1C) — le modèle auto-apprenant (déperditions, soleil, apports internes) plus correction de pièce ; MPC tant que le modèle apprend"
+        "stooklijn": "Température extérieure — utilise uniquement la température extérieure, le long de la ligne de déperdition de votre maison ; ne sait pas si la pièce est assez chaude (anciennement Courbe de chauffe)",
+        "mpc": "Température extérieure + pièce — la même ligne, plus haut si la pièce est sous la consigne et plus bas au-dessus ; le point de départ (anciennement MPC)",
+        "1r1c": "Modèle de maison + pièce — le modèle de maison auto-apprenant (déperditions, soleil actuel, apport de chaleur constant) avec la même correction de pièce ; pilote comme Température extérieure + pièce tant que le modèle apprend (anciennement Modèle de maison (1R1C))"
       }
     }
   }

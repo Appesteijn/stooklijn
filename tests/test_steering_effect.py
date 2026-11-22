@@ -19,8 +19,10 @@ from custom_components.quatt_stooklijn.analysis.steering_effect import (
     MIXED,
     Day,
     Sample,
+    config_key,
     config_label,
     counts_for_comparison,
+    migrate_config,
     summarize,
 )
 from custom_components.quatt_stooklijn.cycling import CycleTracker, Run
@@ -41,8 +43,8 @@ from custom_components.quatt_stooklijn.discovery import (
 )
 from custom_components.quatt_stooklijn.steering_effect import QuattSteeringEffectSensor
 
-BASIS = config_label("uit", "uit", False)
-PLAFOND_MPC = config_label("mpc", "uit", False)
+BASIS = config_key("uit", "uit", False)
+PLAFOND_MPC = config_key("mpc", "uit", False)
 
 
 def _sample(config=BASIS, **kw):
@@ -135,15 +137,21 @@ class TestInstelling:
         assert d.record(None)["instelling"] == MIXED
 
     def test_label_gebruikt_de_namen_uit_de_opties(self):
-        assert config_label("mpc", "stooklijn", False) == (
-            "max. aanvoertemp: MPC · soundslider: Stooklijn · warmtevraag OpenQuatt: uit"
+        assert config_label(config_key("mpc", "stooklijn", False)) == (
+            "max. aanvoertemperatuur: Buitentemperatuur + kamer"
+            " · soundslider: Buitentemperatuur · warmtevraag naar OpenQuatt: uit"
         )
 
     def test_label_gepauzeerd(self):
-        assert config_label("gepauzeerd", "uit", True) == (
-            "max. aanvoertemp: gepauzeerd (warmtevraag stuurt) · soundslider: uit"
-            " · warmtevraag OpenQuatt: aan"
+        assert config_label(config_key("gepauzeerd", "uit", True)) == (
+            "max. aanvoertemperatuur: gepauzeerd (warmtevraag stuurt) · soundslider: uit"
+            " · warmtevraag naar OpenQuatt: aan"
         )
+
+    def test_bewaard_wordt_de_sleutel_niet_de_naam(self):
+        """Een hernoemde bron mag de geschiedenis niet in twee groepen splitsen."""
+        assert config_key("mpc", "uit", False) == "max_water=mpc;sound=uit;demand=0"
+        assert config_label(MIXED) == MIXED
 
 
 class TestVergelijk:
@@ -252,24 +260,24 @@ class TestStandVanDeKnoppen:
         ctrl = SimpleNamespace(_source="mpc", target_entity="number.max_aanvoer",
                                _resolve_number_entity=lambda: None)
         s = _meet(_sensor({CONF_CH_MAX_WATER_ENABLED: True}, ctrl=ctrl))
-        assert s.config == config_label("mpc", "uit", False)
+        assert s.config == config_key("mpc", "uit", False)
         assert s.ceiling == 34.0
 
     def test_max_aanvoertemp_gepauzeerd_bij_warmtevraag(self):
         ctrl = SimpleNamespace(_source="mpc", target_entity="number.max_aanvoer",
                                _resolve_number_entity=lambda: None)
         s = _meet(_sensor({CONF_CH_MAX_WATER_ENABLED: True}, ctrl=ctrl), demand=True)
-        assert s.config == config_label("gepauzeerd", "uit", True)
+        assert s.config == config_key("gepauzeerd", "uit", True)
         assert s.ceiling is None
 
     def test_geluid_alleen_als_de_switch_aan_staat(self):
         opts = {CONF_SOUND_LEVEL_ENABLED: True, CONF_SOUND_LEVEL_SOURCE: "stooklijn"}
-        assert _meet(_sensor(opts, switch_state="on")).config == config_label("uit", "stooklijn", False)
+        assert _meet(_sensor(opts, switch_state="on")).config == config_key("uit", "stooklijn", False)
         assert _meet(_sensor(opts, switch_state="off")).config == BASIS
 
     def test_geluid_standaardbron(self):
         opts = {CONF_SOUND_LEVEL_ENABLED: True}
-        assert _meet(_sensor(opts, switch_state="on")).config == config_label("uit", "mpc", False)
+        assert _meet(_sensor(opts, switch_state="on")).config == config_key("uit", "mpc", False)
 
 
 class TestDagAfsluiten:
@@ -316,7 +324,8 @@ class TestDagAfsluiten:
         s._loaded = True
         self._tik(s, datetime(2026, 11, 20, 10, 0, tzinfo=timezone.utc))
         attrs = s.extra_state_attributes
-        assert s.native_value == BASIS
+        assert s.native_value == config_label(BASIS)
+        assert s.native_value.startswith("max. aanvoertemperatuur: uit")
         assert attrs["vandaag"]["datum"] == "2026-11-20"
         assert attrs["dagen_gemeten"] == 0
         assert attrs["drempels"]["graaddag_basis_c"] == 16.6
@@ -336,9 +345,109 @@ class TestHuismodelBron:
             return _meet(sensor)
 
     def test_huismodel_online(self):
-        assert self._meet_1r1c(False).config == config_label("uit", "1r1c", False)
+        assert self._meet_1r1c(False).config == config_key("uit", "1r1c", False)
 
     def test_terugval_apart_zichtbaar(self):
         s = self._meet_1r1c(True)
-        assert s.config == config_label("uit", "1r1c_terugval", False)
-        assert "terugval op MPC" in s.config
+        assert s.config == config_key("uit", "1r1c_terugval", False)
+        assert config_label(s.config).endswith("soundslider: Huismodel + kamer, leert nog"
+                                               " · warmtevraag naar OpenQuatt: uit")
+
+
+
+class TestOmzettingOpslag:
+    """Tot v0.10.7-beta.8 werd per dag de leesbare tekst bewaard. Bij het laden
+    wordt die eenmalig de sleutel, anders splitst elke instelling in een groep
+    met de oude en een met de nieuwe naam."""
+
+    OUD = {
+        "max. aanvoertemp: uit · soundslider: uit · warmtevraag OpenQuatt: uit":
+            "max_water=uit;sound=uit;demand=0",
+        "max. aanvoertemp: MPC · soundslider: Stooklijn · warmtevraag OpenQuatt: uit":
+            "max_water=mpc;sound=stooklijn;demand=0",
+        "max. aanvoertemp: Huismodel (1R1C), terugval op MPC · soundslider: uit · warmtevraag OpenQuatt: uit":
+            "max_water=1r1c_terugval;sound=uit;demand=0",
+        "max. aanvoertemp: gepauzeerd (warmtevraag stuurt) · soundslider: Huismodel (1R1C) · warmtevraag OpenQuatt: aan":
+            "max_water=gepauzeerd;sound=1r1c;demand=1",
+    }
+
+    @pytest.mark.parametrize("oud,sleutel", list(OUD.items()))
+    def test_oud_label_wordt_sleutel(self, oud, sleutel):
+        assert migrate_config(oud) == sleutel
+
+    @pytest.mark.parametrize("waarde", [MIXED, "max_water=mpc;sound=uit;demand=0", None, "iets anders"])
+    def test_rest_blijft_staan(self, waarde):
+        assert migrate_config(waarde) == waarde
+
+    def test_opslag_van_beta8_geeft_een_groep_per_instelling(self):
+        """Dagen met de oude tekst en dagen met de sleutel tellen samen."""
+        import asyncio
+        from custom_components.quatt_stooklijn.steering_effect import _migrated_record
+        oud = "max. aanvoertemp: MPC · soundslider: uit · warmtevraag OpenQuatt: uit"
+        dagen = [
+            _dag(oud, t_outdoor=5.0).record(10),
+            _dag(oud, t_outdoor=6.0).record(10),
+            _dag(PLAFOND_MPC, t_outdoor=4.0).record(10),
+        ]
+        omgezet = [_migrated_record(r) for r in dagen]
+        groepen = summarize(omgezet)
+        assert list(groepen) == [PLAFOND_MPC]
+        assert groepen[PLAFOND_MPC]["dagen"] == 3
+
+    def test_lopende_dag_telt_onder_de_sleutel(self):
+        from custom_components.quatt_stooklijn.steering_effect import _migrate_day
+        oud = "max. aanvoertemp: uit · soundslider: uit · warmtevraag OpenQuatt: uit"
+        d = Day(date="2026-11-22")
+        d.config_minutes = {oud: 300.0, BASIS: 60.0}
+        _migrate_day(d)
+        assert d.config_minutes == {BASIS: 360.0}
+
+
+class TestKeuzehulp:
+    """Attributen voor de kaart "Sturing: wat past bij jouw installatie"."""
+
+    MOD = "custom_components.quatt_stooklijn.steering_effect"
+
+    def _regelaar(self, *, demand=False, knop="number.x", waarde=True, oq=(), hub=None):
+        s = _sensor()
+        with patch(f"{self.MOD}.async_resolve_setting_entity", return_value=knop), \
+             patch(f"{self.MOD}.async_entity_has_value", return_value=waarde), \
+             patch(f"{self.MOD}.async_openquatt_node_entities", return_value=set(oq)), \
+             patch(f"{self.MOD}.async_quatt_hub", return_value=hub):
+            return s._controller_kind({}, demand)
+
+    def test_warmtevraag_stuurt_dus_power_house(self):
+        assert self._regelaar(demand=True) == "openquatt_power_house"
+
+    def test_knop_op_de_openquatt_node(self):
+        assert self._regelaar(oq={"number.x"}) == "openquatt"
+
+    def test_knop_van_een_cic(self):
+        assert self._regelaar(hub="CIC-abc") == "cic"
+
+    @pytest.mark.parametrize("kw", [{"knop": None}, {"waarde": False}, {}])
+    def test_niet_vast_te_stellen_is_none(self, kw):
+        """Geen gok: dan toont de kaart de algemene tekst."""
+        assert self._regelaar(**kw) is None
+
+    def test_knoppen_met_naam_na_een_meting(self):
+        opts = {CONF_SOUND_LEVEL_ENABLED: True, CONF_SOUND_LEVEL_SOURCE: "mpc"}
+        s = _sensor(opts, switch_state="on")
+        with patch.object(QuattSteeringEffectSensor, "_controller_kind", return_value="cic"):
+            _meet(s)
+        assert s._knobs == {
+            "max_aanvoertemperatuur": {"stand": "uit", "naam": "uit"},
+            "soundslider": {"stand": "mpc", "naam": "Buitentemperatuur + kamer"},
+            "warmtevraag_naar_openquatt": False,
+        }
+        assert s._regelaar == "cic"
+
+    def test_ketel_springt_bij(self):
+        s = _sensor()
+        assert s._boiler_assists() is None            # nog geen meting
+        with patch.object(QuattSteeringEffectSensor, "_controller_kind", return_value=None):
+            _meet(s)
+        s._days = [_dag(p_gas_w=0.0).record(None)]
+        assert s._boiler_assists() is False
+        s._days.append(_dag(p_gas_w=500.0).record(None))
+        assert s._boiler_assists() is True

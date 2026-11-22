@@ -66,6 +66,7 @@ from .const import (
     SOUND_CYCLE_SECONDS,
     SOUND_ADVICE_TIMEOUT,
     SOUND_INPUT_MAX_AGE,
+    SOURCE_NAMES,
     SIGNAL_SOUND_LEVEL,
 )
 from .coordinator import QuattStooklijnCoordinator
@@ -809,6 +810,9 @@ class QuattSoundLevelSwitch(SwitchEntity, RestoreEntity):
             # advies staat (advice_sources). Tot v0.10.7-beta.4 altijd MPC; de
             # attributen heetten toen mpc_advised/mpc_advies_status/mpc_error.
             "advies_bron": self._advice_source,
+            # De naam voor de kaart (SOURCE_NAMES); ``advies_bron`` blijft de
+            # interne waarde.
+            "advies_bron_naam": SOURCE_NAMES.get(self._advice_source, self._advice_source),
             "advies_entiteit": advice_entity_id(
                 self.hass, self._entry.entry_id, self._advice_source
             ),

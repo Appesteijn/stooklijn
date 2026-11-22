@@ -3,6 +3,38 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.9 — nog niet uitgebracht
+
+**Nieuwe namen.** De stuurbronnen heten naar wat ze meenemen, en elke knop heeft
+overal dezelfde naam. Je instellingen blijven precies zoals ze waren; alleen wat
+je leest is anders.
+
+| Was | Nu |
+|---|---|
+| Stooklijn (bron) | **Buitentemperatuur** |
+| MPC | **Buitentemperatuur + kamer** |
+| Huismodel (1R1C) | **Huismodel + kamer** |
+| Soundslider-compensatie | **Soundslider-sturing** |
+| Aanvoertemperatuur begrenzing, Max aanvoertemperatuur instelling | **Max. aanvoertemperatuur** |
+| Tabblad MPC | Tabblad **Huismodel en vooruitblik** |
+
+- **Keuzehulp.** Bovenaan het tabblad Systeem staat een nieuwe kaart "Sturing:
+  wat past bij jouw installatie": welke knop bij jouw regelaar hoort (CiC,
+  OpenQuatt, OpenQuatt in Power House), hoe ze nu staan, en waar je op moet
+  letten. In de opties staat bij de bronkeuze waarmee je begint, en de README
+  heeft een nieuwe sectie "Choosing how to steer".
+- **De max. aanvoertemperatuur begint bij een nieuwe installatie op
+  "Buitentemperatuur + kamer"**, net als de soundslider: een knop die warmte
+  begrenst, moet kunnen loslaten als de kamer achterblijft. Had je de max.
+  aanvoertemperatuur al aan, dan blijft hij op de bron waarop hij stuurde.
+- **Het sturingseffect bewaart de stand van de knoppen nu los van de namen.**
+  Zo blijft een instelling één groep, ook na een hernoeming. De dagen die al
+  bewaard waren, worden bij de update eenmalig omgezet.
+- **README rechtgezet** op zes plekken die sinds beta.5 en beta.6 niet meer
+  klopten: het advies "Buitentemperatuur + kamer" kan wel degelijk sturen (als
+  je het als bron kiest), het huismodel kan sturen via "Huismodel + kamer", en
+  het leert van het uurgemiddelde met ketel in plaats van één meting per uur.
+
 ## v0.10.7-beta.8 — 2026-11-22
 
 - **De soundslider zet je eigen geluidsniveaus terug.** Bij het inschakelen

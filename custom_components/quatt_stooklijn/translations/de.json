@@ -30,10 +30,10 @@
         "data": {
           "flow_entity": "Durchflussmesser-Sensor (L/h)",
           "return_temp_entity": "Rücklauftemperatur-Sensor (°C)",
-          "weather_entity": "Wettervorhersage-Entität (für MPC-Prognose)",
+          "weather_entity": "Wettervorhersage-Entität (für die Vorschau)",
           "indoor_temp_entity": "Raumtemperatur-Sensor (°C, für Solar-Kalibrierung)",
-          "sound_level_enabled": "Soundslider-Kompensation aktivieren (verschiebt den Soundslider deiner Quatt und damit die Leistung)",
-          "sound_level_source": "Soundslider-Kompensation: welches Modell steuert",
+          "sound_level_enabled": "Soundslider-Steuerung einschalten (begrenzt die Leistung über den Soundslider deiner Quatt)",
+          "sound_level_source": "Soundslider-Steuerung: welche Quelle steuert",
           "sound_level_max_day": "Soundslider: höchste Stufe tagsüber",
           "sound_level_max_night": "Soundslider: höchste Stufe nachts",
           "sound_night_start_hour": "Soundslider: Nacht beginnt um (Stunde, 0–23, z.B. 23) — wie die Nachtzeiten in der Quatt-App",
@@ -46,9 +46,9 @@
           "weather_entity": "Die Außentemperatur der kommenden Stunden, für die Vorschau und die Preisverschiebung.",
           "indoor_temp_entity": "Für die Raumkorrektur und das lernende Hausmodell. Am besten ein Sensor im Wohnzimmer.",
           "sound_level_enabled": "Steuert die Tag- und Nachtstufe des Soundsliders in deiner Quatt.",
-          "sound_level_source": "Heizkurve: nur Außentemperatur. MPC: plus Raumkorrektur. Hausmodell (1R1C): das lernende Hausmodell plus Raumkorrektur. Vergleiche sie mit dem Sensor Steuerungseffekt.",
-          "sound_level_max_day": "Die Kompensation geht tagsüber nie über diese Stufe. building87 ist am leisesten, normal am stärksten.",
-          "sound_level_max_night": "Die Kompensation geht nachts nie über diese Stufe. building87 ist am leisesten, normal am stärksten.",
+          "sound_level_source": "Beginne mit Außentemperatur + Raum. Wähle Außentemperatur, wenn Raumtemperatur oder Sollwert nicht zuverlässig gemessen werden. Hausmodell + Raum dient dazu zu messen, ob das lernende Modell besser steuert; es passt nicht zu Fußbodenheizung mit zuschaltendem Kessel. Was in deinem Haus am besten funktioniert, zeigt die Karte Steuerungseffekt nach einigen Wochen pro Einstellung.",
+          "sound_level_max_day": "Die Steuerung geht tagsüber nie über diese Stufe, und auch nicht über deine eigene Stufe in der Quatt-App. building87 ist die leiseste, normal die stärkste.",
+          "sound_level_max_night": "Die Steuerung geht nachts nie über diese Stufe, und auch nicht über deine eigene Stufe in der Quatt-App. building87 ist die leiseste, normal die stärkste.",
           "sound_night_start_hour": "Ortszeit, 0–23. Gleich den Nachtzeiten in der Quatt-App halten: sonst steuert die Integration die Tagstufe, während die Quatt schon auf der Nachtstufe steht, oder umgekehrt.",
           "sound_night_end_hour": "Ortszeit, 0–23. Gleich den Nachtzeiten in der Quatt-App halten.",
           "supply_temp_entity": "Zum Vergleich mit der Empfehlung und um zu sehen, ob der Vorlauf die max. Vorlauftemperatur erreicht."
@@ -66,7 +66,7 @@
     "step": {
       "init": {
         "title": "Konfiguration aktualisieren",
-        "description": "Nach Thema gruppiert. Eingeklappte Abschnitte sind aus oder selten nötig. Den Wärmebedarf an OpenQuatt Power House stellst du in OpenQuatt ein (Quellen-Helfer), nicht hier.",
+        "description": "Nach Thema gruppiert. Eingeklappte Abschnitte sind aus oder selten nötig. Den Wärmebedarf an OpenQuatt (für Power House) stellst du in OpenQuatt ein (Quellen-Helfer), nicht hier.",
         "sections": {
           "huis": {
             "name": "Haus und Komfort",
@@ -86,10 +86,10 @@
           },
           "max_aanvoertemperatuur": {
             "name": "Max. Vorlauftemperatur",
-            "description": "Schreibt in jedem Intervall die Empfehlung plus Aufschlag als maximale Vorlauftemperatur an den Regler: die CiC oder OpenQuatt außerhalb von Power House. Nicht mit OpenQuatt in Power House verwenden: dort ist diese Einstellung ein Sicherheitsbegrenzer. Nutze dann den Wärmebedarf in OpenQuatt.",
+            "description": "Schreibt in jedem Intervall die Empfehlung plus Aufschlag als maximale Vorlauftemperatur an den Regler: die CiC oder OpenQuatt außerhalb von Power House. Nicht mit OpenQuatt in Power House verwenden: dort ist diese Einstellung ein Sicherheitsbegrenzer; nutze dann den Wärmebedarf an OpenQuatt. Auf einer CiC: nutze diese oder die Soundslider-Steuerung, nicht beide gleichzeitig.",
             "data": {
               "ch_max_water_enabled": "An",
-              "ch_max_water_source": "Welches Modell steuert",
+              "ch_max_water_source": "Welche Quelle steuert",
               "ch_max_water_margin": "Aufschlag über der Empfehlung (°C)",
               "ch_max_water_entity": "Einstellung in deiner Quatt",
               "ch_max_water_hysteresis": "Minimale Änderung (°C)",
@@ -97,7 +97,7 @@
             },
             "data_description": {
               "ch_max_water_enabled": "Schreibt die maximale Vorlauftemperatur an deine Quatt. Aus = die Integration schreibt nichts.",
-              "ch_max_water_source": "Heizkurve: nur Außentemperatur. MPC: plus Raumkorrektur. Hausmodell (1R1C): das lernende Hausmodell plus Raumkorrektur. Vergleiche sie mit dem Sensor Steuerungseffekt.",
+              "ch_max_water_source": "Beginne mit Außentemperatur + Raum. Wähle Außentemperatur, wenn Raumtemperatur oder Sollwert nicht zuverlässig gemessen werden. Hausmodell + Raum dient dazu zu messen, ob das lernende Modell besser steuert; es passt nicht zu Fußbodenheizung mit zuschaltendem Kessel. Was in deinem Haus am besten funktioniert, zeigt die Karte Steuerungseffekt nach einigen Wochen pro Einstellung.",
               "ch_max_water_margin": "Die Wärmepumpe moduliert schon vor der maximalen Vorlauftemperatur zurück. Ohne Aufschlag liefert sie zu wenig und der Raum holt nicht auf. Standard 2 °C.",
               "ch_max_water_entity": "Die Entität für die maximale Vorlauftemperatur. Leer = automatisch: die CiC oder OpenQuatt, wenn es die Außeneinheiten regelt.",
               "ch_max_water_hysteresis": "Erst schreiben, wenn der neue Wert so stark vom letzten abweicht. Verhindert, dass sich die Einstellung bei jeder kleinen Schwankung ändert.",
@@ -105,11 +105,11 @@
             }
           },
           "soundslider": {
-            "name": "Soundslider (nur CiC)",
-            "description": "Verschiebt den Soundslider deiner Quatt, tagsüber und nachts, und damit die maximale Leistung. Solange das an ist, setzt die Integration eine Stufe, die du in der Quatt-App änderst, innerhalb von zehn Minuten zurück.",
+            "name": "Soundslider-Steuerung (nur CiC)",
+            "description": "Begrenzt die Leistung über die Geräuschstufe deiner Quatt, tagsüber und nachts, bis der Vorlauf der Empfehlung entspricht. Nur für die CiC. Nutze diese oder die max. Vorlauftemperatur, nicht beide gleichzeitig. Deine eigene Stufe kehrt beim Ausschalten zurück; eine Stufe, die du in der Quatt-App änderst, während dies an ist, wird innerhalb von zehn Minuten zurückgesetzt.",
             "data": {
               "sound_level_enabled": "An",
-              "sound_level_source": "Welches Modell steuert",
+              "sound_level_source": "Welche Quelle steuert",
               "sound_level_max_day": "Höchste Stufe tagsüber",
               "sound_level_max_night": "Höchste Stufe nachts",
               "sound_night_start_hour": "Nacht beginnt um (Stunde)",
@@ -117,9 +117,9 @@
             },
             "data_description": {
               "sound_level_enabled": "Steuert die Tag- und Nachtstufe des Soundsliders in deiner Quatt.",
-              "sound_level_source": "Heizkurve: nur Außentemperatur. MPC: plus Raumkorrektur. Hausmodell (1R1C): das lernende Hausmodell plus Raumkorrektur. Vergleiche sie mit dem Sensor Steuerungseffekt.",
-              "sound_level_max_day": "Die Kompensation geht tagsüber nie über diese Stufe. building87 ist am leisesten, normal am stärksten.",
-              "sound_level_max_night": "Die Kompensation geht nachts nie über diese Stufe. building87 ist am leisesten, normal am stärksten.",
+              "sound_level_source": "Beginne mit Außentemperatur + Raum. Wähle Außentemperatur, wenn Raumtemperatur oder Sollwert nicht zuverlässig gemessen werden. Hausmodell + Raum dient dazu zu messen, ob das lernende Modell besser steuert; es passt nicht zu Fußbodenheizung mit zuschaltendem Kessel. Was in deinem Haus am besten funktioniert, zeigt die Karte Steuerungseffekt nach einigen Wochen pro Einstellung.",
+              "sound_level_max_day": "Die Steuerung geht tagsüber nie über diese Stufe, und auch nicht über deine eigene Stufe in der Quatt-App. building87 ist die leiseste, normal die stärkste.",
+              "sound_level_max_night": "Die Steuerung geht nachts nie über diese Stufe, und auch nicht über deine eigene Stufe in der Quatt-App. building87 ist die leiseste, normal die stärkste.",
               "sound_night_start_hour": "Ortszeit, 0–23. Gleich den Nachtzeiten in der Quatt-App halten: sonst steuert die Integration die Tagstufe, während die Quatt schon auf der Nachtstufe steht, oder umgekehrt.",
               "sound_night_end_hour": "Ortszeit, 0–23. Gleich den Nachtzeiten in der Quatt-App halten."
             }
@@ -246,7 +246,7 @@
         "name": "Außentemperatur"
       },
       "ch_max_water_setting": {
-        "name": "Max. Vorlauftemperatur-Einstellung"
+        "name": "Max. Vorlauftemperatur (geschrieben)"
       },
       "coast_time": {
         "name": "Sichere Auslaufzeit"
@@ -306,10 +306,10 @@
         "name": "Sonnenprognose"
       },
       "mpc_recommended_supply_temp": {
-        "name": "MPC empfohlene Vorlauftemperatur"
+        "name": "Empfohlene Vorlauftemperatur (außen + Raum)"
       },
       "mpc_supply_temp_error": {
-        "name": "MPC Vorlauftemperatur-Abweichung"
+        "name": "Abweichung Vorlauftemperatur (außen + Raum)"
       },
       "openquatt_balance_point": {
         "name": "OpenQuatt Heizgrenze"
@@ -330,7 +330,7 @@
         "name": "Quatt Heizkurvensteigung"
       },
       "recommended_supply_temp": {
-        "name": "Empfohlene Vorlauftemperatur"
+        "name": "Empfohlene Vorlauftemperatur (außen)"
       },
       "retourtemperatuur": {
         "name": "Rücklauftemperatur"
@@ -342,7 +342,7 @@
         "name": "Datenquellen"
       },
       "stooklijn_supply_temp_error": {
-        "name": "Heizkurve Vorlauftemperatur-Abweichung"
+        "name": "Abweichung Vorlauftemperatur (außen)"
       },
       "stored_heat": {
         "name": "Gespeicherte Wärme"
@@ -360,7 +360,7 @@
         "name": "Steuerungseffekt"
       },
       "rc_recommended_supply_temp": {
-        "name": "1R1C empfohlene Vorlauftemperatur"
+        "name": "Empfohlene Vorlauftemperatur (Hausmodell + Raum)"
       }
     },
     "binary_sensor": {
@@ -370,7 +370,7 @@
     },
     "switch": {
       "sound_level_compensation": {
-        "name": "Soundslider-Kompensation"
+        "name": "Soundslider-Steuerung"
       }
     },
     "text": {
@@ -407,9 +407,9 @@
   "selector": {
     "advice_source": {
       "options": {
-        "stooklijn": "Heizkurve — nur Außentemperatur (aus deinen Heiztagen)",
-        "mpc": "MPC — Heizkurve plus Raumkorrektur (höher, wenn der Raum unter dem Sollwert liegt, niedriger darüber); nutzt nicht das lernende Hausmodell",
-        "1r1c": "Hausmodell (1R1C) — das lernende Hausmodell (Wärmeverlust, Sonne, interne Gewinne) plus Raumkorrektur; MPC, solange das Modell noch lernt"
+        "stooklijn": "Außentemperatur — rechnet nur mit der Außentemperatur, entlang der Wärmeverlustlinie deines Hauses; weiß nicht, ob der Raum warm genug ist (hieß Heizkurve)",
+        "mpc": "Außentemperatur + Raum — dieselbe Linie, höher wenn der Raum unter dem Sollwert liegt, niedriger darüber; der Ausgangspunkt (hieß MPC)",
+        "1r1c": "Hausmodell + Raum — das lernende Hausmodell (Wärmeverlust, aktuelle Sonne, konstanter Wärmegewinn) mit derselben Raumkorrektur; steuert wie Außentemperatur + Raum, solange das Modell noch lernt (hieß Hausmodell (1R1C))"
       }
     }
   }

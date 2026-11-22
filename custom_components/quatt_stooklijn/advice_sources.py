@@ -5,18 +5,22 @@ geluidsniveaucompensatie) volgt een aanvoeradvies. Welk advies, kiest de
 gebruiker per knop uit deze lijst. Eén lijst, zodat een knop er niet stilletjes
 een eigen bron bij verzint en de opties overal dezelfde woorden gebruiken.
 
-De bronnen:
+De bronnen, met de naam die een gebruiker ziet (``SOURCE_NAMES``). Elke bron
+heet naar wat hij meeneemt; de interne waarde blijft, want daar hangen de
+opgeslagen opties aan.
 
-- ``stooklijn``: warmteverlieslijn uit de stookdagen, alleen de
-  buitentemperatuur. Weet niet of de kamer op temperatuur is.
-- ``mpc``: dezelfde lijn plus een kamercorrectie (10·U·(setpoint − kamer)),
-  begrensd op wat de warmtepomp kan. De naam is historisch: tot v0.10.6-beta.6
-  rekende dit advies met het lerende huismodel (1R1C), sindsdien niet meer.
-  De waarde blijft ``mpc`` zodat bestaande instellingen blijven werken.
-- ``1r1c``: de basis uit het lerende huismodel (geleerde U, zon van nu,
-  constante warmtewinst, setpoint) met dezelfde kamercorrectie en
-  capaciteitsgrens (``rc_advice_demand``). Zolang het model niet online is,
-  geeft de sensor het MPC-advies door, met ``terugval: true``. Toegevoegd in
+- ``stooklijn`` — *Buitentemperatuur*: de warmteverlieslijn uit de
+  stookdagen, alleen de buitentemperatuur. Weet niet of de kamer op
+  temperatuur is.
+- ``mpc`` — *Buitentemperatuur + kamer*: dezelfde lijn plus een
+  kamercorrectie (10·U·(setpoint − kamer)), begrensd op wat de warmtepomp kan.
+  De interne waarde is historisch: tot v0.10.6-beta.6 rekende dit advies met
+  het lerende huismodel (1R1C), sindsdien niet meer.
+- ``1r1c`` — *Huismodel + kamer*: de basis uit het lerende huismodel
+  (geleerde U, zon van nu, constante warmtewinst, setpoint) met dezelfde
+  kamercorrectie en capaciteitsgrens (``rc_advice_demand``). Zolang het model
+  niet online is, geeft de sensor het advies van *Buitentemperatuur + kamer*
+  door, met ``terugval: true``. Toegevoegd in
   v0.10.7-beta.5 om op meer huizen te meten of het 1R1C beter stuurt; op één
   huis (november 2026) deed de rechte lijn het beter, met een 1R1C dat toen
   nog een fout in P_c had.
@@ -35,7 +39,7 @@ import math
 
 from homeassistant.core import HomeAssistant
 
-from .const import MPC_ADVICE_STATUS_ATTR
+from .const import MPC_ADVICE_STATUS_ATTR, SOURCE_NAMES  # noqa: F401 (SOURCE_NAMES: hier ook te importeren)
 from .helpers import resolve_own_entity_id
 
 # bron → unique_id-achtervoegsel van de sensor die het advies publiceert.
@@ -46,6 +50,7 @@ ADVICE_SOURCES: dict[str, str] = {
 }
 ADVICE_SOURCE_OPTIONS: list[str] = list(ADVICE_SOURCES)
 
+
 # Terugval als de entity registry de sensor (nog) niet kent, bijvoorbeeld in
 # de eerste seconden na het opstarten. Dit zijn de vaste slugs waaronder de
 # sensoren worden aangemaakt.
@@ -54,6 +59,13 @@ _FALLBACK_ENTITY: dict[str, str] = {
     "mpc": "sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur",
     "1r1c": "sensor.quatt_warmteanalyse_1r1c_aanbevolen_aanvoertemperatuur",
 }
+
+
+def source_name(source: str | None) -> str | None:
+    """De naam van ``source`` voor de gebruiker, of de waarde zelf als die onbekend is."""
+    if source is None:
+        return None
+    return SOURCE_NAMES.get(source, source)
 
 
 def valid_source(source: str | None, default: str) -> str:

@@ -39,13 +39,17 @@ from .analysis.steering_effect import (
     WARM_K,
     Day,
     Sample,
+    config_key,
     config_label,
     counts_for_comparison,
+    migrate_config,
+    state_name,
     summarize,
 )
 from .ch_max_water import heat_demand_entity
 from .const import (
     CONF_CH_MAX_WATER_ENABLED,
+    CONF_CH_MAX_WATER_ENTITY,
     CONF_SOUND_LEVEL_ENABLED,
     CONF_SOUND_LEVEL_SOURCE,
     DEFAULT_SOUND_LEVEL_SOURCE,
@@ -60,8 +64,12 @@ from .discovery import (
     ROLE_POWER_INPUT,
     ROLE_SUPPLY_TEMP,
     ROLE_TOTAL_POWER,
+    ROLE_CH_MAX_WATER,
     async_entity_has_value,
     async_heat_demand_link,
+    async_openquatt_node_entities,
+    async_quatt_hub,
+    async_resolve_setting_entity,
 )
 from .helpers import get_device_info, get_float_state, resolve_own_entity_id
 from .sources import ROLE_CONF_KEYS, async_source_entity
@@ -107,6 +115,11 @@ class QuattSteeringEffectSensor(SensorEntity):
         self._day: Day | None = None
         self._last_ts: datetime | None = None
         self._config_now: str | None = None
+        # Voor de kaart "Sturing: wat past bij jouw installatie", bijgewerkt
+        # bij elke meting (zie _sample).
+        self._knobs: dict | None = None
+        self._regelaar: str | None = None
+        self._boiler_measured = False
         #: Opslaan pas na een geslaagde lezing, anders overschrijft de eerste
         #: opslag na een mislukte lezing maanden aan dagen met niets.
         self._loaded = False
@@ -128,12 +141,14 @@ class QuattSteeringEffectSensor(SensorEntity):
         else:
             self._loaded = True
         if isinstance(data, dict):
-            self._days = list(data.get("days") or [])[-KEEP_DAYS:]
+            self._days = [_migrated_record(r) for r in (data.get("days") or [])][-KEEP_DAYS:]
             if data.get("current"):
                 try:
                     self._day = Day.from_dict(data["current"])
                 except (KeyError, TypeError, ValueError):
                     self._day = None
+                else:
+                    _migrate_day(self._day)
             ts = data.get("last_ts")
             self._last_ts = dt_util.parse_datetime(ts) if ts else None
 
@@ -172,14 +187,23 @@ class QuattSteeringEffectSensor(SensorEntity):
                 setpoint = self._mpc._resolve_room_setpoint()[0]
             except Exception:  # noqa: BLE001 — meten mag nooit de sensor breken
                 setpoint = None
+        sound = self._sound_state(cfg)
+        self._knobs = {
+            "max_aanvoertemperatuur": {"stand": max_water, "naam": state_name(max_water)},
+            "soundslider": {"stand": sound, "naam": state_name(sound)},
+            "warmtevraag_naar_openquatt": demand,
+        }
+        self._regelaar = self._controller_kind(cfg, demand)
+        p_gas = self._value(ROLE_BOILER_HEAT, cfg)
+        self._boiler_measured = p_gas is not None
         return Sample(
-            config=config_label(max_water, self._sound_state(cfg), demand),
+            config=config_key(max_water, sound, demand),
             t_indoor=self._value(ROLE_INDOOR_TEMP, cfg),
             setpoint=setpoint,
             t_outdoor=self._value(ROLE_OUTDOOR_TEMP, cfg),
             p_el_w=self._value(ROLE_POWER_INPUT, cfg),
             p_heat_w=self._value(ROLE_TOTAL_POWER, cfg),
-            p_gas_w=self._value(ROLE_BOILER_HEAT, cfg),
+            p_gas_w=p_gas,
             supply=self._value(ROLE_SUPPLY_TEMP, cfg),
             ceiling=ceiling,
             flow_lph=self._value(ROLE_FLOW_RATE, cfg),
@@ -209,6 +233,37 @@ class QuattSteeringEffectSensor(SensorEntity):
         if not async_entity_has_value(self.hass, entity_id):
             return False
         return async_heat_demand_link(self.hass, entity_id).active
+
+    def _controller_kind(self, cfg: dict, demand: bool) -> str | None:
+        """Welke regelaar de knoppen bedienen: ``cic``, ``openquatt``,
+        ``openquatt_power_house`` of None als het niet vast te stellen is.
+
+        "In Power House" is alleen zeker als de warmtevraag-koppeling actief
+        is. OpenQuatt kan ook zonder die koppeling in Power House staan, maar
+        dat meldt hij niet; dan blijft het ``openquatt`` en toont de kaart de
+        algemene waarschuwing in plaats van een gok.
+        """
+        if demand:
+            return "openquatt_power_house"
+        entity = async_resolve_setting_entity(
+            self.hass, cfg, CONF_CH_MAX_WATER_ENTITY, ROLE_CH_MAX_WATER
+        )
+        if not entity or not async_entity_has_value(self.hass, entity):
+            return None
+        if entity in async_openquatt_node_entities(self.hass):
+            return "openquatt"
+        if async_quatt_hub(self.hass, entity):
+            return "cic"
+        return None
+
+    def _boiler_assists(self) -> bool | None:
+        """Sprong de ketel de afgelopen twee weken bij? None zonder ketelmeting."""
+        if not self._boiler_measured:
+            return None
+        records = list(self._days[-DAYS_SHOWN:])
+        if self._day is not None:
+            records.append(self._day.record(None))
+        return sum(r.get("kwh_gas") or 0.0 for r in records) > 0.5
 
     def _ceiling_state(self, cfg: dict, demand: bool) -> tuple[str, float | None]:
         """Stand van de max. aanvoertemperatuur, en wat er nu op de regelaar staat."""
@@ -282,20 +337,29 @@ class QuattSteeringEffectSensor(SensorEntity):
 
     # -- tonen -------------------------------------------------------------
 
+    # Bewaard wordt de sleutel (``config_key``); de naam ontstaat pas hier.
+    # Zo blijft een hernoemde bron één groep in de geschiedenis.
+
     @property
     def native_value(self) -> str | None:
-        return self._config_now
+        return config_label(self._config_now) if self._config_now else None
 
     @property
     def extra_state_attributes(self) -> dict:
         vandaag = None
         if self._day is not None:
-            vandaag = self._day.record(self._starts(self._day.date, dt_util.utcnow()))
+            vandaag = _labelled(self._day.record(self._starts(self._day.date, dt_util.utcnow())))
         return {
-            "per_instelling": summarize(self._days),
+            "per_instelling": {
+                config_label(key): stats for key, stats in summarize(self._days).items()
+            },
             "vandaag": vandaag,
-            "dagen": self._days[-DAYS_SHOWN:],
+            "dagen": [_labelled(r) for r in self._days[-DAYS_SHOWN:]],
             "dagen_gemeten": len(self._days),
+            # Voor de keuzehulp op het tabblad Systeem.
+            "regelaar": self._regelaar,
+            "knoppen": self._knobs,
+            "ketel_springt_bij": self._boiler_assists(),
             "dagen_in_vergelijk": sum(1 for r in self._days if counts_for_comparison(r)),
             "drempels": {
                 "te_koud_k": COLD_K,
@@ -305,3 +369,24 @@ class QuattSteeringEffectSensor(SensorEntity):
                 "graaddag_basis_c": round(self._base_temp(), 1),
             },
         }
+
+
+def _labelled(record: dict) -> dict:
+    """Een dagverslag met de naam van de instelling in plaats van de sleutel."""
+    return {**record, "instelling": config_label(record.get("instelling"))}
+
+
+def _migrated_record(record: dict) -> dict:
+    """Een bewaard dagverslag met de sleutel in plaats van het oude label."""
+    if not isinstance(record, dict):
+        return record
+    return {**record, "instelling": migrate_config(record.get("instelling"))}
+
+
+def _migrate_day(day: Day) -> None:
+    """De lopende dag: zijn minuten per instelling onder de sleutel tellen."""
+    merged: dict[str, float] = {}
+    for label, minutes in day.config_minutes.items():
+        key = migrate_config(label)
+        merged[key] = merged.get(key, 0.0) + minutes
+    day.config_minutes = merged

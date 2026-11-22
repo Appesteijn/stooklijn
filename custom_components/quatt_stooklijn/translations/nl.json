@@ -30,10 +30,10 @@
         "data": {
           "flow_entity": "Debietmeter sensor (L/h)",
           "return_temp_entity": "Retourtemperatuur sensor (°C)",
-          "weather_entity": "Weersvoorspelling entiteit (voor MPC forecast)",
+          "weather_entity": "Weersvoorspelling entiteit (voor de vooruitblik)",
           "indoor_temp_entity": "Kamertemperatuur sensor (°C, voor solar gain kalibratie)",
-          "sound_level_enabled": "Soundslider-compensatie inschakelen (verschuift de soundslider van je Quatt, en daarmee het vermogen)",
-          "sound_level_source": "Soundslider-compensatie: welk model stuurt",
+          "sound_level_enabled": "Soundslider-sturing inschakelen (begrenst het vermogen via de soundslider van je Quatt)",
+          "sound_level_source": "Soundslider-sturing: welke bron stuurt",
           "sound_level_max_day": "Soundslider: hoogste stand overdag",
           "sound_level_max_night": "Soundslider: hoogste stand 's nachts",
           "sound_night_start_hour": "Soundslider: nacht begint om (uur, 0–23, bijv. 23) — gelijk aan de nachttijden in de Quatt-app",
@@ -46,9 +46,9 @@
           "weather_entity": "De buitentemperatuur van de komende uren, voor de vooruitblik en de prijsverschuiving.",
           "indoor_temp_entity": "Voor de kamercorrectie en het lerende huismodel. Bij voorkeur een sensor in de woonkamer.",
           "sound_level_enabled": "Stuurt de dag- en nachtstand van de soundslider in je Quatt.",
-          "sound_level_source": "Stooklijn: alleen buitentemperatuur. MPC: plus kamercorrectie. Huismodel (1R1C): het lerende huismodel plus kamercorrectie. Vergelijk ze met de sensor Sturingseffect.",
-          "sound_level_max_day": "De compensatie gaat overdag nooit hoger dan deze stand. building87 is het stilst, normal het krachtigst.",
-          "sound_level_max_night": "De compensatie gaat 's nachts nooit hoger dan deze stand. building87 is het stilst, normal het krachtigst.",
+          "sound_level_source": "Begin met Buitentemperatuur + kamer. Kies Buitentemperatuur als de kamertemperatuur of het setpoint niet betrouwbaar gemeten wordt. Huismodel + kamer is om te meten of het lerende model beter stuurt; het past niet bij vloerverwarming met een bijspringende ketel. Wat op jouw huis het beste werkt, laat de kaart Sturingseffect zien na een paar weken per instelling.",
+          "sound_level_max_day": "De sturing gaat overdag nooit hoger dan deze stand, en ook niet hoger dan je eigen stand in de Quatt-app. building87 is het stilst, normal het krachtigst.",
+          "sound_level_max_night": "De sturing gaat 's nachts nooit hoger dan deze stand, en ook niet hoger dan je eigen stand in de Quatt-app. building87 is het stilst, normal het krachtigst.",
           "sound_night_start_hour": "Lokale tijd, 0–23. Gelijk houden aan de nachttijden in de Quatt-app: anders stuurt de integratie de dagstand terwijl de Quatt al op de nachtstand staat, of andersom.",
           "sound_night_end_hour": "Lokale tijd, 0–23. Gelijk houden aan de nachttijden in de Quatt-app.",
           "supply_temp_entity": "Om het advies mee te vergelijken, en om te zien of de aanvoer tegen de max. aanvoertemperatuur aanloopt."
@@ -66,7 +66,7 @@
     "step": {
       "init": {
         "title": "Configuratie bijwerken",
-        "description": "Gegroepeerd per onderwerp. Ingeklapte secties staan uit of zijn zelden nodig. De warmtevraag naar OpenQuatt Power House stel je in OpenQuatt in (de bronhelper), niet hier.",
+        "description": "Gegroepeerd per onderwerp. Ingeklapte secties staan uit of zijn zelden nodig. De warmtevraag naar OpenQuatt (voor Power House) stel je in OpenQuatt in (de bronhelper), niet hier.",
         "sections": {
           "huis": {
             "name": "Huis en comfort",
@@ -86,10 +86,10 @@
           },
           "max_aanvoertemperatuur": {
             "name": "Max. aanvoertemperatuur",
-            "description": "Schrijft elk interval het advies plus de marge als maximale aanvoertemperatuur naar de regelaar: de CiC, of OpenQuatt buiten Power House. Niet gebruiken met OpenQuatt in Power House: daar is die instelling een veiligheidsbegrenzer. Gebruik dan de warmtevraag in OpenQuatt.",
+            "description": "Schrijft elk interval het advies plus de marge als maximale aanvoertemperatuur naar de regelaar: de CiC, of OpenQuatt buiten Power House. Niet gebruiken met OpenQuatt in Power House: daar is die instelling een veiligheidsbegrenzer; gebruik dan de warmtevraag naar OpenQuatt. Op een CiC: gebruik deze of de soundslider-sturing, niet beide tegelijk.",
             "data": {
               "ch_max_water_enabled": "Aan",
-              "ch_max_water_source": "Welk model stuurt",
+              "ch_max_water_source": "Welke bron stuurt",
               "ch_max_water_margin": "Marge boven het advies (°C)",
               "ch_max_water_entity": "Instelling in je Quatt",
               "ch_max_water_hysteresis": "Minimale wijziging (°C)",
@@ -97,7 +97,7 @@
             },
             "data_description": {
               "ch_max_water_enabled": "Schrijft de maximale aanvoertemperatuur naar je Quatt. Uit = de integratie schrijft niets.",
-              "ch_max_water_source": "Stooklijn: alleen buitentemperatuur. MPC: plus kamercorrectie. Huismodel (1R1C): het lerende huismodel plus kamercorrectie. Vergelijk ze met de sensor Sturingseffect.",
+              "ch_max_water_source": "Begin met Buitentemperatuur + kamer. Kies Buitentemperatuur als de kamertemperatuur of het setpoint niet betrouwbaar gemeten wordt. Huismodel + kamer is om te meten of het lerende model beter stuurt; het past niet bij vloerverwarming met een bijspringende ketel. Wat op jouw huis het beste werkt, laat de kaart Sturingseffect zien na een paar weken per instelling.",
               "ch_max_water_margin": "De warmtepomp moduleert al terug vóór de maximale aanvoertemperatuur. Zonder marge levert hij te weinig en kan de kamer niet bijtrekken. Standaard 2 °C.",
               "ch_max_water_entity": "De entiteit voor de maximale aanvoertemperatuur. Leeg = automatisch: de CiC, of OpenQuatt als die de buitenunits regelt.",
               "ch_max_water_hysteresis": "Pas schrijven als de nieuwe waarde zoveel afwijkt van de vorige. Voorkomt dat de instelling bij elke kleine schommeling verandert.",
@@ -105,11 +105,11 @@
             }
           },
           "soundslider": {
-            "name": "Soundslider (alleen CiC)",
-            "description": "Verschuift de soundslider van je Quatt, overdag en 's nachts, en daarmee het maximale vermogen. Zolang dit aan staat, zet de integratie een stand die je in de Quatt-app wijzigt binnen tien minuten terug.",
+            "name": "Soundslider-sturing (alleen CiC)",
+            "description": "Begrenst het vermogen via de geluidsstand van je Quatt, overdag en 's nachts, tot de aanvoer op het advies zit. Alleen voor de CiC. Gebruik deze of de max. aanvoertemperatuur, niet beide tegelijk. Je eigen stand komt terug bij uitzetten; een stand die je in de Quatt-app wijzigt terwijl dit aan staat, wordt binnen tien minuten teruggezet.",
             "data": {
               "sound_level_enabled": "Aan",
-              "sound_level_source": "Welk model stuurt",
+              "sound_level_source": "Welke bron stuurt",
               "sound_level_max_day": "Hoogste stand overdag",
               "sound_level_max_night": "Hoogste stand 's nachts",
               "sound_night_start_hour": "Nacht begint om (uur)",
@@ -117,9 +117,9 @@
             },
             "data_description": {
               "sound_level_enabled": "Stuurt de dag- en nachtstand van de soundslider in je Quatt.",
-              "sound_level_source": "Stooklijn: alleen buitentemperatuur. MPC: plus kamercorrectie. Huismodel (1R1C): het lerende huismodel plus kamercorrectie. Vergelijk ze met de sensor Sturingseffect.",
-              "sound_level_max_day": "De compensatie gaat overdag nooit hoger dan deze stand. building87 is het stilst, normal het krachtigst.",
-              "sound_level_max_night": "De compensatie gaat 's nachts nooit hoger dan deze stand. building87 is het stilst, normal het krachtigst.",
+              "sound_level_source": "Begin met Buitentemperatuur + kamer. Kies Buitentemperatuur als de kamertemperatuur of het setpoint niet betrouwbaar gemeten wordt. Huismodel + kamer is om te meten of het lerende model beter stuurt; het past niet bij vloerverwarming met een bijspringende ketel. Wat op jouw huis het beste werkt, laat de kaart Sturingseffect zien na een paar weken per instelling.",
+              "sound_level_max_day": "De sturing gaat overdag nooit hoger dan deze stand, en ook niet hoger dan je eigen stand in de Quatt-app. building87 is het stilst, normal het krachtigst.",
+              "sound_level_max_night": "De sturing gaat 's nachts nooit hoger dan deze stand, en ook niet hoger dan je eigen stand in de Quatt-app. building87 is het stilst, normal het krachtigst.",
               "sound_night_start_hour": "Lokale tijd, 0–23. Gelijk houden aan de nachttijden in de Quatt-app: anders stuurt de integratie de dagstand terwijl de Quatt al op de nachtstand staat, of andersom.",
               "sound_night_end_hour": "Lokale tijd, 0–23. Gelijk houden aan de nachttijden in de Quatt-app."
             }
@@ -246,7 +246,7 @@
         "name": "Buitentemperatuur"
       },
       "ch_max_water_setting": {
-        "name": "Max aanvoertemperatuur instelling"
+        "name": "Max. aanvoertemperatuur (geschreven)"
       },
       "coast_time": {
         "name": "Veilige uitlooptijd"
@@ -306,10 +306,10 @@
         "name": "Zonverwachting"
       },
       "mpc_recommended_supply_temp": {
-        "name": "MPC aanbevolen aanvoertemperatuur"
+        "name": "Aanbevolen aanvoertemperatuur (buiten + kamer)"
       },
       "mpc_supply_temp_error": {
-        "name": "MPC fout aanvoertemperatuur"
+        "name": "Afwijking aanvoertemperatuur (buiten + kamer)"
       },
       "openquatt_balance_point": {
         "name": "OpenQuatt stookgrens"
@@ -330,7 +330,7 @@
         "name": "Quatt stooklijn helling"
       },
       "recommended_supply_temp": {
-        "name": "Aanbevolen aanvoertemperatuur"
+        "name": "Aanbevolen aanvoertemperatuur (buiten)"
       },
       "retourtemperatuur": {
         "name": "Retourtemperatuur"
@@ -342,7 +342,7 @@
         "name": "Databronnen"
       },
       "stooklijn_supply_temp_error": {
-        "name": "Stooklijn fout aanvoertemperatuur"
+        "name": "Afwijking aanvoertemperatuur (buiten)"
       },
       "stored_heat": {
         "name": "Opgeslagen warmte"
@@ -360,7 +360,7 @@
         "name": "Sturingseffect"
       },
       "rc_recommended_supply_temp": {
-        "name": "1R1C aanbevolen aanvoertemperatuur"
+        "name": "Aanbevolen aanvoertemperatuur (huismodel + kamer)"
       }
     },
     "binary_sensor": {
@@ -370,7 +370,7 @@
     },
     "switch": {
       "sound_level_compensation": {
-        "name": "Soundslider-compensatie"
+        "name": "Soundslider-sturing"
       }
     },
     "text": {
@@ -407,9 +407,9 @@
   "selector": {
     "advice_source": {
       "options": {
-        "stooklijn": "Stooklijn — alleen buitentemperatuur (uit je stookdagen)",
-        "mpc": "MPC — stooklijn plus kamercorrectie (omhoog als de kamer onder het setpoint zit, omlaag als hij erboven zit); rekent niet met het lerende huismodel",
-        "1r1c": "Huismodel (1R1C) — het lerende huismodel (warmteverlies, zon, interne warmte) plus kamercorrectie; MPC zolang het model nog leert"
+        "stooklijn": "Buitentemperatuur — rekent alleen met de buitentemperatuur, langs de warmteverlieslijn van je huis; weet niet of de kamer op temperatuur is (heette Stooklijn)",
+        "mpc": "Buitentemperatuur + kamer — dezelfde lijn, hoger als de kamer onder het setpoint zit en lager als hij erboven zit; het startpunt (heette MPC)",
+        "1r1c": "Huismodel + kamer — het lerende huismodel (warmteverlies, zon van nu, vaste warmtewinst) met dezelfde kamercorrectie; stuurt als Buitentemperatuur + kamer zolang het model nog leert (heette Huismodel (1R1C))"
       }
     }
   }

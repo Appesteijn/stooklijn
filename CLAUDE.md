@@ -195,3 +195,18 @@ opgelost in v0.10.7-beta.7; of het Tweakers-geval daarmee verklaard is, is
 niet bewezen (de nabootsing gaf één keer g −2,37 na 73 uur). Wie
 daaraan werkt, speelt eerst na op echte data (RLS-toestand en logboek uit
 `.storage`), niet alleen synthetisch.
+
+## Namen voor gebruikers staan op één plek
+
+De stuurbronnen heten *Buitentemperatuur*, *Buitentemperatuur + kamer* en
+*Huismodel + kamer* (`SOURCE_NAMES` in `const.py`, ontwerp 22-11-2026). De
+interne waarden `stooklijn`, `mpc` en `1r1c` blijven, net als de entity-ID's:
+daar hangen opgeslagen opties, het dashboard en automations aan. Kaarten lezen
+de naam uit een attribuut (`bron_naam`, `advies_bron_naam`), niet uit een eigen
+tabel. `tests/test_namen.py` houdt de keuzelijst in vier talen gelijk aan de
+tabel en weert de oude woorden uit dashboard en `nl.json`.
+
+Het sturingseffect bewaart per dag de sleutel (`max_water=mpc;sound=uit;demand=0`),
+niet de naam. Tot beta.8 werd de tekst bewaard, en dan splitst een hernoeming
+elke instelling in twee groepen. Wie een naam verandert, hoeft daar dus niets
+voor te migreren; wie de sleutel verandert wel (`migrate_config`).

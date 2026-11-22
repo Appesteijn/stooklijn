@@ -76,10 +76,15 @@ class TestBronnenlijst:
     def test_onbekende_bron_valt_terug(self, waarde, verwacht):
         assert bron.valid_source(waarde, "mpc") == verwacht
 
-    def test_standaarden_veranderen_niets(self):
-        """Plafond bleef 'stooklijn', geluid volgde altijd MPC."""
-        assert DEFAULT_CH_MAX_WATER_SOURCE == "stooklijn"
+    def test_standaarden(self):
+        """Sinds v0.10.7-beta.9 beginnen beide knoppen op "Buitentemperatuur +
+        kamer" (ontwerp 22-11-2026). Een installatie die de max.
+        aanvoertemperatuur al aan had zonder opgeslagen bron, houdt
+        "Buitentemperatuur" (zie TestBronVastzetten)."""
+        from custom_components.quatt_stooklijn.const import LEGACY_CH_MAX_WATER_SOURCE
+        assert DEFAULT_CH_MAX_WATER_SOURCE == "mpc"
         assert DEFAULT_SOUND_LEVEL_SOURCE == "mpc"
+        assert LEGACY_CH_MAX_WATER_SOURCE == "stooklijn"
 
 
 class TestLezen:
@@ -139,7 +144,7 @@ class TestPlafondKiestBron:
     def test_onbekende_bron_wordt_de_standaard(self):
         c = self._controller("2r2c")
         with _resolver():
-            assert c._read_recommended() == 31.0
+            assert c._read_recommended() == 34.0
 
 
 def _run(coro):
@@ -222,3 +227,38 @@ class TestNaNAdvies:
         hass = MagicMock()
         hass.states.get = lambda e: SimpleNamespace(state=raw, attributes={})
         assert read_advice(hass, None, "mpc")[0] is None
+
+
+class TestBronVastzetten:
+    """De standaardbron van de max. aanvoertemperatuur werd "Buitentemperatuur +
+    kamer". Een installatie die de knop al aan had zonder opgeslagen bron, mag
+    na de update niet stil op een andere bron gaan sturen."""
+
+    def _entry(self, data=None, options=None):
+        from unittest.mock import MagicMock
+        entry = MagicMock()
+        entry.data = data or {}
+        entry.options = options or {}
+        return entry
+
+    def _pin(self, entry):
+        from unittest.mock import MagicMock
+        from custom_components.quatt_stooklijn import _async_pin_ch_max_water_source
+        hass = MagicMock()
+        _async_pin_ch_max_water_source(hass, entry)
+        return hass.config_entries.async_update_entry
+
+    def test_aan_zonder_bron_houdt_buitentemperatuur(self):
+        update = self._pin(self._entry(options={"ch_max_water_enabled": True, "x": 1}))
+        update.assert_called_once()
+        assert update.call_args.kwargs["options"] == {
+            "ch_max_water_enabled": True, "x": 1, "ch_max_water_source": "stooklijn"}
+
+    @pytest.mark.parametrize("data,options", [
+        ({}, {"ch_max_water_enabled": True, "ch_max_water_source": "mpc"}),
+        ({"ch_max_water_source": "1r1c"}, {"ch_max_water_enabled": True}),
+        ({}, {"ch_max_water_enabled": False}),
+        ({}, {}),
+    ])
+    def test_verder_niets(self, data, options):
+        self._pin(self._entry(data, options)).assert_not_called()

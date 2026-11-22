@@ -26,6 +26,9 @@ zonder draaiende HA te toetsen is.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
+
+from ..const import SOURCE_NAMES
 
 #: Meer dan zoveel onder het setpoint telt als te koud. Kleiner dan dit is de
 #: normale schommeling van een thermostaat.
@@ -262,28 +265,79 @@ PAUSED = "gepauzeerd"
 #: Op de 1R1C-bron gezet terwijl het huismodel nog niet online is.
 FALLBACK_1R1C = "1r1c_terugval"
 
-#: Namen zoals in de opties ("Stooklijn", "MPC"), niet de interne waarden.
-_NAMES = {
+#: Stand van een knop → woord voor de gebruiker. De bronnen komen uit
+#: ``SOURCE_NAMES``, zodat de opties, de kaarten en dit label dezelfde naam
+#: gebruiken.
+_STATE_NAMES = {
     "uit": "uit",
-    "stooklijn": "Stooklijn",
-    "mpc": "MPC",
-    "1r1c": "Huismodel (1R1C)",
-    # Op 1R1C gezet, maar het huismodel is nog niet online: dan stuurt het
-    # MPC-advies. Apart, zodat zulke dagen het 1R1C niet vertekenen.
-    FALLBACK_1R1C: "Huismodel (1R1C), terugval op MPC",
+    # Op het huismodel gezet, maar dat is nog niet online: dan stuurt het
+    # advies van "Buitentemperatuur + kamer". Apart, zodat zulke dagen het
+    # huismodel niet vertekenen.
+    FALLBACK_1R1C: f"{SOURCE_NAMES['1r1c']}, leert nog",
     PAUSED: "gepauzeerd (warmtevraag stuurt)",
 }
 
+_KEY_RE = re.compile(r"^max_water=([^;]*);sound=([^;]*);demand=([01])$")
 
-def config_label(max_water: str, sound: str, demand: bool) -> str:
-    """Leesbare, vaste sleutel voor de stand van de knoppen.
 
-    Dezelfde woorden als in de opties en op de kaarten, zodat de stand zonder
-    uitleg te lezen is. Voorbeeld:
-    ``max. aanvoertemp: MPC · soundslider: uit · warmtevraag OpenQuatt: uit``.
+def config_key(max_water: str, sound: str, demand: bool) -> str:
+    """Vaste sleutel voor de stand van de knoppen, zoals hij per dag bewaard wordt.
+
+    Interne waarden, geen namen: tot v0.10.7-beta.8 werd hier de leesbare
+    tekst bewaard, en een hernoemde bron had elke instelling dan in twee
+    groepen gesplitst (oude en nieuwe naam). Voorbeeld:
+    ``max_water=mpc;sound=uit;demand=0``.
     """
+    return f"max_water={max_water};sound={sound};demand={1 if demand else 0}"
+
+
+def state_name(value: str) -> str:
+    """Het woord voor de stand van één knop (``uit``, een bron, …)."""
+    return _STATE_NAMES.get(value) or SOURCE_NAMES.get(value, value)
+
+
+def config_label(key: str) -> str:
+    """De sleutel als tekst voor de kaart. Geen sleutel (``gemengd``): ongewijzigd.
+
+    Voorbeeld: ``max. aanvoertemperatuur: Buitentemperatuur + kamer ·
+    soundslider: uit · warmtevraag naar OpenQuatt: uit``.
+    """
+    m = _KEY_RE.match(key or "")
+    if not m:
+        return key
+    max_water, sound, demand = m.groups()
     return (
-        f"max. aanvoertemp: {_NAMES.get(max_water, max_water)}"
-        f" · soundslider: {_NAMES.get(sound, sound)}"
-        f" · warmtevraag OpenQuatt: {'aan' if demand else 'uit'}"
+        f"max. aanvoertemperatuur: {state_name(max_water)}"
+        f" · soundslider: {state_name(sound)}"
+        f" · warmtevraag naar OpenQuatt: {'aan' if demand == '1' else 'uit'}"
     )
+
+
+# Het label zoals het t/m v0.10.7-beta.8 bewaard werd, en de woorden van toen.
+_OLD_LABEL_RE = re.compile(
+    r"^max\. aanvoertemp: (.*) · soundslider: (.*) · warmtevraag OpenQuatt: (aan|uit)$"
+)
+_OLD_NAMES = {
+    "uit": "uit",
+    "Stooklijn": "stooklijn",
+    "MPC": "mpc",
+    "Huismodel (1R1C)": "1r1c",
+    "Huismodel (1R1C), terugval op MPC": FALLBACK_1R1C,
+    "gepauzeerd (warmtevraag stuurt)": PAUSED,
+}
+
+
+def migrate_config(value: str | None) -> str | None:
+    """Zet een bewaard label van vóór v0.10.7-beta.9 om naar de sleutel.
+
+    Een sleutel, ``gemengd`` of iets onherkenbaars blijft zoals het is.
+    """
+    if not isinstance(value, str):
+        return value
+    m = _OLD_LABEL_RE.match(value)
+    if not m:
+        return value
+    max_water, sound, demand = m.groups()
+    if max_water not in _OLD_NAMES or sound not in _OLD_NAMES:
+        return value
+    return config_key(_OLD_NAMES[max_water], _OLD_NAMES[sound], demand == "aan")

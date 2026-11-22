@@ -1021,7 +1021,7 @@ views:
 
               | Stooklijn breakpoints | **{{ curve }} punten** |
 
-              | MPC aanvoertemp | **{{
+              | Advies buiten + kamer | **{{
               states('sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur')
               }}°C** |
 
@@ -1032,7 +1032,7 @@ views:
 
               {% if a is not none %}
 
-              **Power House huismodel** — {{ states(kal) }}
+              **Power House-kalibratie** — {{ states(kal) }}
 
               | Parameter | Nu | Advies |
 
@@ -1127,9 +1127,10 @@ views:
               columns: full
               rows: auto
 
-  # ─── VIEW 4: MPC VALIDATIE ───────────────────────────────────────────
-  # Beantwoordt: "Is het MPC-advies beter dan de vaste stooklijn?"
-  - title: MPC
+  # ─── VIEW 4: HUISMODEL EN VOORUITBLIK ────────────────────────────────
+  # Beantwoordt: "Wat adviseren de drie bronnen, en wat doet het huis straks?"
+  # Heette "MPC" tot v0.10.7-beta.9.
+  - title: Huismodel en vooruitblik
     icon: mdi:brain
     type: sections
     max_columns: 2
@@ -1141,22 +1142,22 @@ views:
         cards:
           - type: tile
             entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-            name: Stooklijn advies
+            name: Advies buiten
             icon: mdi:thermometer-water
             color: blue
           - type: tile
             entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
-            name: MPC advies
+            name: Advies buiten + kamer
             icon: mdi:brain
             color: green
           - type: tile
             entity: sensor.quatt_warmteanalyse_stooklijn_fout_aanvoertemperatuur
-            name: Stooklijn fout
+            name: Afwijking buiten
             icon: mdi:thermometer-alert
             color: blue
           - type: tile
             entity: sensor.quatt_warmteanalyse_mpc_fout_aanvoertemperatuur
-            name: MPC fout
+            name: Afwijking buiten + kamer
             icon: mdi:thermometer-alert
             color: green
           - type: tile
@@ -1177,19 +1178,19 @@ views:
           - type: markdown
             title: Hoe lees je dit?
             content: >
-              **Advies** is de aanvoertemperatuur die het huis volgens de berekening nu nodig heeft. *MPC advies* toont geen waarde als de kamer al op of boven het setpoint staat: dan is er geen warmtevraag.
+              **Advies** is de aanvoertemperatuur die het huis volgens de berekening nu nodig heeft. *Advies buiten + kamer* toont geen waarde als de kamer al op of boven het setpoint staat: dan is er geen warmtevraag.
 
 
-              **Fout** is het advies min de werkelijke aanvoer. Het zegt niet dat het model fout zit. Negatief betekent dat de warmtepomp warmer stookt dan het advies, positief dat hij kouder stookt. Beide tonen geen waarde als er geen water circuleert.
+              **Afwijking** is het advies min de werkelijke aanvoer. Het zegt niet dat het model fout zit. Negatief betekent dat de warmtepomp warmer stookt dan het advies, positief dat hij kouder stookt. Beide tonen geen waarde als er geen water circuleert.
             grid_options:
               columns: full
 
-      # ── Thermisch model (volle breedte) ──
+      # ── Lerend huismodel (volle breedte) ──
       - type: grid
         column_span: 2
         cards:
           - type: markdown
-            title: Thermisch model (online learning)
+            title: Lerend huismodel
             content: >
               {% set mpc =
               'sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur' %}
@@ -1282,7 +1283,7 @@ views:
         column_span: 2
         cards:
           - type: markdown
-            title: Modelvergelijking — 2R2C vs huidig model
+            title: Modelvergelijking — 2R2C tegenover het lerende huismodel
             content: >
               {% set s = 'sensor.quatt_warmteanalyse_modelvergelijking' %}
 
@@ -1322,7 +1323,7 @@ views:
 
               | Tweetoestand (2R2C) | **{{ rmse }}&nbsp;K** |
 
-              | Huidig model (1R1C) | {{ ref if ref is not none else '—' }}&nbsp;K |
+              | Lerend huismodel (1R1C) | {{ ref if ref is not none else '—' }}&nbsp;K |
 
               | Niets doen | {{ niets if niets is not none else '—' }}&nbsp;K |
 
@@ -1383,7 +1384,7 @@ views:
 
               {% if ref is not none and niets is not none %}
 
-              Intussen, op de testweken {{ horizon }} uur vooruit: huidig model
+              Intussen, op de testweken {{ horizon }} uur vooruit: lerend huismodel
               (1R1C) **{{ ref }} K**, niets doen **{{ niets }} K**. Lager is
               beter.
 
@@ -1716,13 +1717,13 @@ views:
                   name: Werkelijk
                   color: "#90A4AE"
                 - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-                  name: Stooklijn advies
+                  name: Advies buiten
                   color: "#2196F3"
                 - entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
-                  name: MPC advies
+                  name: Advies buiten + kamer
                   color: "#4CAF50"
                 - entity: sensor.quatt_warmteanalyse_1r1c_aanbevolen_aanvoertemperatuur
-                  name: Huismodel (1R1C) advies
+                  name: Advies huismodel + kamer
                   color: "#FF9800"
             grid_options:
               columns: full
@@ -1759,7 +1760,7 @@ views:
         cards:
           - type: custom:apexcharts-card
             header:
-              title: Fout — Advies minus Werkelijk (24 uur)
+              title: Afwijking — advies min werkelijk (24 uur)
               show: true
             graph_span: 24h
             apex_config:
@@ -1783,11 +1784,11 @@ views:
                 position: bottom
             series:
               - entity: sensor.quatt_warmteanalyse_stooklijn_fout_aanvoertemperatuur
-                name: Stooklijn fout
+                name: Afwijking buiten
                 color: "#2196F3"
                 stroke_width: 2
               - entity: sensor.quatt_warmteanalyse_mpc_fout_aanvoertemperatuur
-                name: MPC fout
+                name: Afwijking buiten + kamer
                 color: "#FF9800"
                 stroke_width: 2
             grid_options:
@@ -2231,8 +2232,8 @@ views:
               naast de meting. Vertrouw vooral het verschil tussen de lijnen:
               verschuiven verandert de kamer met
               {{ '%+.2f' | format(k.afwijking_min_k) }} tot
-              {{ '%+.2f' | format(k.afwijking_max_k) }} K. De begrenzing rekent
-              met het 1R1C-model op {{ '%+.2f' | format(ke.drift_k) }} K.
+              {{ '%+.2f' | format(k.afwijking_max_k) }} K. De driftgrens rekent
+              met het lerende huismodel op {{ '%+.2f' | format(ke.drift_k) }} K.
               {% elif k %}
               Nog geen kamertemperatuur: {{ k.reden }}.
               {% endif %}
@@ -2243,7 +2244,7 @@ views:
   # ─── VIEW 6: SYSTEEM ────────────────────────────────────────────────
   # Beantwoordt: "Waar komen mijn metingen vandaan en hoe stookt het systeem?"
   #
-  # Geluidsniveaucompensatie (sound_level_enabled) en aanvoerbegrenzing
+  # Soundslider-sturing (sound_level_enabled) en max. aanvoertemperatuur
   # (ch_max_water_enabled) zijn opt-in: staan ze uit, dan bestaan hun
   # entiteiten niet en tonen hun kaarten alleen foutmeldingen. De secties
   # hangen daarom aan een visibility-conditie. HA behandelt een niet-
@@ -2255,7 +2256,57 @@ views:
     max_columns: 2
     cards: []
     sections:
-      # ── Aanvoertemperatuur begrenzing — effect (48 uur) ──
+      # ── Keuzehulp: welke knop past bij deze installatie ──
+      # Leest alles uit de sturingssensor (regelaar, knoppen,
+      # ketel_springt_bij). Wat niet vast te stellen is, krijgt de algemene
+      # tekst in plaats van een gok. Zie README "Choosing how to steer".
+      - type: grid
+        column_span: 2
+        cards:
+          - type: markdown
+            title: "Sturing: wat past bij jouw installatie"
+            content: |
+              {%- set s = 'sensor.quatt_warmteanalyse_sturingseffect' -%}
+              {%- set r = state_attr(s, 'regelaar') -%}
+              {%- set k = state_attr(s, 'knoppen') or {} -%}
+              {%- set mw = k.get('max_aanvoertemperatuur') or {} -%}
+              {%- set sl = k.get('soundslider') or {} -%}
+              {%- set wv = k.get('warmtevraag_naar_openquatt') -%}
+              {%- set ketel = state_attr(s, 'ketel_springt_bij') -%}
+              {%- set rc = 'sensor.quatt_warmteanalyse_1r1c_aanbevolen_aanvoertemperatuur' -%}
+              {%- set mw_aan = mw.get('stand', 'uit') != 'uit' -%}
+              {%- set sl_aan = sl.get('stand', 'uit') != 'uit' -%}
+              {%- macro stand(knop) -%}{% if knop.get('stand', 'uit') == 'uit' %}uit{% else %}aan, op **{{ knop.get('naam') }}**{% endif %}{%- endmacro -%}
+              **Regelaar:** {% if r == 'cic' %}Quatt CiC{% elif r == 'openquatt' %}OpenQuatt{% elif r == 'openquatt_power_house' %}OpenQuatt in Power House (de warmtevraag stuurt){% else %}niet vast te stellen{% endif %}
+
+              | Knop | Staat | Past hier? |
+              |:--|:--|:--|
+              | Max. aanvoertemperatuur | {{ stand(mw) }} | {% if r == 'cic' %}Ja{% elif r == 'openquatt' %}Ja, buiten Power House; in Power House niet{% elif r == 'openquatt_power_house' %}Nee: in Power House is het een veiligheidsbegrenzer{% else %}CiC en OpenQuatt buiten Power House: ja. OpenQuatt in Power House: nee{% endif %} |
+              | Soundslider-sturing | {{ stand(sl) }} | {% if r == 'cic' %}Ja{% elif r in ['openquatt', 'openquatt_power_house'] %}Nee, alleen voor de CiC{% else %}Alleen voor de CiC{% endif %} |
+              | Warmtevraag naar OpenQuatt | {% if wv %}aan{% else %}uit{% endif %} | {% if r == 'cic' %}Nee, alleen voor OpenQuatt{% elif r in ['openquatt', 'openquatt_power_house'] %}Ja, als OpenQuatt in Power House draait{% else %}Alleen voor OpenQuatt in Power House{% endif %} |
+
+              {% if mw_aan and sl_aan -%}
+              - **Twee knoppen tegelijk.** Het sturingseffect vergelijkt combinaties van standen; met twee knoppen aan is niet te zien welke het verschil maakt. Begin met één.
+              {% endif -%}
+              {% if r == 'openquatt' and mw_aan -%}
+              - Draait OpenQuatt in **Power House**? Dan is de max. aanvoertemperatuur een veiligheidsbegrenzer (terugregelen binnen 3 K, uitschakelen bij +5 K). Zet hem dan uit en gebruik de warmtevraag naar OpenQuatt.
+              {% endif -%}
+              {% if mw.get('stand') in ['1r1c', '1r1c_terugval'] or sl.get('stand') in ['1r1c', '1r1c_terugval'] -%}
+              - **Huismodel + kamer** {% if state_attr(rc, 'terugval') %}leert nog: tot het model online is (ongeveer twee dagen stoken) stuurt het als *Buitentemperatuur + kamer*.{% else %}is online.{% endif %} Het is een bron om te meten, niet de aanbevolen keuze{% if ketel %}. De ketel springt bij: met vloerverwarming kan dit model dat niet volgen{% endif %}.
+              {% endif -%}
+              {% if mw.get('stand') == 'stooklijn' or sl.get('stand') == 'stooklijn' -%}
+              - **Buitentemperatuur** weet niet of de kamer op temperatuur is. Alleen kiezen als kamertemperatuur of setpoint niet betrouwbaar gemeten wordt.
+              {% endif -%}
+              {% if not mw_aan and not sl_aan and not wv -%}
+              Alles staat uit: het sturingseffect meet nu de referentie. **Startpunt:** {% if r == 'cic' %}één knop aan, op *Buitentemperatuur + kamer*.{% elif r == 'openquatt_power_house' %}de warmtevraag naar OpenQuatt.{% elif r == 'openquatt' %}buiten Power House de max. aanvoertemperatuur op *Buitentemperatuur + kamer*; in Power House de warmtevraag naar OpenQuatt.{% else %}de knop die bij je regelaar past, op *Buitentemperatuur + kamer*.{% endif %}
+              {%- endif %}
+
+              *Welke bron op jouw huis het zuinigst stuurt, kan deze kaart niet zeggen. Laat elke instelling een paar weken staan, één wijziging tegelijk, en vergelijk op de kaart Sturingseffect.*
+            grid_options:
+              columns: full
+              rows: auto
+
+      # ── Max. aanvoertemperatuur: ingesteld en gevraagd (48 uur) ──
       - type: grid
         column_span: 2
         visibility:
@@ -2267,7 +2318,7 @@ views:
         cards:
           - type: custom:apexcharts-card
             header:
-              title: Aanvoertemp. begrenzing — limiet vs thermostaat (48 uur)
+              title: "Max. aanvoertemperatuur: ingesteld en gevraagd (48 uur)"
               show: true
             graph_span: 48h
             yaxis:
@@ -2297,18 +2348,18 @@ views:
                 type: area
                 opacity: 0.12
               - entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
-                name: MPC advies
+                name: Advies buiten + kamer
                 yaxis_id: temp
                 color: "#4CAF50"
                 stroke_width: 2
               - entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
-                name: Stooklijn advies
+                name: Advies buiten
                 yaxis_id: temp
                 color: "#26A69A"
                 stroke_width: 1.5
               - entity: sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling
                 attribute: limit_c
-                name: Ingestelde limiet
+                name: Max. aanvoertemperatuur
                 yaxis_id: temp
                 color: "#F44336"
                 stroke_width: 3
@@ -2381,7 +2432,7 @@ views:
               columns: full
               rows: auto
 
-      # ── Aanvoertemperatuur begrenzing — huidige status ──
+      # ── Max. aanvoertemperatuur — huidige status ──
       - type: grid
         visibility:
           - condition: state
@@ -2391,7 +2442,7 @@ views:
               - unknown
         cards:
           - type: markdown
-            title: Aanvoertemperatuur begrenzing
+            title: Max. aanvoertemperatuur
             content: >
               {% set s = 'sensor.quatt_warmteanalyse_max_aanvoertemperatuur_instelling' %}
 
@@ -2419,7 +2470,7 @@ views:
 
               {% set marge = state_attr(s, 'margin_c') | float(none) %}
 
-              De bijsturing stuurt op **{{ {'stooklijn': 'Stooklijn', 'mpc': 'MPC', '1r1c': 'Huismodel (1R1C)'}.get(geconfigureerd, geconfigureerd) }}** en schrijft elke {{ interval }} min
+              Stuurt op **{{ state_attr(s, 'bron_naam') or geconfigureerd }}** en schrijft elke {{ interval }} min
               het advies{% if marge %} plus {{ marge | round(1) }}°C marge{% endif %} als maximale
               aanvoertemperatuur naar de warmtepomp.
 
@@ -2427,15 +2478,15 @@ views:
 
               |:--|--:|
 
-              | MPC advies | {% if mpc %}{% if geconfigureerd == 'mpc' %}**{{ mpc | round(1) }}°C** ◀{% else %}{{ mpc | round(1) }}°C{% endif %}{% else %}*niet beschikbaar*{% endif %} |
+              | Advies buiten + kamer | {% if mpc %}{% if geconfigureerd == 'mpc' %}**{{ mpc | round(1) }}°C** ◀{% else %}{{ mpc | round(1) }}°C{% endif %}{% else %}*niet beschikbaar*{% endif %} |
 
-              | Stooklijn advies | {% if stooklijn %}{% if geconfigureerd == 'stooklijn' %}**{{ stooklijn | round(1) }}°C** ◀{% else %}{{ stooklijn | round(1) }}°C{% endif %}{% else %}*n/b*{% endif %} |
+              | Advies buiten | {% if stooklijn %}{% if geconfigureerd == 'stooklijn' %}**{{ stooklijn | round(1) }}°C** ◀{% else %}{{ stooklijn | round(1) }}°C{% endif %}{% else %}*n/b*{% endif %} |
 
-              | Huismodel (1R1C) advies | {% if rc %}{% if geconfigureerd == '1r1c' %}**{{ rc | round(1) }}°C** ◀{% else %}{{ rc | round(1) }}°C{% endif %}{% if rc_terugval %} <small>(terugval op MPC: huismodel nog niet online)</small>{% endif %}{% else %}*n/b*{% endif %} |
+              | Advies huismodel + kamer | {% if rc %}{% if geconfigureerd == '1r1c' %}**{{ rc | round(1) }}°C** ◀{% else %}{{ rc | round(1) }}°C{% endif %}{% if rc_terugval %} <small>(leert nog: stuurt als buiten + kamer)</small>{% endif %}{% else %}*n/b*{% endif %} |
 
               | Marge boven advies | {% if marge is not none %}+{{ marge | round(1) }}°C{% else %}*n/b*{% endif %} |
 
-              | Ingestelde limiet | {% if limiet %}**{{ limiet | round(1) }}°C**{% else %}*n/b*{% endif %} |
+              | Max. aanvoertemperatuur nu | {% if limiet %}**{{ limiet | round(1) }}°C**{% else %}*n/b*{% endif %} |
 
               | Thermostaat vraagt | {% if setpoint %}{{ setpoint | round(1) }}°C{% else %}*n/b*{% endif %} |
 
@@ -2627,13 +2678,13 @@ views:
               columns: full
               rows: auto
 
-      # ── Aanvoer-fout (MPC error) — smoothness indicator (48 uur) ──
+      # ── Afwijking advies buiten + kamer (48 uur) ──
       - type: grid
         column_span: 2
         cards:
           - type: custom:apexcharts-card
             header:
-              title: Afwijking MPC-advies (48 uur)
+              title: Afwijking advies buiten + kamer (48 uur)
               show: true
             graph_span: 48h
             yaxis:
@@ -2665,7 +2716,7 @@ views:
                   right: 100
             series:
               - entity: sensor.quatt_warmteanalyse_mpc_fout_aanvoertemperatuur
-                name: MPC fout (advies − werkelijk)
+                name: Afwijking (advies − werkelijk)
                 yaxis_id: error
                 color: "#2196F3"
                 stroke_width: 2
@@ -2724,7 +2775,7 @@ views:
               columns: full
               rows: auto
 
-      # ── Soundslider & gasketel status (alleen met compensatie aan) ──
+      # ── Soundslider & gasketel (alleen met soundslider-sturing) ──
       - type: grid
         column_span: 2
         visibility:
@@ -2743,12 +2794,12 @@ views:
               - entity: binary_sensor.quatt_warmteanalyse_gasketel_actief
                 name: Gasketel
               - entity: switch.quatt_warmteanalyse_geluidsniveau_compensatie
-                name: Compensatie
+                name: Sturing
             grid_options:
               columns: full
               rows: auto
 
-      # ── Soundslider-compensatie (alleen zichtbaar als geconfigureerd) ──
+      # ── Soundslider-sturing (alleen zichtbaar als geconfigureerd) ──
       - type: grid
         visibility:
           - condition: state
@@ -2764,7 +2815,7 @@ views:
                 state_not: unavailable
             card:
               type: markdown
-              title: Soundslider-compensatie
+              title: Soundslider-sturing
               content: >
                 {% set sw =
                 states('switch.quatt_warmteanalyse_geluidsniveau_compensatie') %}
@@ -2806,7 +2857,7 @@ views:
 
                 | Switch | {% if sw == 'on' %}Aan{% else %}Uit{% endif %} |
 
-                | Stuurt op | {% if bron == 'stooklijn' %}Stooklijn (alleen buitentemperatuur){% elif bron == 'mpc' %}MPC (stooklijn + kamercorrectie){% elif bron == '1r1c' %}Huismodel (1R1C) + kamercorrectie{% if state_attr('sensor.quatt_warmteanalyse_1r1c_aanbevolen_aanvoertemperatuur', 'terugval') %} — nu terugval op MPC{% endif %}{% else %}—{% endif %} |
+                | Stuurt op | {{ state_attr(swe, 'advies_bron_naam') or '—' }}{% if bron == '1r1c' and state_attr('sensor.quatt_warmteanalyse_1r1c_aanbevolen_aanvoertemperatuur', 'terugval') %} — leert nog, stuurt als buiten + kamer{% endif %} |
 
                 | HP actief | {% if hp %}Ja{% else %}Nee{% endif %} |
 
