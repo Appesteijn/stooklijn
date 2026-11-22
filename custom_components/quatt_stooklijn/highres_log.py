@@ -70,6 +70,10 @@ SAMPLE_INTERVAL = timedelta(minutes=5)
 #: 90 dagen bij vijf minuten. Ruim een stookseizoen, zodat een analyse in
 #: maart de koudste weken nog terugvindt.
 MAX_SAMPLES = 25_920
+#: In de compacte opslag staat het tijdstip om de zoveel regels voluit (een dag).
+ANCHOR_EVERY = 288
+#: Een eerste veld vanaf hier is een tijdstip, geen verschil (2001-09-09).
+ABSOLUTE_TS_MIN = 1_000_000_000
 
 #: Monsters dichter op elkaar dan dit worden overgeslagen. Zonder deze rem
 #: zou een herstart-storm of een handmatige aanroep het venster verkorten.
@@ -187,12 +191,15 @@ class HighResLog:
         voor 74 dagen met zes kolommen (~105 tekens per monster). Zo is het
         ~70 tekens per monster met vijftien kolommen. Het tijdstip staat als
         verschil met het vorige monster (meestal 300), onbekend is een leeg veld.
+        Elke ``ANCHOR_EVERY`` regels staat het tijdstip voluit: een onleesbare
+        regel kost dan hooguit tot het volgende anker, in plaats van alle
+        latere tijdstippen te verschuiven.
         """
         lines = []
         prev = None
-        for row in self._samples:
+        for i, row in enumerate(self._samples):
             ts = int(row[0])
-            head = str(ts if prev is None else ts - prev)
+            head = str(ts if prev is None or i % ANCHOR_EVERY == 0 else ts - prev)
             prev = ts
             lines.append(",".join([head, *(_fmt(v) for v in row[1:])]))
         return {"format": 2, "columns": list(COLUMNS), "rows": "\n".join(lines)}
@@ -208,14 +215,25 @@ class HighResLog:
             for line in data["rows"].split("\n"):
                 parts = line.split(",")
                 # Een half geschreven of met de hand aangepast bestand mag het
-                # logboek niet slopen: onbruikbare regels overslaan.
+                # logboek niet slopen: onbruikbare regels overslaan. Is het
+                # tijdstip zelf onleesbaar, dan is het volgende verschil nergens
+                # meer aan vast te knopen: tot het volgende anker overslaan.
                 try:
                     step = int(parts[0])
-                    ts = step if prev is None else prev + step
-                    values = [float(p) if p != "" else math.nan for p in parts[1:]]
                 except (TypeError, ValueError, IndexError):
+                    prev = None
                     continue
+                if step >= ABSOLUTE_TS_MIN:
+                    ts = step
+                elif prev is None:
+                    continue
+                else:
+                    ts = prev + step
                 prev = ts
+                try:
+                    values = [float(p) if p != "" else math.nan for p in parts[1:]]
+                except (TypeError, ValueError):
+                    continue
                 row = _by_name(cols[1:], values)
                 if row is not None:
                     log._samples.append([ts, *row])

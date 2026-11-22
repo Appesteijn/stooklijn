@@ -356,7 +356,39 @@ class TestExtraKolommen:
         regels = data["rows"].split("\n")
         regels[1] = "300,onzin"
         data["rows"] = "\n".join(regels)
-        assert len(HighResLog.from_dict(data)) == 2
+        terug = HighResLog.from_dict(data)
+        assert len(terug) == 2
+        # Het verschil van de kapotte regel telt mee: geen verschoven tijden.
+        assert terug.rows()[1][0] == log.rows()[2][0]
+
+    def _anker_logboek(self, n=600):
+        from custom_components.quatt_stooklijn.highres_log import ANCHOR_EVERY
+        log = HighResLog()
+        for i in range(n):
+            log.record(T0 + i * SAMPLE_INTERVAL, 20.0, 4.0, 0.0, 0.0)
+        return log, ANCHOR_EVERY
+
+    def test_onleesbaar_tijdstip_kost_hooguit_tot_het_volgende_anker(self):
+        """Review 22-11: één onleesbare regel verschoof alle latere tijden."""
+        log, anker = self._anker_logboek()
+        data = log.to_storage()
+        regels = data["rows"].split("\n")
+        regels[10] = "x" + regels[10]
+        data["rows"] = "\n".join(regels)
+        terug = HighResLog.from_dict(data)
+        echt = {r[0] for r in log.rows()}
+        assert {r[0] for r in terug.rows()} <= echt
+        assert len(terug) == len(log) - (anker - 10)
+
+    def test_onleesbare_eerste_regel_geen_1970(self):
+        log, anker = self._anker_logboek()
+        data = log.to_storage()
+        regels = data["rows"].split("\n")
+        regels[0] = "onzin"
+        data["rows"] = "\n".join(regels)
+        terug = HighResLog.from_dict(data)
+        assert min(r[0] for r in terug.rows()) == log.rows()[anker][0]
+        assert len(terug) == len(log) - anker
 
     def test_oud_formaat_met_zes_kolommen_krijgt_onbekende_extra(self):
         oud = {"samples": [[1_790_000_000, 20.0, 4.0, 2500.0, 10.0, 1500.0]]}
