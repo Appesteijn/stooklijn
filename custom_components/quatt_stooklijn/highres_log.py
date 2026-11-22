@@ -378,3 +378,12 @@ class HighResLogStore:
         except BaseException:
             self._dirty = True
             raise
+        finally:
+            # Een monster dat tijdens het wachten binnenkwam, zette een
+            # uitgestelde opslag klaar, en Store.async_save heeft die net
+            # geannuleerd. Zonder deze regel stond er dan tot de volgende
+            # uurtik niets klaar, en kostte een herstart tot een uur aan
+            # monsters (tweede review 22-11).
+            if self._dirty:
+                self._store.async_delay_save(
+                    self._snapshot, SAVE_DELAY.total_seconds())

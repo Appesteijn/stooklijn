@@ -222,6 +222,37 @@ class TestStore:
         assert store._hass.async_add_executor_job.await_args.args[0] is _compact
         assert HighResLog.from_dict(inner.async_save.await_args.args[0]).rows() == store.log.rows()
 
+    def test_monster_tijdens_het_opslaan_houdt_een_uitgestelde_opslag(self):
+        """HA's Store.async_save annuleert een klaargezette uitgestelde opslag.
+        Kwam er tijdens het opmaken een monster bij, dan moet er daarna weer
+        een klaarstaan, anders verliest een herstart tot een uur."""
+        import asyncio
+        from unittest.mock import AsyncMock
+        from custom_components.quatt_stooklijn.highres_log import _compact
+        store, inner = self._store(None)
+        asyncio.run(store.async_load())
+        store.record(T0, 20.0, 4.0, 0.0, 0.0)
+        assert inner.async_delay_save.call_count == 1
+
+        def opmaken(f, rows):
+            store.record(T0 + SAMPLE_INTERVAL, 20.1, 4.0, 0.0, 0.0)
+            return _compact(rows)
+
+        store._hass.async_add_executor_job = AsyncMock(side_effect=opmaken)
+        asyncio.run(store.async_save())
+        # Eén keer door het monster zelf, één keer na het opslaan.
+        assert inner.async_delay_save.call_count == 3
+        func, _ = inner.async_delay_save.call_args.args
+        assert len(HighResLog.from_dict(func())) == 2
+
+    def test_zonder_nieuw_monster_niets_klaargezet(self):
+        import asyncio
+        store, inner = self._store(None)
+        asyncio.run(store.async_load())
+        store.record(T0, 20.0, 4.0, 0.0, 0.0)
+        asyncio.run(store.async_save())
+        assert inner.async_delay_save.call_count == 1
+
     def test_mislukte_opslag_blijft_te_doen(self):
         import asyncio
         from unittest.mock import AsyncMock
