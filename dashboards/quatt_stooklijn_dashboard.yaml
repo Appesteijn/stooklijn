@@ -1355,6 +1355,21 @@ views:
 
               {% set a = state_attr(s, 'afkoeling') %}{% if a and a.n and a.model is defined %}Afkoeling met de warmtepomp uit ({{ a.n }}× {{ a.uren | int }} uur, gemeten gemiddeld {{ a.model.gemeten_k }}&nbsp;K): 2R2C zit er gemiddeld {{ a.model.fout_gem_k }}&nbsp;K naast (spreiding {{ a.model.fout_rmse_k }}&nbsp;K){% if a.referentie is defined %}, het lerende huismodel {{ a.referentie.fout_gem_k }}&nbsp;K (spreiding {{ a.referentie.fout_rmse_k }}&nbsp;K){% endif %}.{% endif %}
 
+              {% set n = state_attr(s, 'naspeler') %}{% if n and n.varianten is defined %}
+
+              **Naspeler** — de laatste {{ n.dagen }} dagen opnieuw doorgerekend met het 2R2C als huis en een andere regelaar (doel {{ n.doel_c }}&nbsp;°C). Een modeluitkomst, geen meting.
+
+
+              | Regelaar | Energie | Kamerfout | Te koud |
+
+              |:--|--:|--:|--:|
+
+              {% for naam, v in n.varianten.items() %}| {{ naam | replace('_', ' ') }}{% if naam == n.beste %} ✅{% endif %} | {{ v.energie_kwh }}&nbsp;kWh | {{ v.kamer_rmse_k }}&nbsp;K | {{ v.te_koud_pct }}% |
+
+              {% endfor %}
+
+              {% endif %}
+
               {% else %}
 
               ⏸️ **Nog niet overgenomen** — {{ state_attr(s, 'reason') }}.

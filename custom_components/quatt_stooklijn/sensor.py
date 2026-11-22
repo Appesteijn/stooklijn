@@ -487,9 +487,12 @@ async def async_setup_entry(
     # "niet ingesteld" zegt kost alleen aandacht.
     cfg = {**entry.data, **entry.options}
     if cfg.get(CONF_PRICE_MODE, DEFAULT_PRICE_MODE) != PRICE_MODE_OFF:
-        entities.append(
-            QuattPriceShiftSensor(hass, coordinator, entry, mpc_sensor, benchmark_sensor)
+        price_sensor = QuattPriceShiftSensor(
+            hass, coordinator, entry, mpc_sensor, benchmark_sensor
         )
+        entities.append(price_sensor)
+        # Schaduwfase: de stap van nu uit het verschoven plan (stuurt niets).
+        entities.append(QuattShiftPlanSensor(hass, entry, price_sensor, mpc_sensor))
 
     if {**entry.data, **entry.options}.get(CONF_SOUND_LEVEL_ENABLED, False):
         entities.append(QuattSoundLevelSensor(hass, entry))
@@ -2074,6 +2077,54 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             **self._emitter_args(flow_lph),
         ), MPC_ADVICE_OK
 
+    def _predictive_advice(
+        self, t_outdoor, t_return, flow_lph, effective_flow, fc_temps, fc_solar
+    ) -> dict | None:
+        """Schaduwadvies: inhaalterm op de kamer over ``PREDICT_HOURS`` uur.
+
+        De kamer over een paar uur volgt uit het goedgekeurde 2R2C met alleen
+        het warmteverlies als vermogen, en de verwachte buitentemperatuur en
+        zon. In de naspeler op het testhuis (21 dagen, november 2026): kamerfout
+        0,10 K tegen 0,14 K met de inhaalterm op de kamer van nu, bij gelijke
+        energie. Vooral bedoeld voor zware vloeren, waar achteraf reageren te
+        laat is. Stuurt niets.
+        """
+        from .analysis.replay import PREDICT_HOURS
+        from .analysis.thermal_model_2r2c import TwoStateStepper
+
+        two = self.house_model_2r2c()
+        loss = self._heat_loss_line()
+        if two is None or loss is None or t_outdoor is None or not fc_temps:
+            return None
+        u, t_bal = loss
+        params, start = two
+        stepper = TwoStateStepper(params, start.t_mass)
+        t_room = start.t_indoor
+        for j in range(min(PREDICT_HOURS, len(fc_temps))):
+            t_out = t_outdoor if j == 0 else fc_temps[j]
+            q_st = u * max(0.0, t_bal - t_out)
+            sol = fc_solar[j] if j < len(fc_solar) else 0.0
+            t_room = stepper.predict_t_indoor(t_room, t_out, q_st, sol, 1.0)
+        t_set, _ = self._resolve_room_setpoint()
+        stationary = u * max(0.0, t_bal - t_outdoor)
+        if stationary <= 0:
+            return {"kamer_over_uren": PREDICT_HOURS, "kamer_verwacht_c": round(t_room, 2),
+                    "vraag_w": 0, "aanvoer_c": None}
+        demand = max(0.0, stationary + MPC_CATCHUP_FACTOR * u * (t_set - t_room))
+        cap = self._capacity_w(t_outdoor)
+        if cap is not None:
+            demand = min(demand, cap)
+        supply = None
+        if t_return is not None or self.emitter is not None:
+            try:
+                supply = supply_temp_for(
+                    demand, t_return, effective_flow, MPC_SUPPLY_TEMP_MIN,
+                    MPC_SUPPLY_TEMP_MAX, **self._emitter_args(flow_lph))
+            except ValueError:
+                supply = None
+        return {"kamer_over_uren": PREDICT_HOURS, "kamer_verwacht_c": round(t_room, 2),
+                "vraag_w": round(demand), "aanvoer_c": supply}
+
     def _emitter_args(self, flow_lph: float | None) -> dict:
         """Met een stilstaande pomp is de retour afgekoeld water: dan de
         aanvoer uit het afgiftemodel, met de kamer van nu (of het setpoint)."""
@@ -2336,6 +2387,11 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             ),
             "solar_forecast_fresh": self._solar_forecast_is_fresh,
             "zon_vooruitblik_factor": self.solar_lead_factor,
+            # Schaduw: het advies met de inhaalterm op de kamer over een paar
+            # uur volgens het goedgekeurde 2R2C, met het weer dat komt. Stuurt
+            # niets; zie _predictive_advice en analysis/replay.py.
+            "advies_voorspellend": self._predictive_advice(
+                t_outdoor, t_return, flow_lph, effective_flow, fc_temps, fc_solar_wm2),
             # Afgiftemodel: aanvoer uit vermogen en kamer, voor de uren vooruit
             # en bij een stilstaande pomp. Zie analysis/emitter.py.
             "afgiftemodel": self.emitter.to_dict() if self.emitter is not None else None,
@@ -2857,6 +2913,8 @@ class QuattModelBenchmarkSensor(
         self._entry = entry
         self._mpc = mpc_sensor
         self._result: Comparison | None = None
+        # De naspeler (analysis/replay.py), alleen met een goedgekeurd 2R2C.
+        self._replay: dict | None = None
         self._store = Store(
             coordinator.hass, 1, f"{DOMAIN}.model_benchmark_{entry.entry_id}"
         )
@@ -2907,6 +2965,7 @@ class QuattModelBenchmarkSensor(
         attrs["gevelzon_rmse_k"] = (window or {}).get("rmse_k")
         attrs["richting_ramen"] = (window or {}).get("richting_ramen")
         attrs["richting_panelen"] = (window or {}).get("richting_panelen")
+        attrs["naspeler"] = getattr(self, "_replay", None)
         return attrs
 
     async def async_added_to_hass(self) -> None:
@@ -2937,6 +2996,11 @@ class QuattModelBenchmarkSensor(
             and now_ts - restored.measured_ts <= self.KEEP_RESULT.total_seconds()
         ):
             self._result = restored
+            naspeler = stored.get("naspeler")
+            self._replay = naspeler if isinstance(naspeler, dict) else None
+
+    def _storage(self) -> dict:
+        return {**self._result.to_storage(), "naspeler": self._replay}
 
     async def _async_run(self, _now=None) -> None:
         """Meet opnieuw. Een mislukte meting laat de vorige uitkomst staan."""
@@ -2961,6 +3025,11 @@ class QuattModelBenchmarkSensor(
             result = await self.hass.async_add_executor_job(
                 _compare_anchored, rows, model, u, bp, now_ts
             )
+            replay_out = None
+            if result.approved and result.params_use and u is not None and bp is not None:
+                replay_out = await self.hass.async_add_executor_job(
+                    _run_replay, result.params_use, rows, u, bp
+                )
             window = await self._async_window_variant(rows)
         except Exception:
             _LOGGER.warning("Modelvergelijking mislukt", exc_info=True)
@@ -2968,8 +3037,9 @@ class QuattModelBenchmarkSensor(
         finally:
             self._running = False
         self._result = result
+        self._replay = replay_out
         self._window = window
-        self._store.async_delay_save(result.to_storage, 30)
+        self._store.async_delay_save(self._storage, 30)
         _LOGGER.info(
             "Modelvergelijking: 2R2C %s K, huidig %s K, niets doen %s K — %s; "
             "gevelzon %s K",
@@ -3009,6 +3079,19 @@ class QuattModelBenchmarkSensor(
         result["richting_panelen"] = self._mpc.pv_azimuth
         return result
 
+
+
+def _run_replay(params_dict, rows, u, balance_point) -> dict | None:
+    """De naspeler op het goedgekeurde 2R2C; executor. Een fout kost alleen
+    de naspeler, niet de vergelijking."""
+    from .analysis.replay import replay
+    from .analysis.thermal_model_2r2c import TwoStateParams
+
+    try:
+        return replay(TwoStateParams.from_dict(params_dict), rows, u, balance_point)
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning("Naspeler mislukt", exc_info=True)
+        return None
 
 
 def _compare_anchored(rows, model, u, balance_point, now_ts):
@@ -4983,6 +5066,119 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
                 k.lstrip("_"): v for k, v in self._preview.items()
             }
         return attrs
+
+
+class QuattShiftPlanSensor(SensorEntity):
+    """Schaduwfase: wat het verschoven plan nú zou vragen. Stuurt niets.
+
+    Leest de voorvertoning van de prijsverschuiving (per kwartier) en geeft
+    het vermogen van dit kwartier, het vlakke vermogen ernaast, en de
+    setpointverschuiving die erbij hoort: hoeveel de kamer volgens het
+    huismodel boven of onder de vlakke baan komt te staan. Met het
+    afgiftemodel ook de aanvoer die dat vermogen vraagt.
+
+    Uitvoerbaar maken is een aparte stap (analyse 22-11-2026, punt 9):
+    OpenQuatt in Power House neemt het vermogen als warmtevraag; een CiC kan
+    met de max. aanvoertemperatuur alleen knijpen in dure uren, extra stoken in
+    goedkope uren gaat daar alleen via het thermostaatsetpoint. Wat de
+    firmware van OpenQuatt binnen de comfortband met de kamerfout doet, is nog
+    niet getoetst.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "shift_plan"
+    _attr_icon = "mdi:calendar-clock"
+    _attr_native_unit_of_measurement = "W"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _unrecorded_attributes = frozenset({"komende_stappen"})
+
+    INTERVAL = timedelta(minutes=5)
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, price_sensor, mpc_sensor) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._price = price_sensor
+        self._mpc = mpc_sensor
+        self._attr_unique_id = f"{entry.entry_id}_shift_plan"
+        self._attr_device_info = get_device_info(entry.entry_id)
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT, "quatt_warmteanalyse_plan_nu", hass=hass
+        )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_time_interval(self.hass, self._tick, self.INTERVAL)
+        )
+
+    async def _tick(self, _now=None) -> None:
+        self.async_write_ha_state()
+
+    def _steps(self) -> list[dict]:
+        preview = getattr(self._price, "_preview", None) or {}
+        return list(preview.get("_uren") or [])
+
+    def _current(self, now: datetime | None = None) -> tuple[int, list[dict]] | None:
+        steps = self._steps()
+        if not steps:
+            return None
+        now = now or dt_util.utcnow()
+        best = None
+        for i, step in enumerate(steps):
+            try:
+                t = datetime.fromisoformat(step["tijd"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if t <= now:
+                best = i
+        if best is None:
+            return None
+        start = datetime.fromisoformat(steps[best]["tijd"])
+        if now - start > timedelta(minutes=DEMAND_SHIFT_STEP_MINUTES):
+            return None
+        return best, steps
+
+    @property
+    def native_value(self) -> int | None:
+        cur = self._current()
+        if cur is None:
+            return None
+        i, steps = cur
+        return steps[i].get("verschoven_w")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        cur = self._current()
+        if cur is None:
+            return {"plan": False, "reden": getattr(self._price, "_reason", None)
+                    or "geen plan voor dit kwartier"}
+        i, steps = cur
+        step = steps[i]
+        vlak, verschoven = step.get("vlak_w"), step.get("verschoven_w")
+        kv, kf = step.get("kamer_verschoven_c"), step.get("kamer_vlak_c")
+        emitter = getattr(self._mpc, "emitter", None)
+        aanvoer = None
+        if emitter is not None and verschoven:
+            t_room = self._mpc._resolve_room_setpoint()[0]
+            aanvoer = round(emitter.supply(float(verschoven), t_room), 1)
+        return {
+            "plan": True,
+            "stap": step.get("tijd"),
+            "vlak_w": vlak,
+            "verschil_w": (verschoven - vlak) if vlak is not None and verschoven is not None else None,
+            # Hoeveel het kamersetpoint zou moeten schuiven om dit plan te
+            # volgen: de kamer volgens het plan min de vlakke baan.
+            "setpoint_verschuiving_k": (
+                round(kv - kf, 2) if kv is not None and kf is not None else None),
+            "aanvoer_plan_c": aanvoer,
+            "prijs": step.get("prijs"),
+            "komende_stappen": [
+                {"tijd": s.get("tijd"), "verschoven_w": s.get("verschoven_w"),
+                 "vlak_w": s.get("vlak_w")}
+                for s in steps[i:i + 16]
+            ],
+        }
 
 
 class QuattChMaxWaterSensor(SensorEntity, RestoreEntity):

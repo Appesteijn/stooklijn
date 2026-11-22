@@ -353,6 +353,9 @@
       "thermostaat_setpoint": {
         "name": "Thermostat setpoint"
       },
+      "shift_plan": {
+        "name": "Shift plan now (shadow)"
+      },
       "price_shift": {
         "name": "Price shift savings (shadow)"
       },

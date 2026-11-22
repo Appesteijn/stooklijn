@@ -353,6 +353,9 @@
       "thermostaat_setpoint": {
         "name": "Thermostat-Sollwert"
       },
+      "shift_plan": {
+        "name": "Verschiebungsplan jetzt (Schatten)"
+      },
       "price_shift": {
         "name": "Preisverschiebung Ersparnis (Schatten)"
       },

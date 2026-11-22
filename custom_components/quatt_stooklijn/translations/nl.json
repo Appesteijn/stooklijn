@@ -353,6 +353,9 @@
       "thermostaat_setpoint": {
         "name": "Thermostaat setpoint"
       },
+      "shift_plan": {
+        "name": "Plan nu (schaduw)"
+      },
       "price_shift": {
         "name": "Prijsverschuiving besparing (schaduw)"
       },

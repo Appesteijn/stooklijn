@@ -353,6 +353,9 @@
       "thermostaat_setpoint": {
         "name": "Consigne du thermostat"
       },
+      "shift_plan": {
+        "name": "Plan de décalage maintenant (fantôme)"
+      },
       "price_shift": {
         "name": "Économie par décalage tarifaire (fantôme)"
       },

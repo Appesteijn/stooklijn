@@ -77,6 +77,22 @@ je leest is anders.
   aanvoertemperatuur; zonder deze correctie was de voorspelde besparing te
   gunstig. Uit de meting zelf is dat niet te leren: de aanvoer volgt de
   stooklijn en beweegt dus mee met buiten.
+- **Naspeler.** Met een goedgekeurd 2R2C rekent de modelvergelijking elke nacht
+  de laatste 21 dagen opnieuw door met een andere regelaar: zonder kamerterm,
+  inhaalfactor 5, 10 en 20, en voorspellend. Op hetzelfde weer, dus in één
+  nacht te vergelijken in plaats van weken A/B. Attribuut `naspeler`, tabel op de
+  kaart Modelvergelijking. Een modeluitkomst, geen meting; het sturingseffect
+  blijft de controle. Op het testhuis: kamerfout 0,34 K zonder kamerterm,
+  0,14 K met factor 10, 0,10 K voorspellend, bij gelijke energie.
+- **Voorspellend schaduwadvies** (`advies_voorspellend` op de MPC-sensor): de
+  inhaalterm op de kamer over drie uur volgens het 2R2C, met de verwachte
+  buitentemperatuur en zon. Stuurt niets; bedoeld om te zien wat het bij zware
+  vloeren zou doen.
+- **Plan nu (schaduw)**, nieuwe sensor `sensor.quatt_warmteanalyse_plan_nu`
+  (alleen met een tarief): het vermogen van dit kwartier uit het verschoven
+  plan van de prijsverschuiving, met het vlakke vermogen, de
+  setpointverschuiving die erbij hoort en (met het afgiftemodel) de aanvoer.
+  Stuurt niets.
 
 ## v0.10.7-beta.8 — 2026-11-22
 
