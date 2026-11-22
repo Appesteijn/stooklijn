@@ -94,6 +94,27 @@ je leest is anders.
   setpointverschuiving die erbij hoort en (met het afgiftemodel) de aanvoer.
   Stuurt niets.
 
+Herstellingen na de review van 22-11:
+
+- **Prijsverschuiving rekenwijze 3.** De driftgrens van het 2R2C en de
+  aanvoer-COP veranderen de besparing; oude dagen tellen niet meer mee in het
+  seizoenstotaal.
+- **Aanvoer-COP tegen het minimumvermogen.** Ligt het vlakke vermogen onder
+  het minimum, dan is het minimum de referentie: de installatie pendelt daar
+  toch al. Op zachte dagen viel de voorspelde besparing te laag uit.
+- **Afgiftemodel wordt bewaard.** Na een herstart sprongen de stooklijnpunten
+  anders tot het eerste leren terug naar de vaste retour. Een mislukte poging
+  probeert het volgende uur opnieuw in plaats van een dag later.
+- **Kamerlijn en driftgrens uit hetzelfde 2R2C**, en de kaart zegt met welk
+  model de driftgrens rekent.
+- **Gevelzonvariant met dezelfde ankers** als de hoofdvergelijking.
+- **Bron Buitentemperatuur bij stilstaande pomp** rekent met het afgiftemodel
+  in plaats van afgekoeld retourwater (attribuut `aanvoer_uit`).
+- **Goedkeuring van het 2R2C vervalt** na 48 uur zonder nieuwe meting, en een
+  afkoelfout die geen getal is keurt niet meer goed.
+- **Meetlogboek:** het tijdstip staat elke dag voluit, zodat een onleesbare
+  regel niets verschuift; opmaken en inlezen gebeuren buiten de event loop.
+
 ## v0.10.7-beta.8 — 2026-11-22
 
 - **De soundslider zet je eigen geluidsniveaus terug.** Bij het inschakelen

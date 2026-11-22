@@ -229,9 +229,12 @@ allemaal september en oktober): gemeten −0,25 K; 1R1C fout −0,04, vrij 2R2C
 - **Goedkeuring voor gebruik** (`Comparison.approved`) vraagt de gewone toets,
   de toets met de weken omgedraaid, een fit op het hele logboek, en een
   afkoeltoets: minstens 10 vensters, gemiddelde fout ≤ 0,10 K, en niet
-  slechter dan het 1R1C. Pas dan rekenen uitlooptijd, driftgrens en de
-  kamerlijn van de vooruitblik met het 2R2C. Het advies rekent met de
-  warmteverliesanalyse, niet met het 2R2C.
+  slechter dan het 1R1C. Pas dan rekenen uitlooptijd en driftgrens met het
+  2R2C. De kamerlijnen (vooruitblik en prijsverschuiving) tonen al eerder een
+  2R2C, de fit die de poort haalde, ter informatie; na goedkeuring rekenen ze
+  met dezelfde parameters als de driftgrens (`params_use`). Een goedkeuring
+  vervalt na 48 uur zonder nieuwe meting (`_approved_for_use`). Het advies
+  rekent met de warmteverliesanalyse, niet met het 2R2C.
 - Een installatie die in de winter begint, heeft geen stookloze vensters; dan
   blijft het 1R1C staan tot het tussenseizoen. Dat is de bedoeling.
 

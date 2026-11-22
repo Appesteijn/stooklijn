@@ -2567,9 +2567,10 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         try:
             # Goedgekeurd voor gebruik: de fit op het hele logboek, net als
             # uitlooptijd en driftgrens. Anders de fit die getoetst is.
-            use = getattr(result, "params_use", None)
             params, start = self._start_state_2r2c(
-                use if getattr(result, "approved", False) and use else result.params
+                result.params_use
+                if _approved_for_use(result, dt_util.utcnow().timestamp())
+                else result.params
             )
             if start.reason is not None:
                 return None, start.reason
