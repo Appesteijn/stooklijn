@@ -604,11 +604,16 @@ def _cooling_verdict(cooling: dict) -> tuple[bool, str]:
             f"afkoeling nog niet te toetsen ({n} van {COOLING_MIN_WINDOWS} "
             "stookloze vensters)")
     bias = cooling["model"]["fout_gem_k"]
+    rmse = cooling["model"]["fout_rmse_k"]
+    # Een fout die geen getal is, is geen kleine fout: NaN > grens is altijd
+    # onwaar en keurde zo goed (review 22-11-2026).
+    if not (np.isfinite(bias) and np.isfinite(rmse)):
+        return False, "afkoeling niet te toetsen (fout is geen getal)"
     if abs(bias) > COOLING_MAX_BIAS_K:
         richting = "te traag" if bias > 0 else "te snel"
         return False, f"afkoeling {richting} voorspeld ({bias:+.2f} K over {cooling['uren']:.0f} u)"
     ref = cooling.get("referentie")
-    if ref is not None and cooling["model"]["fout_rmse_k"] > ref["fout_rmse_k"]:
+    if ref is not None and np.isfinite(ref["fout_rmse_k"]) and rmse > ref["fout_rmse_k"]:
         return False, "afkoeling slechter voorspeld dan het huidige huismodel"
     return True, "goedgekeurd: beide toetsen en de afkoeling"
 

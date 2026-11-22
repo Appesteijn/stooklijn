@@ -488,6 +488,27 @@ class TestGoedkeuringVoorGebruik:
         ok, why = mb._cooling_verdict(self._koeling(rmse=0.25))
         assert not ok and "slechter" in why
 
+    @pytest.mark.parametrize("leeftijd_u, verwacht", [(1, True), (47, True), (49, False)])
+    def test_goedkeuring_verloopt_zonder_nieuwe_meting(self, leeftijd_u, verwacht):
+        """Review 22-11: mislukken de nachtelijke metingen, dan bleef een oude
+        goedkeuring in gebruik; de grens van 48 uur gold alleen bij het laden."""
+        from custom_components.quatt_stooklijn.sensor import _approved_for_use
+        nu = 1_795_000_000.0
+        u = _uitkomst(accepted=True, reason="beter", approved=True,
+                      params_use={"U": 2.0}, measured_ts=nu - leeftijd_u * 3600)
+        assert _approved_for_use(u, nu) is verwacht
+
+    def test_zonder_meettijd_geen_goedkeuring(self):
+        from custom_components.quatt_stooklijn.sensor import _approved_for_use
+        u = _uitkomst(accepted=True, reason="beter", approved=True, params_use={"U": 2.0})
+        assert _approved_for_use(u, 1_795_000_000.0) is False
+
+    @pytest.mark.parametrize("veld", ["fout", "rmse"])
+    def test_fout_die_geen_getal_is_keurt_niet_goed(self, veld):
+        """Review 22-11: NaN > grens is onwaar, dus NaN keurde goed."""
+        ok, why = mb._cooling_verdict(self._koeling(**{veld: float("nan")}))
+        assert not ok and "geen getal" in why
+
     def test_zonder_1r1c_alleen_de_eigen_fout(self):
         assert mb._cooling_verdict(self._koeling(ref_rmse=None))[0] is True
 

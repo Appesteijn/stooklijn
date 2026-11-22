@@ -2528,11 +2528,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         dat rekenen uitlooptijd en driftgrens met het 1R1C, zoals voorheen.
         """
         result = self.benchmark.result if getattr(self, "benchmark", None) else None
-        if (
-            result is None
-            or not getattr(result, "approved", False)
-            or not getattr(result, "params_use", None)
-        ):
+        if not _approved_for_use(result, dt_util.utcnow().timestamp()):
             return None
         try:
             params, start = self._start_state_2r2c(result.params_use)
@@ -2934,6 +2930,27 @@ class QuattRcAdviceSensor(
         self.async_write_ha_state()
 
 
+#: Hoe lang een goedkeuring voor gebruik geldt zonder nieuwe meting. Gelijk
+#: aan wat een bewaarde uitkomst na een herstart mag zijn: mislukken de
+#: nachtelijke metingen daarna, dan valt alles terug op het 1R1C.
+APPROVAL_MAX_AGE = timedelta(hours=48)
+
+
+def _approved_for_use(result, now_ts: float) -> bool:
+    """Is het 2R2C goedgekeurd voor gebruik, met een meting die niet te oud is?"""
+    if (
+        result is None
+        or not getattr(result, "approved", False)
+        or not getattr(result, "params_use", None)
+    ):
+        return False
+    measured = getattr(result, "measured_ts", None)
+    return (
+        isinstance(measured, (int, float))
+        and now_ts - measured <= APPROVAL_MAX_AGE.total_seconds()
+    )
+
+
 class QuattModelBenchmarkSensor(
     CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity
 ):
@@ -2971,7 +2988,9 @@ class QuattModelBenchmarkSensor(
     STARTUP_DELAY = timedelta(minutes=10)
 
     #: Hoe oud een bewaarde uitkomst mag zijn om na een herstart te gelden.
-    KEEP_RESULT = timedelta(hours=48)
+    #: Tijdens bedrijf geldt dezelfde grens voor de goedkeuring
+    #: (``_approved_for_use``).
+    KEEP_RESULT = APPROVAL_MAX_AGE
 
     def __init__(
         self,
@@ -4972,11 +4991,7 @@ class QuattPriceShiftSensor(QuattHeatDemandSensor):
         from .analysis.thermal_model_2r2c import TwoStateParams
 
         result = self._benchmark.result
-        approved = bool(
-            result is not None
-            and getattr(result, "approved", False)
-            and getattr(result, "params_use", None)
-        )
+        approved = _approved_for_use(result, dt_util.utcnow().timestamp())
         if result is None:
             reden = "modelvergelijking nog niet gemeten"
         elif not approved and (not result.accepted or not result.params):

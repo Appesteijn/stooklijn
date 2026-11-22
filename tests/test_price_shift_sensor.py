@@ -583,7 +583,8 @@ class TestKamertemperatuur:
 
     def _benchmark(self, accepted=True, params_use=None):
         return MagicMock(accepted=accepted, params=self.PARAMS, rmse_k=0.28,
-                         approved=params_use is not None, params_use=params_use)
+                         approved=params_use is not None, params_use=params_use,
+                         measured_ts=datetime.now(timezone.utc).timestamp())
 
     def _logboek(self):
         ts = NU.astimezone(timezone.utc).replace(minute=0, second=0).timestamp()
