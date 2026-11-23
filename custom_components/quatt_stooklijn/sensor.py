@@ -179,7 +179,7 @@ _COMPRESSOR_STORE_KEYS = {
 }
 from .highres_log import SAMPLE_INTERVAL, HighResLogStore
 from .analysis.solar_forecast_log import SolarForecastLog
-from .analysis.solar_input import Orientation
+from .analysis.solar_input import SCALE_MEASURED, Orientation
 from .thermal_store import ThermalModelStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -969,6 +969,8 @@ async def async_pv_hourly(
     stats = await get_instance(hass).async_add_executor_job(_fetch)
     state = hass.states.get(entity)
     unit = str((state.attributes.get("unit_of_measurement") if state else "") or "")
+    if _is_energy_unit(unit):
+        return []
     factor = _power_unit_factor(unit)
     out: list[tuple[float, float]] = []
     for row in (stats or {}).get(entity, []):
@@ -1011,6 +1013,12 @@ async def async_hourly_means(
                 begin = begin.timestamp()
             out[entity][float(begin)] = float(mean)
     return out
+
+
+def _is_energy_unit(unit: str) -> bool:
+    """Wh, kWh, MWh: een tellerstand, geen vermogen (Tweakers 22-11-2026:
+    ``today_energy`` en ``lifetime_energy`` werden stilzwijgend als W gelezen)."""
+    return unit.strip().lower() in ("wh", "kwh", "mwh")
 
 
 def _power_unit_factor(unit: str) -> float:
@@ -1123,6 +1131,14 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         self.pv_azimuth_scores: dict[int, float] = {}
         self._pv_orientation_at: datetime | None = None
         self.window_azimuth: float | None = None
+        # De laatste PV-schaal die met de zon boven 15° bepaald is, per
+        # zonnesensor; zie analysis/solar_input.measured_ghi. Bewaard, want rond
+        # de jaarwisseling is hij uit het venster van 30 dagen niet te bepalen.
+        self._pv_scale_store = Store(
+            coordinator.hass, 1, f"{DOMAIN}.pv_scale_{entry.entry_id}"
+        )
+        self._pv_scale: dict | None = None
+        self._pv_unit_warned: str | None = None
 
     # ------------------------------------------------------------------ helpers
 
@@ -1661,6 +1677,16 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         # Ook na een mislukte lezing: dan begint het opnieuw. Dit zijn
         # verwachtingen, geen metingen; er gaat niets onvervangbaars verloren.
         self._solar_forecast_loaded = True
+        try:
+            stored = await self._pv_scale_store.async_load()
+            if isinstance(stored, dict) and stored.get("entity") and stored.get("scale"):
+                self._pv_scale = {
+                    "entity": str(stored["entity"]),
+                    "scale": float(stored["scale"]),
+                    "at": float(stored.get("at") or 0.0),
+                }
+        except Exception:
+            _LOGGER.warning("Bewaarde PV-schaal laden mislukt", exc_info=True)
         self.solar_lead_factor = self.solar_forecast_log.lead_factor(
             dt_util.utcnow().timestamp()
         )
@@ -1674,7 +1700,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         return cfg.get(CONF_PV_POWER_ENTITY) or None
 
     def _pv_power_w(self) -> float | None:
-        """PV-vermogen nu, in W. None als onbekend (omvormers slapen 's nachts)."""
+        """PV-vermogen nu, in W. None als onbekend (omvormers slapen 's nachts)
+        of als de sensor energie meet in plaats van vermogen."""
         entity = self.pv_power_entity
         if not entity:
             return None
@@ -1683,7 +1710,40 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             return None
         state = self.hass.states.get(entity)
         unit = str((state.attributes.get("unit_of_measurement") if state else "") or "")
+        if _is_energy_unit(unit):
+            self._warn_pv_energy_unit(entity, unit)
+            return None
         return value * _power_unit_factor(unit)
+
+    def _warn_pv_energy_unit(self, entity: str, unit: str) -> None:
+        """Eén waarschuwing per sensor: hij meet energie, geen vermogen."""
+        if getattr(self, "_pv_unit_warned", None) == entity:
+            return
+        self._pv_unit_warned = entity
+        _LOGGER.warning(
+            "Zonnesensor %s meet energie (%s), geen vermogen; kies een sensor in "
+            "W of kW. Tot dan rekent de zon met Open-Meteo.", entity, unit,
+        )
+
+    def saved_pv_scale(self, entity: str | None) -> float | None:
+        """De bewaarde PV-schaal, mits van deze zonnesensor."""
+        saved = getattr(self, "_pv_scale", None)
+        if not entity or not saved or saved.get("entity") != entity:
+            return None
+        return saved.get("scale")
+
+    def remember_pv_scale(self, entity: str, scale: float) -> None:
+        """Bewaar een schaal die met de zon boven 15° bepaald is.
+
+        Alleen bij een merkbare verandering wegschrijven: hij wordt elk uur
+        opnieuw bepaald en schuift dan hooguit een paar procent.
+        """
+        now = dt_util.utcnow().timestamp()
+        old = self.saved_pv_scale(entity)
+        self._pv_scale = {"entity": entity, "scale": round(float(scale), 3), "at": now}
+        if old is not None and abs(scale - old) <= 0.01 * old:
+            return
+        self._pv_scale_store.async_delay_save(lambda: dict(self._pv_scale or {}), 60)
 
     @property
     def solar_orientation(self) -> Orientation:
@@ -3284,7 +3344,8 @@ class QuattModelBenchmarkSensor(
             )
             where = self._mpc.solar_orientation
             result = await self.hass.async_add_executor_job(
-                _window_variant_with_learned_direction, rows, where, hourly, u, bp
+                _window_variant_with_learned_direction, rows, where, hourly, u, bp,
+                self._mpc.saved_pv_scale(entity),
             )
         except Exception:
             _LOGGER.warning("Modelvergelijking met gevelzon mislukt", exc_info=True)
@@ -3318,7 +3379,7 @@ def _compare_anchored(rows, model, u, balance_point, now_ts):
 
 
 def _window_variant_with_learned_direction(
-    rows, where, hourly, u=None, balance_point=None,
+    rows, where, hourly, u=None, balance_point=None, saved_scale=None,
 ) -> dict:
     """De gevelzonvariant voor elke kandidaat-raamrichting; de beste wint.
 
@@ -3336,7 +3397,8 @@ def _window_variant_with_learned_direction(
     gewoon: dict[int, dict] = {}
     info: dict = {}
     for cand in WINDOW_AZIMUTH_CANDIDATES:
-        variant, info = window_rows(rows, replace(where, window_azimuth=float(cand)), hourly)
+        variant, info = window_rows(
+            rows, replace(where, window_azimuth=float(cand)), hourly, saved_scale)
         if variant is None:
             return {**info, "reden": "te weinig PV-data in het meetlogboek"}
         # Per richting eigen ankers: de gemiddelde zon hangt aan de zonkolom.
@@ -3448,16 +3510,26 @@ class QuattSolarForecastSensor(
             self._score = await self.hass.async_add_executor_job(
                 _score_solar_forecast,
                 SolarForecastLog.from_dict(log_dict), rows, entity, where, hourly, now, tz,
+                self._mpc.saved_pv_scale(entity),
             )
         except Exception:
             _LOGGER.warning("Zonverwachting scoren mislukt", exc_info=True)
             return
         finally:
             self._running = False
+        if (entity and self._score.get("pv_schaal_bron") == SCALE_MEASURED
+                and self._score.get("pv_schaal") is not None):
+            self._mpc.remember_pv_scale(entity, self._score["pv_schaal"])
+        state = self.hass.states.get(entity) if entity else None
+        unit = str((state.attributes.get("unit_of_measurement") if state else "") or "")
+        if _is_energy_unit(unit):
+            self._score["reden"] = (
+                f"zonnesensor meet energie ({unit}), geen vermogen: kies een sensor in W of kW"
+            )
         self.async_write_ha_state()
 
 
-def _score_solar_forecast(log, rows, entity, where, hourly, now, tz) -> dict:
+def _score_solar_forecast(log, rows, entity, where, hourly, now, tz, saved_scale=None) -> dict:
     """Rekenwerk van de zonverwachtingssensor; draait in de executor."""
     import numpy as np
 
@@ -3466,9 +3538,10 @@ def _score_solar_forecast(log, rows, entity, where, hourly, now, tz) -> dict:
 
     measured = None
     scale = None
+    source = None
     reden = None
     if entity:
-        ts, ghi, scale = measured_ghi(rows, where, hourly)
+        ts, ghi, scale, source = measured_ghi(rows, where, hourly, saved_scale)
         if scale is None:
             reden = "zonnesensor: nog te weinig zon gezien om de installatie te ijken"
         else:
@@ -3504,6 +3577,7 @@ def _score_solar_forecast(log, rows, entity, where, hourly, now, tz) -> dict:
         **score,
         "zonnesensor": entity,
         "pv_schaal": round(scale, 2) if scale is not None else None,
+        "pv_schaal_bron": source,
         "richting_panelen": where.pv_azimuth if entity else None,
         "reden": reden,
         "vandaag": vandaag,

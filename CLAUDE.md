@@ -268,3 +268,29 @@ minimum, met de aanvoer die daarbij hoort. Alleen de referentie klemmen gaf een
 restje onder het minimum een COP-bonus (review 22-11: 30 % besparing op een
 zachte dag, 0 % zonder aanvoer-COP); geen van beide klemmen strafte een blok op
 het minimum af tegen een vermogen dat de installatie niet kan leveren.
+
+## De PV-schaal: eigen monsters, dan bewaard, dan aangevuld, dan boven 10°
+
+Gemeten zon komt uit PV-vermogen gedeeld door een schaal (W per W/m² op het
+paneel bij heldere hemel), het 97e percentiel over momenten met de zon boven
+15° (`estimate_pv_scale`, minstens 100). In een venster van 30 dagen haalt dat
+op 52° NB begin januari 53 momenten, in Groningen geen. Daarom
+(`measured_ghi`, v0.10.7-beta.11), in deze volgorde: de eigen
+vijfminutenmonsters boven 15°; de laatste schaal die zo bepaald is (per
+zonnesensor, `.storage`); met de uuraanvulling erbij boven 15°; idem boven 10°.
+Alleen de eerste wordt bewaard.
+
+**Niet ijken op de uuraanvulling.** Een uurgemiddelde, lineair geïnterpoleerd,
+vlakt de dag af: per monster op heldere momenten 0,92× de echte waarde, op
+donkere 1,36×. Het percentiel pakt de heldere, dus de schaal komt te laag uit
+en alle gemeten zon te hoog. Testhuis 13–23-11-2026, dezelfde monsters: 4,32
+uit de aanvulling tegen 4,59 uit de vijfminutenstatistiek van de recorder
+(−6 %). Live stond 4,18 (1.530 van 1.643 monsters aangevuld); uit de eigen
+monsters 4,73. Voor de straling zelf blijft de aanvulling in gebruik (beter
+dan geen meting); hoe groot de fout per uur daar is, is niet gemeten.
+
+Gemeten op het testhuis (20–23-11-2026, panelen 195°): 4,75 uit 10–15° tegen
+4,74 boven 15°. Met de richting 15° verkeerd (180°): 5,07 tegen 4,76. Lage zon
+is dus gevoeliger voor de richting; daarom gaat de bewaarde schaal voor.
+Paneelrichting 180 of 195° maakte boven 15° nauwelijks uit (4,76 / 4,74),
+dus de bewaarde schaal is niet aan de geleerde richting gekoppeld.

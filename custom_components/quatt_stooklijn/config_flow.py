@@ -123,13 +123,19 @@ from .advice_sources import ADVICE_SOURCE_OPTIONS
 from .sources import async_source_entity
 
 
-def _entity(domain: str | list[str], *, multiple: bool = False) -> EntitySelector:
+def _entity(
+    domain: str | list[str], *, multiple: bool = False, device_class: str | None = None,
+) -> EntitySelector:
     """Entity-kiezer in plaats van een vrij tekstveld.
 
     Entity-IDs verschillen per Quatt-installatie (zie discovery.py), dus laten
     typen leidt tot stille misconfiguratie: een niet-bestaande naam werd zonder
-    foutmelding geaccepteerd.
+    foutmelding geaccepteerd. ``device_class`` beperkt de lijst; een eerder
+    gekozen sensor van een andere klasse blijft geldig bij opslaan.
     """
+    if device_class:
+        return EntitySelector(EntitySelectorConfig(
+            domain=domain, multiple=multiple, device_class=device_class))
     return EntitySelector(EntitySelectorConfig(domain=domain, multiple=multiple))
 
 
@@ -753,7 +759,10 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     # en ramen wordt geleerd, niet gevraagd.
                     _prefill(
                         CONF_PV_POWER_ENTITY, _existing(data.get(CONF_PV_POWER_ENTITY))
-                    ): _entity("sensor"),
+                    # Alleen vermogen: een energiesensor (kWh) werd als W gelezen
+                    # (Tweakers 22-11-2026). Wordt toch een energiesensor
+                    # ingesteld, dan negeert de integratie hem (_is_energy_unit).
+                    ): _entity("sensor", device_class="power"),
                     # Optioneel: entity die aangeeft dat een externe regelaar de
                     # WP knijpt (cap < 20) — tariefsturing, dynamisch contract, eigen
                     # script. Die periodes worden uitgesloten van de COP- en

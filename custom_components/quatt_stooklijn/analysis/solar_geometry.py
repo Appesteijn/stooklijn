@@ -142,9 +142,20 @@ def window_irradiance(
 #: Hoe de schaal van de PV-installatie wordt bepaald: dit percentiel van
 #: PV / PV-bij-heldere-hemel, over momenten waarop de zon hoog genoeg staat.
 PV_SCALE_PERCENTILE = 97.0
-#: Minimaal aantal bruikbare momenten voor een schaal. Bij vijf minuten is
-#: dat ruim een dag met zon.
+#: Minimaal aantal bruikbare momenten voor een schaal. Bij vijf minuten en
+#: zon boven 15° is dat in oktober ruim een dag, eind november drie dagen.
 PV_SCALE_MIN_SAMPLES = 100
+#: Zonhoogte waarboven de schaal bepaald wordt. Bij lage zon tellen schaduw
+#: van de buren en fouten in de heldere-hemelstraling zwaarder.
+PV_SCALE_MIN_ELEVATION = 15.0
+#: Winterdrempel, alleen als er boven 15° te weinig momenten zijn. Op 52° NB
+#: komt de zon van half december tot half januari nauwelijks boven 15°; in een
+#: venster van 30 dagen bleven er begin januari 53 momenten over, in Groningen
+#: geen. Boven 10° zijn het er dan nog ~500–1.600. Gemeten op het testhuis
+#: (20–23 nov 2026, panelen 195°): schaal 4,75 uit 10–15° tegen 4,74 boven 15°.
+#: Met de richting 15° verkeerd (180°) werd het 5,07 tegen 4,76: lage zon is
+#: gevoeliger voor de richting, daarom alleen als terugval.
+PV_SCALE_WINTER_ELEVATION = 10.0
 
 
 def pv_clear_sky(elevation, azimuth, e0, pv_tilt: float, pv_azimuth: float) -> np.ndarray:
@@ -152,16 +163,21 @@ def pv_clear_sky(elevation, azimuth, e0, pv_tilt: float, pv_azimuth: float) -> n
     return plane_irradiance(clearsky_ghi(elevation), elevation, azimuth, e0, pv_tilt, pv_azimuth)
 
 
-def estimate_pv_scale(pv_w: np.ndarray, pv_cs: np.ndarray, elevation: np.ndarray) -> float | None:
+def estimate_pv_scale(
+    pv_w: np.ndarray,
+    pv_cs: np.ndarray,
+    elevation: np.ndarray,
+    min_elevation: float = PV_SCALE_MIN_ELEVATION,
+) -> float | None:
     """W PV-vermogen per W/m² op het paneel bij heldere hemel (≈ kWp × rendement).
 
     Een hoog percentiel en geen maximum: één wolkenrand die het paneel
     kort extra licht geeft ("cloud enhancement") mag de schaal niet bepalen.
-    None zolang er te weinig zonnige momenten zijn.
+    None zolang er te weinig momenten zijn met de zon boven ``min_elevation``.
     """
     pv = np.asarray(pv_w, dtype=float)
     cs = np.asarray(pv_cs, dtype=float)
-    ok = (np.asarray(elevation) > 15.0) & (cs > 200.0) & np.isfinite(pv) & (pv > 0)
+    ok = (np.asarray(elevation) > min_elevation) & (cs > 200.0) & np.isfinite(pv) & (pv > 0)
     if ok.sum() < PV_SCALE_MIN_SAMPLES:
         return None
     scale = float(np.percentile(pv[ok] / cs[ok], PV_SCALE_PERCENTILE))

@@ -52,6 +52,9 @@ def _mpc(pv=None, unit="W", options=None):
     sensor.solar_forecast_log = SolarForecastLog()
     sensor._solar_forecast_loaded = True
     sensor._solar_forecast_store = MagicMock()
+    sensor._pv_scale_store = MagicMock()
+    sensor._pv_scale = None
+    sensor._pv_unit_warned = None
     return sensor
 
 
@@ -67,6 +70,38 @@ class TestZonnesensor:
 
     def test_slapende_omvormer(self):
         assert _mpc(pv="unavailable")._pv_power_w() is None
+
+    @pytest.mark.parametrize("unit", ["kWh", "Wh", "MWh"])
+    def test_energiesensor_telt_niet(self, unit, caplog):
+        """Tweakers 22-11-2026: today_energy en lifetime_energy werden als W gelezen."""
+        s = _mpc(pv=2.34, unit=unit)
+        assert s._pv_power_w() is None
+        assert s._pv_power_w() is None
+        assert sum("meet energie" in r.message for r in caplog.records) == 1
+
+
+class TestBewaardePVSchaal:
+    def test_alleen_van_dezelfde_sensor(self):
+        s = _mpc(pv=0)
+        s.remember_pv_scale(PV, 4.2)
+        assert s.saved_pv_scale(PV) == 4.2
+        assert s.saved_pv_scale("sensor.andere_omvormer") is None
+        assert s.saved_pv_scale(None) is None
+
+    def test_schrijft_alleen_bij_verandering(self):
+        s = _mpc(pv=0)
+        s.remember_pv_scale(PV, 4.2)
+        s.remember_pv_scale(PV, 4.21)              # binnen 1 %: niet opnieuw
+        assert s._pv_scale_store.async_delay_save.call_count == 1
+        s.remember_pv_scale(PV, 4.5)
+        assert s._pv_scale_store.async_delay_save.call_count == 2
+        assert s.saved_pv_scale(PV) == 4.5
+
+    def test_andere_sensor_schrijft_altijd(self):
+        s = _mpc(pv=0)
+        s.remember_pv_scale("sensor.oud", 4.2)
+        s.remember_pv_scale(PV, 4.2)
+        assert s._pv_scale_store.async_delay_save.call_count == 2
 
     @pytest.mark.parametrize("unit,factor", [("W", 1), ("kW", 1000), ("KW", 1000), ("MW", 1e6), ("", 1)])
     def test_eenheden(self, unit, factor):
@@ -151,7 +186,7 @@ class TestRichtingRamenKiezen:
                 (180, False): .22, (180, True): .22, (225, False): .25, (225, True): .25,
                 (270, False): .30, (270, True): .18}
         monkeypatch.setattr(si, "window_rows",
-                            lambda rows, where, hourly: ([[where.window_azimuth]], {"pv_dekking": 1.0}))
+                            lambda rows, where, hourly, saved=None: ([[where.window_azimuth]], {"pv_dekking": 1.0}))
         monkeypatch.setattr(mb, "compare_variant",
                             lambda v, reverse=False, **kw: {"rmse_k": rmse[(int(v[0][0]), reverse)],
                                                             "params": {"g": 10.0}})
@@ -170,7 +205,7 @@ class TestRichtingRamenKiezen:
         )
 
         monkeypatch.setattr(si, "window_rows",
-                            lambda rows, where, hourly: ([[where.window_azimuth]], {}))
+                            lambda rows, where, hourly, saved=None: ([[where.window_azimuth]], {}))
         gezien = []
         monkeypatch.setattr(mb, "anchors_from_rows",
                             lambda v, u, bp: ("anker", v[0][0], u, bp))
@@ -188,7 +223,7 @@ class TestRichtingRamenKiezen:
             _window_variant_with_learned_direction,
         )
 
-        monkeypatch.setattr(si, "window_rows", lambda rows, where, hourly: (None, {"pv_dekking": 0.2}))
+        monkeypatch.setattr(si, "window_rows", lambda rows, where, hourly, saved=None: (None, {"pv_dekking": 0.2}))
         r = _window_variant_with_learned_direction([], WAAR, [])
         assert "richting_ramen" not in r and r["pv_dekking"] == 0.2
 
@@ -247,6 +282,46 @@ class TestZonverwachtingScoren:
         s = self._score(met_pv=False)
         assert s["referentie"] == "latere_verwachting"
         assert s["pv_schaal"] is None
+
+    def test_schaalbron_in_de_attributen(self):
+        assert self._score()["pv_schaal_bron"] == "gemeten"
+
+    def test_aangevulde_schaal_wordt_niet_bewaard(self, monkeypatch):
+        """Alleen een schaal uit eigen monsters mag blijven staan."""
+        import asyncio
+
+        s = _mpc(pv=0)
+        z = sensor_mod.QuattSolarForecastSensor.__new__(sensor_mod.QuattSolarForecastSensor)
+        z._mpc, z._running, z.hass = s, False, s.hass
+        z.async_write_ha_state = lambda: None
+        s.highres_rows = lambda since=None: []
+
+        async def geen():
+            return None
+
+        async def executor(fn, *args):
+            return fn(*args)
+
+        async def uren(*a):
+            return []
+
+        s.async_learn_pv_orientation = geen
+        s.hass.async_add_executor_job = executor
+        monkeypatch.setattr(sensor_mod, "async_pv_hourly", uren)
+        for bron, bewaard in (("aangevuld", None), ("lage_zon", None), ("gemeten", 4.3)):
+            monkeypatch.setattr(sensor_mod, "_score_solar_forecast",
+                                lambda *a, b=bron: {"pv_schaal": 4.3, "pv_schaal_bron": b})
+            asyncio.run(z._async_run())
+            assert s.saved_pv_scale(PV) == bewaard, bron
+
+    def test_te_weinig_zon_dan_de_bewaarde(self):
+        """Het geval van Tweakers 23-11: een kort logboek, de ochtend leeg."""
+        rijen, start = _rijen(dagen=1)
+        ochtend = [r for r in rijen if (r[0] - start) % 86400 < 10 * 3600]
+        s = _score_solar_forecast(SolarForecastLog(), ochtend, PV, WAAR, [],
+                                  start + 10 * 3600, timezone.utc, 2.4)
+        assert (s["pv_schaal"], s["pv_schaal_bron"]) == (2.4, "bewaard")
+        assert s["reden"] is None
 
     def test_door_de_json_encoder(self):
         """Lessen van beta.8: numpy-typen in attributen breken de hele sensor."""

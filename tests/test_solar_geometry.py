@@ -95,6 +95,14 @@ class TestPV:
         _ts_, el, _az, _e0, cs, pv = self._dag()
         assert estimate_pv_scale(pv[:20], cs[:20], el[:20]) is None
 
+    def test_lagere_zonhoogte_telt_meer_momenten(self):
+        """De winterdrempel: met de zon alleen tussen 10° en 15° lukt het pas met 10°."""
+        el = np.linspace(10.5, 14.5, 150)
+        cs = np.full(150, 400.0)
+        pv = 4.0 * cs
+        assert estimate_pv_scale(pv, cs, el) is None
+        assert estimate_pv_scale(pv, cs, el, min_elevation=10.0) == pytest.approx(4.0)
+
     def test_helderheid_terug_naar_straling(self):
         """Halve opbrengst = half zo helder = halve heldere-hemelstraling."""
         _ts_, el, az, e0, _cs, pv = self._dag(kc=0.5, schaal=4.0)

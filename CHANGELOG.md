@@ -3,6 +3,35 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.11 — 2026-11-23
+
+Zonnesensor (Tweakers 22/23-11):
+
+- **De ijking van de zonnesensor blijft bewaard.** Om PV-vermogen om te
+  rekenen naar zon is een schaal nodig, bepaald uit minstens 100 momenten met
+  de zon boven 15° in de laatste 30 dagen. Eind november zijn dat er ~35 per
+  dag, allemaal rond het middaguur. Met een kort logboek bleef de grafiek "Zon
+  vandaag" daardoor tot de middag leeg en vulde hij zich daarna met
+  terugwerkende kracht. Rond de jaarwisseling haalt bijna niemand de 100 nog,
+  in het noorden komt de zon dan helemaal niet boven 15°. Nu wordt de laatste
+  goede schaal per zonnesensor bewaard en gebruikt als het venster te weinig
+  zon heeft. Attribuut `pv_schaal_bron` op de zonverwachting zegt waar hij
+  vandaan komt: `gemeten`, `bewaard`, `aangevuld` of `lage_zon`.
+- **De ijking komt niet meer uit de uuraanvulling.** Monsters van vóór de
+  zonnesensor krijgen PV uit de uurstatistiek van de recorder. Een uurgemiddelde
+  vlakt de dag af, op heldere momenten 8 % te laag, en daardoor kwam de schaal
+  6 % te laag uit en de gemeten zon 6 % te hoog (testhuis: 4,32 tegen 4,59 op
+  dezelfde dagen; live 4,18, nu 4,73). De schaal komt nu eerst uit de eigen
+  vijfminutenmonsters, dan de bewaarde schaal, en pas daarna uit de aanvulling.
+  Voor de straling zelf telt de aanvulling nog wel.
+- **Winterdrempel.** Is er nog niets bewaard (nieuwe installatie in de
+  winter), dan wordt de schaal bepaald met de zon boven 10°. Op het testhuis
+  gaf dat 4,75 tegen 4,74 boven 15°.
+- **Alleen vermogen als zonnesensor.** De keuzelijst toont alleen sensoren met
+  apparaatklasse vermogen. Een energiesensor (Wh, kWh, MWh) werd als W gelezen;
+  hij wordt nu genegeerd, met één waarschuwing in het logboek en de reden op
+  de zonverwachting.
+
 ## v0.10.7-beta.10 — 2026-11-22
 
 Bevindingen na de installatie van beta.9:
