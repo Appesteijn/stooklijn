@@ -388,3 +388,9 @@ vóór de warmtepomp; GitHub #3 (purge 7 dagen) vond daardoor nooit gasdata.
 een sensor zonder `state_class`. `start` is in de Python-API een epoch in
 seconden (de websocket geeft milliseconden). Wie een nieuwe historische
 periode ophaalt: zelfde volgorde.
+
+Dagstatistiek (`period="day"`) loopt van lokale middernacht tot lokale
+middernacht; `start` van de dag van 20-11 is 19-11 23:00 UTC. Label met
+`dt_util.as_local(...)`, en begin het venster op lokale middernacht. Met de
+UTC-datum schoof `_async_fetch_recorder_daily` elke dag één dag terug (en
+"vandaag" werd gisteren). Uurstatistiek heeft dit probleem niet.

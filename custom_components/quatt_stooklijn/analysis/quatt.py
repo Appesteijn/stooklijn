@@ -66,9 +66,12 @@ async def _async_fetch_recorder_daily(
     Returns a DataFrame with the same columns as the API-based daily data,
     using recorder long-term statistics (available for months of history).
     """
-    start_dt = dt_util.as_utc(datetime.strptime(start_date, "%Y-%m-%d"))
+    # HA telt een dag van lokale middernacht tot lokale middernacht. Een
+    # venster op UTC-middernacht miste het eerste uur van de eerste dag.
+    tz = dt_util.get_default_time_zone()
+    start_dt = dt_util.as_utc(datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=tz))
     end_dt = dt_util.as_utc(
-        datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+        (datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)).replace(tzinfo=tz)
     )
 
     # Entity-IDs verschillen per installatie (zie discovery.py); niet hardcoden.
@@ -110,7 +113,10 @@ async def _async_fetch_recorder_daily(
             start_ts = row.get("start")
             if start_ts is None:
                 continue
-            day = dt_util.utc_from_timestamp(start_ts).strftime("%Y-%m-%d")
+            # De lokale datum: een dag die om 00:00 lokaal begint, begint in
+            # UTC de avond ervoor (23:00 in de winter). Met de UTC-datum kwam
+            # elke dag één dag te vroeg binnen, en "vandaag" als gisteren.
+            day = dt_util.as_local(dt_util.utc_from_timestamp(start_ts)).strftime("%Y-%m-%d")
 
             if day not in records:
                 records[day] = {}

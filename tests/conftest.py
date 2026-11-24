@@ -238,7 +238,10 @@ def _stub_ha():
     if not hasattr(dt_mod, "as_local"):
         dt_mod.as_local = lambda d: d.astimezone(dt_mod.get_default_time_zone())
     if not hasattr(dt_mod, "as_utc"):
-        dt_mod.as_utc = lambda d: d.astimezone(timezone.utc)
+        # Zoals HA: een naïeve datetime geldt als UTC, niet als systeemtijd.
+        dt_mod.as_utc = lambda d: (
+            d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d.astimezone(timezone.utc)
+        )
     if not hasattr(dt_mod, "get_time_zone"):
         from zoneinfo import ZoneInfo
 
