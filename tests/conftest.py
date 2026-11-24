@@ -237,6 +237,12 @@ def _stub_ha():
         dt_mod.utc_from_timestamp = lambda ts: datetime.fromtimestamp(ts, timezone.utc)
     if not hasattr(dt_mod, "as_local"):
         dt_mod.as_local = lambda d: d.astimezone(dt_mod.get_default_time_zone())
+    if not hasattr(dt_mod, "as_utc"):
+        dt_mod.as_utc = lambda d: d.astimezone(timezone.utc)
+    if not hasattr(dt_mod, "get_time_zone"):
+        from zoneinfo import ZoneInfo
+
+        dt_mod.get_time_zone = ZoneInfo
     if not hasattr(dt_mod, "start_of_local_day"):
         from datetime import date as _date, time as _time
 

@@ -377,3 +377,14 @@ Gemeten op het testhuis (20–23-11-2026, panelen 195°): 4,75 uit 10–15° teg
 is dus gevoeliger voor de richting; daarom gaat de bewaarde schaal voor.
 Paneelrichting 180 of 195° maakte boven 15° nauwelijks uit (4,76 / 4,74),
 dus de bewaarde schaal is niet aan de geleerde richting gekoppeld.
+
+## Perioden ouder dan een week: langetermijnstatistiek, niet de ruwe historie
+
+`state_changes_during_period` leest de ruwe recorderhistorie, en die wordt na
+`purge_keep_days` (standaard 10) weggegooid. De gasperiode ligt per definitie
+vóór de warmtepomp; GitHub #3 (purge 7 dagen) vond daardoor nooit gasdata.
+`analysis/gas.py` leest nu eerst de uurstatistiek (`change` voor de meter,
+`mean` voor de buitentemperatuur) en valt alleen terug op de ruwe historie bij
+een sensor zonder `state_class`. `start` is in de Python-API een epoch in
+seconden (de websocket geeft milliseconden). Wie een nieuwe historische
+periode ophaalt: zelfde volgorde.

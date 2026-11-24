@@ -9,9 +9,75 @@ import pandas as pd
 
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.history import state_changes_during_period
+from homeassistant.components.recorder.statistics import statistics_during_period
 from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
+
+# Eén meterstapje groter dan dit is een sprong (meterwissel, reset), geen verbruik.
+MAX_GAS_STEP_M3 = 10.0
+
+
+def stats_rows_to_series(rows, key: str) -> pd.Series | None:
+    """Uurrijen uit ``statistics_during_period`` als reeks, index in UTC (naïef).
+
+    ``start`` is een epoch in seconden (recente HA) of een datetime (oudere).
+    Geeft None als er geen enkele bruikbare waarde in zit.
+    """
+    index, values = [], []
+    for row in rows or []:
+        value, start = row.get(key), row.get("start")
+        if value is None or start is None:
+            continue
+        if isinstance(start, datetime):
+            ts = pd.Timestamp(start)
+            ts = ts.tz_convert("UTC").tz_localize(None) if ts.tzinfo else ts
+        else:
+            ts = pd.Timestamp(float(start), unit="s")
+        index.append(ts)
+        values.append(float(value))
+    if not values:
+        return None
+    return pd.Series(values, index=pd.DatetimeIndex(index)).sort_index()
+
+
+async def _async_hourly_statistic(
+    hass: HomeAssistant, entity_id: str, start_dt, end_dt, stat_type: str
+) -> pd.Series | None:
+    """Uurstatistiek (``change`` of ``mean``) van één entiteit, of None.
+
+    De langetermijnstatistiek blijft bewaard na de purge van de ruwe historie
+    (standaard 10 dagen). De gasperiode ligt per definitie vóór de warmtepomp,
+    dus bijna altijd buiten die retentie: alleen de statistiek heeft hem nog
+    (GitHub #3).
+    """
+    def _fetch() -> dict:
+        return statistics_during_period(
+            hass, start_time=start_dt, end_time=end_dt,
+            statistic_ids={entity_id}, period="hour", units=None,
+            types={stat_type},
+        )
+
+    try:
+        stats = await get_instance(hass).async_add_executor_job(_fetch)
+    except Exception as err:  # noqa: BLE001 - terugvallen op de ruwe historie
+        _LOGGER.debug("Statistics for %s unavailable: %s", entity_id, err)
+        return None
+    return stats_rows_to_series((stats or {}).get(entity_id), stat_type)
+
+
+def gas_frames(
+    gas_m3: pd.Series, calorific_value: float, boiler_efficiency: float
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Uur- en dagtabel uit gasverbruik per uur (m³)."""
+    gas_m3 = gas_m3[(gas_m3 >= 0) & (gas_m3 < MAX_GAS_STEP_M3)]
+    df = gas_m3.to_frame("gas_m3")
+    df = df.resample("h").sum()
+    df["heat_kwh"] = df["gas_m3"] * calorific_value * boiler_efficiency
+    # kWh in één uur = gemiddeld vermogen in kW.
+    df["heat_w"] = df["heat_kwh"] * 1000
+    daily = df.resample("D").agg({"gas_m3": "sum", "heat_kwh": "sum"})
+    return df, daily
 
 
 async def async_fetch_gas_data(
@@ -48,104 +114,55 @@ async def async_fetch_gas_data(
         datetime.strptime(f"{end_date} 23:59:59", "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
     )
 
-    # Fetch history from recorder
-    def _fetch():
-        return state_changes_during_period(hass, start_dt, end_dt, entity_id)
-
-    states = await get_instance(hass).async_add_executor_job(_fetch)
-
-    entity_states = states.get(entity_id, [])
-    if not entity_states:
-        _LOGGER.warning("No gas data found for entity: %s", entity_id)
+    # Eerst de langetermijnstatistiek: die overleeft de purge van de ruwe
+    # historie, en de gasperiode ligt vrijwel altijd verder terug dan dat.
+    gas_m3 = await _async_hourly_statistic(hass, entity_id, start_dt, end_dt, "change")
+    source = "statistics"
+    if gas_m3 is None:
+        gas_m3 = await _async_gas_from_history(hass, entity_id, start_dt, end_dt)
+        source = "history"
+    if gas_m3 is None:
+        _LOGGER.warning(
+            "No gas data found for entity %s between %s and %s: no long-term "
+            "statistics (needs state_class total/total_increasing) and no "
+            "recorder history",
+            entity_id, start_date, end_date,
+        )
         return pd.DataFrame(), pd.DataFrame()
 
-    # Build DataFrame from state history
-    records = []
-    for state in entity_states:
-        try:
-            value = float(state.state)
-            records.append(
-                {
-                    "timestamp": state.last_changed.replace(tzinfo=None),
-                    "state": value,
-                }
-            )
-        except (ValueError, TypeError):
-            continue
-
-    if not records:
-        return pd.DataFrame(), pd.DataFrame()
-
-    df_gas = pd.DataFrame(records)
-    df_gas = df_gas.set_index("timestamp").sort_index()
-
-    # Calculate consumption differences (cumulative meter)
-    df_gas["gas_m3"] = df_gas["state"].diff()
-    df_gas = df_gas[df_gas["gas_m3"] >= 0]
-    df_gas = df_gas[df_gas["gas_m3"] < 10]  # Remove unrealistic spikes
-
-    # Convert to heat output
-    df_gas["heat_kwh"] = df_gas["gas_m3"] * calorific_value * boiler_efficiency
-    df_gas["heat_w"] = df_gas["heat_kwh"] * 1000
-
-    # Resample to hourly
-    df_gas_hourly = df_gas.resample("h").agg(
-        {"gas_m3": "sum", "heat_kwh": "sum", "heat_w": "mean"}
+    df_gas_hourly, df_gas_daily = gas_frames(gas_m3, calorific_value, boiler_efficiency)
+    _LOGGER.info(
+        "Gas data for %s from %s: %d days, %.0f m³",
+        entity_id, source, len(df_gas_daily), df_gas_daily["gas_m3"].sum(),
     )
-
-    # Create daily summary
-    df_gas_daily = df_gas.resample("d").agg({"gas_m3": "sum", "heat_kwh": "sum"})
 
     # Temperature data & hot water correction
     has_temp = False
 
-    # Primary: fetch temperature from HA recorder for the gas date range
-    if temp_entities:
-        for temp_entity in temp_entities:
-            def _fetch_temp(eid=temp_entity):
-                return state_changes_during_period(hass, start_dt, end_dt, eid)
+    # Buitentemperatuur voor de gasperiode: statistiek (uurgemiddelde), anders
+    # de ruwe historie, per sensor in de volgorde van de configuratie.
+    for temp_entity in temp_entities or []:
+        df_temp = None
+        series = await _async_hourly_statistic(hass, temp_entity, start_dt, end_dt, "mean")
+        if series is not None:
+            df_temp = series.to_frame("temperatureOutside")
+            temp_source = "statistics"
+        else:
+            df_temp = await _async_temp_from_history(hass, temp_entity, start_dt, end_dt)
+            temp_source = "history"
+        if df_temp is None or df_temp.empty:
+            continue
 
-            temp_states = await get_instance(hass).async_add_executor_job(_fetch_temp)
-            entity_temp_states = temp_states.get(temp_entity, [])
-            if entity_temp_states:
-                temp_records = []
-                for s in entity_temp_states:
-                    try:
-                        ts = s.last_changed
-                        if ts.tzinfo is not None:
-                            ts = ts.replace(tzinfo=None)
-                        temp_records.append(
-                            {"timestamp": ts, "temperatureOutside": float(s.state)}
-                        )
-                    except (ValueError, TypeError):
-                        continue
-                if temp_records:
-                    df_temp = pd.DataFrame(temp_records)
-                    df_temp["timestamp"] = pd.to_datetime(
-                        df_temp["timestamp"]
-                    ).dt.floor("h")
-                    df_temp = df_temp.groupby("timestamp")[
-                        "temperatureOutside"
-                    ].median()
-                    df_temp = df_temp.to_frame()
-
-                    df_gas_hourly = df_gas_hourly.join(df_temp, how="left")
-
-                    daily_temp = df_temp.groupby(df_temp.index.date)[
-                        "temperatureOutside"
-                    ].mean()
-                    df_gas_daily["avg_temperatureOutside"] = (
-                        df_gas_daily.index.map(
-                            lambda d: daily_temp.get(d.date(), None)
-                        )
-                    )
-                    has_temp = True
-                    _LOGGER.info(
-                        "Gas temperature from recorder: %s (%d records)",
-                        temp_entity,
-                        len(temp_records),
-                    )
-                    break
+        df_gas_hourly = df_gas_hourly.join(df_temp, how="left")
+        daily_temp = df_temp.groupby(df_temp.index.date)["temperatureOutside"].mean()
+        df_gas_daily["avg_temperatureOutside"] = df_gas_daily.index.map(
+            lambda d: daily_temp.get(d.date(), None)
+        )
+        has_temp = True
+        _LOGGER.info(
+            "Gas temperature from %s: %s (%d hours)", temp_source, temp_entity, len(df_temp)
+        )
+        break
 
     # Fallback: use heat pump hourly data (works when date ranges overlap)
     if not has_temp and df_hourly_hp is not None and not df_hourly_hp.empty:
@@ -195,3 +212,55 @@ async def async_fetch_gas_data(
         df_gas_daily["totalHeatPerHour"] = (df_gas_daily["heat_kwh"] * 1000) / 24
 
     return df_gas_hourly, df_gas_daily
+
+
+async def _async_gas_from_history(
+    hass: HomeAssistant, entity_id: str, start_dt, end_dt
+) -> pd.Series | None:
+    """Gasverbruik per uur uit de ruwe historie (meterstanden), of None.
+
+    Alleen nog de terugval voor een gasmeter zonder statistiek; de ruwe
+    historie reikt maar zo ver terug als ``purge_keep_days``.
+    """
+    def _fetch():
+        return state_changes_during_period(hass, start_dt, end_dt, entity_id)
+
+    states = await get_instance(hass).async_add_executor_job(_fetch)
+    records = []
+    for state in states.get(entity_id, []):
+        try:
+            records.append((state.last_changed.replace(tzinfo=None), float(state.state)))
+        except (ValueError, TypeError):
+            continue
+    if len(records) < 2:
+        return None
+    meter = pd.Series(
+        [v for _, v in records], index=pd.DatetimeIndex([t for t, _ in records])
+    ).sort_index()
+    steps = meter.diff().dropna()
+    steps = steps[(steps >= 0) & (steps < MAX_GAS_STEP_M3)]
+    return steps.resample("h").sum() if not steps.empty else None
+
+
+async def _async_temp_from_history(
+    hass: HomeAssistant, entity_id: str, start_dt, end_dt
+) -> pd.DataFrame | None:
+    """Buitentemperatuur per uur (mediaan) uit de ruwe historie, of None."""
+    def _fetch():
+        return state_changes_during_period(hass, start_dt, end_dt, entity_id)
+
+    states = await get_instance(hass).async_add_executor_job(_fetch)
+    records = []
+    for s in states.get(entity_id, []):
+        try:
+            ts = s.last_changed
+            if ts.tzinfo is not None:
+                ts = ts.replace(tzinfo=None)
+            records.append({"timestamp": ts, "temperatureOutside": float(s.state)})
+        except (ValueError, TypeError):
+            continue
+    if not records:
+        return None
+    df = pd.DataFrame(records)
+    df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.floor("h")
+    return df.groupby("timestamp")["temperatureOutside"].median().to_frame()
