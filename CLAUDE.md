@@ -310,6 +310,26 @@ warmteverlies. Kan de pomp het verlies echt niet halen, dan levert hij wat hij
 kan en kost een hoger advies niets. Dit lost het inhalen bij een te lage curve
 niet op; de curve zelf is nog niet verbeterd.
 
+## Een blijvend tekort werkt het I-deel weg (`BalanceBias`)
+
+De inhaalterm is een P-regelaar (10·U per K). Zit het warmteverlies te laag
+geschat, dan blijft er een vaste afwijking van fout / (11·U) staan; Tweakers
+24-11-2026: 0,38 K, vijf uur stabiel. `BalanceBias` telt het tekort op
+(`bias += 10·tekort·dt/Ti`) en schuift het balanspunt in `_heat_loss_line`, dus
+ook de vooruitblik en het voorspellende advies rekenen ermee.
+
+- **Ti = 48 u.** Regelkring 1R1C met PI: ζ = U(1+N)/(2·√(N·U·C/Ti)). Zware
+  vloer (U 219, C 30 kWh/K): ζ 1,0 bij 48 u, 0,7 bij 24 u. Met de 2R2C-vloer
+  is de werkelijke kring trager; daarom de ruime keuze. Nagespeeld in
+  `TestRegelkring`: geen doorschieten.
+- **Alleen leren als max-water op dit advies stuurt.** Stuurt het advies
+  niets, dan komt een tekort niet van het advies, en loopt een integrator tot
+  zijn grens. Ook niet bij begrensd advies, een tekort > 1 K, of binnen drie
+  uur na een setpointwissel (nachtverlaging inhalen).
+- Grens ±3 K. Op het testhuis (22–24-11, twee dagen setpointkolom) gemiddeld
+  tekort 0,05 K, 's nachts 0,13–0,23 K; een opengelusde naspeling zegt niets
+  over de gesloten kring, dus effect daar nog niet gemeten.
+
 ## De PV-schaal: eigen monsters, dan bewaard, dan aangevuld, dan boven 10°
 
 Gemeten zon komt uit PV-vermogen gedeeld door een schaal (W per W/m² op het

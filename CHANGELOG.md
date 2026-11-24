@@ -31,6 +31,17 @@ Aanvoeradvies (Tweakers 24-11):
   19,6 naar 18,6 °C. Nu kapt de grens alleen nog de inhaalterm af; het
   warmteverlies zelf blijft altijd staan. Geldt voor alle adviezen, de
   vooruitblik en het voorspellende advies.
+- **Geen blijvend tekort meer onder het setpoint.** De inhaalterm vraagt
+  10·U per graad tekort, maar alleen zolang het tekort er is. Zit het geschatte
+  warmteverlies te laag, dan blijft de kamer daardoor vast onder het setpoint
+  staan (Tweakers 24-11: vijf uur lang 19,62 bij 20,0 °C; het verlies zat
+  ~830 W te laag). Een nieuwe correctie telt het tekort langzaam op en schuift
+  daarmee het balanspunt waar het advies mee rekent, zoals het I-deel van een
+  PI-regelaar: integratietijd 48 uur, hoogstens ±3 K. Hij leert alleen als de
+  max-water-bijsturing op dit advies stuurt, het advies niet begrensd is, het
+  tekort binnen 1 K ligt en het setpoint al drie uur hetzelfde is (een
+  nachtverlaging inhalen blijft werk voor de inhaalterm). Bewaard over
+  herstarts. Nieuw attribuut `balanspunt_correctie_k` op het MPC-advies.
 
 ## v0.10.7-beta.11 — 2026-11-23
 

@@ -41,6 +41,7 @@ from .analysis.min_power import MinPowerCurve, learn_min_power
 from .analysis.shift_room_temp import TRACK_WINDOW_HOURS
 from .analysis.thermal_model import (
     AdviceDemand,
+    BalanceBias,
     OnlineRCModel,
     advice_demand,
     advice_forward_without_model,
@@ -143,6 +144,11 @@ from .const import (
     SIGNAL_SOUND_LEVEL,
     SOLAR_RADIATION_DEFAULT_FACTOR,
     DEFROST_POWER_W,
+    BALANCE_BIAS_MAX_DEFICIT_K,
+    BALANCE_BIAS_MAX_GAP_S,
+    BALANCE_BIAS_MAX_K,
+    BALANCE_BIAS_SETTLE_HOURS,
+    BALANCE_BIAS_TI_HOURS,
 )
 from .discovery import (
     ROLE_COMPRESSOR,
@@ -759,6 +765,18 @@ def _advice_return(
     return hold.effective(t_return)
 
 
+def _new_balance_bias(bias_k: float = 0.0) -> BalanceBias:
+    return BalanceBias(
+        ti_hours=BALANCE_BIAS_TI_HOURS,
+        max_k=BALANCE_BIAS_MAX_K,
+        settle_hours=BALANCE_BIAS_SETTLE_HOURS,
+        max_deficit_k=BALANCE_BIAS_MAX_DEFICIT_K,
+        max_gap_s=BALANCE_BIAS_MAX_GAP_S,
+        catchup_factor=MPC_CATCHUP_FACTOR,
+        bias_k=bias_k,
+    )
+
+
 def _return_held(coordinator) -> bool:
     """Houdt het advies nu een retour van vóór een ontdooiing vast?"""
     hold = getattr(coordinator, "return_hold", None)
@@ -1218,6 +1236,13 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         )
         self._pv_scale: dict | None = None
         self._pv_unit_warned: str | None = None
+        # Correctie op het balanspunt tegen een blijvend tekort; zie
+        # BalanceBias. Bewaard, want hij leert over dagen.
+        self.balance_bias = _new_balance_bias()
+        self._balance_bias_store = Store(
+            coordinator.hass, 1, f"{DOMAIN}.balance_bias_{entry.entry_id}"
+        )
+        self._balance_bias_saved: float = 0.0
 
     # ------------------------------------------------------------------ helpers
 
@@ -1766,6 +1791,15 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                 }
         except Exception:
             _LOGGER.warning("Bewaarde PV-schaal laden mislukt", exc_info=True)
+        try:
+            stored = await self._balance_bias_store.async_load()
+            if isinstance(stored, dict) and stored.get("bias_k") is not None:
+                bias_k = float(stored["bias_k"])
+                if math.isfinite(bias_k):
+                    self.balance_bias = _new_balance_bias(bias_k)
+                    self._balance_bias_saved = self.balance_bias.bias_k
+        except Exception:
+            _LOGGER.warning("Bewaarde balanspuntcorrectie laden mislukt", exc_info=True)
         self.solar_lead_factor = self.solar_forecast_log.lead_factor(
             dt_util.utcnow().timestamp()
         )
@@ -1916,6 +1950,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         """
         if not self._highres_loaded:
             return
+        self._update_balance_bias()
         t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
         t_outdoor = get_float_state(self.hass, self._outdoor_entity)
         q_solar_wm2 = self._get_current_solar_radiation_wm2()
@@ -1932,6 +1967,32 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             now, t_indoor, t_outdoor, q_hp, q_solar_wm2,
             self._pv_power_w(), extra=self._highres_extra(now),
         )
+
+    def _steers_max_water(self) -> bool:
+        """Stuurt dit advies nu het waterplafond? Zie BalanceBias."""
+        knobs = getattr(getattr(self, "steering", None), "last_knob_states", None)
+        return bool(knobs) and knobs[0] == "mpc"
+
+    def _update_balance_bias(self) -> None:
+        """Eén tik van de balanspuntcorrectie, en bewaren als hij bewoog."""
+        bias = getattr(self, "balance_bias", None)
+        if bias is None:
+            return
+        t_outdoor = get_float_state(self.hass, self._outdoor_entity)
+        demand = self._advice_demand(t_outdoor) if t_outdoor is not None else None
+        bias.update(
+            dt_util.utcnow().timestamp(),
+            self._resolve_room_setpoint()[0],
+            get_float_state(self.hass, self._indoor_temp_entity),
+            demand.stationary_w if demand is not None else 0.0,
+            demand.capped if demand is not None else False,
+            self._steers_max_water(),
+        )
+        if abs(bias.bias_k - self._balance_bias_saved) >= 0.01:
+            self._balance_bias_saved = bias.bias_k
+            self._balance_bias_store.async_delay_save(
+                lambda: {"bias_k": round(bias.bias_k, 4)}, 60
+            )
 
     def _highres_extra(self, now: datetime) -> dict[str, float | None]:
         """Aanvoer, retour, debiet, opgenomen vermogen, setpoint en de knoppen
@@ -2512,7 +2573,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         u_wk = -float(slope)
         if u_wk <= 0:
             return None
-        return u_wk, float(balance_point)
+        bias = getattr(self, "balance_bias", None)
+        return u_wk, float(balance_point) + (bias.bias_k if bias is not None else 0.0)
 
     @property
     def extra_state_attributes(self) -> dict | None:
@@ -2659,6 +2721,13 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             "heat_demand_w": round(demand.stationary_w) if demand is not None else None,
             "inhaal_w": round(demand.catchup_w) if demand is not None else None,
             "inhaalfactor": MPC_CATCHUP_FACTOR,
+            # Zoveel K ligt het balanspunt hoger (of lager) dan de analyse zegt,
+            # tegen een blijvend tekort; zie BalanceBias. heat_demand_w rekent
+            # er al mee.
+            "balanspunt_correctie_k": (
+                round(self.balance_bias.bias_k, 2)
+                if getattr(self, "balance_bias", None) is not None else 0.0
+            ),
             "net_demand_w": round(demand.total_w) if demand is not None else None,
             # None als de reeks ontbreekt of verouderd is — een nul zou hier
             # niet te onderscheiden zijn van een echte nacht.

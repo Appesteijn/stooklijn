@@ -932,6 +932,71 @@ def cap_demand(total_w: float, stationary_w: float, capacity_w: float | None) ->
     return min(total_w, max(capacity_w, stationary_w))
 
 
+class BalanceBias:
+    """Verschuiving van het balanspunt die een blijvend tekort wegwerkt.
+
+    Het I-deel naast de inhaalterm (het P-deel): per tik
+    ``bias += factor · tekort · dt / Ti``, in kelvin balanspunt. Het advies
+    rekent dan met ``U · (T_balans + bias − T_buiten)``. Zie
+    ``BALANCE_BIAS_TI_HOURS`` voor de waarden en waarom.
+
+    Leert alleen als het advies stuurt, met stookvraag, niet begrensd, met een
+    tekort binnen ``max_deficit_k`` en een setpoint dat ``settle_hours`` gelijk
+    is gebleven. Begrensd op ``±max_k``.
+    """
+
+    def __init__(
+        self,
+        ti_hours: float,
+        max_k: float,
+        settle_hours: float,
+        max_deficit_k: float,
+        max_gap_s: float,
+        catchup_factor: float,
+        bias_k: float = 0.0,
+    ) -> None:
+        self.ti_hours = ti_hours
+        self.max_k = max_k
+        self.settle_s = settle_hours * 3600.0
+        self.max_deficit_k = max_deficit_k
+        self.max_gap_s = max_gap_s
+        self.catchup_factor = catchup_factor
+        self.bias_k = max(-max_k, min(max_k, bias_k))
+        self._setpoint: float | None = None
+        self._setpoint_since: float | None = None
+        self._last_ts: float | None = None
+
+    def update(
+        self,
+        ts: float,
+        t_setpoint: float | None,
+        t_indoor: float | None,
+        stationary_w: float,
+        capped: bool,
+        steering: bool,
+    ) -> bool:
+        """Eén tik. True als de bias is bijgewerkt."""
+        if t_setpoint is not None and (
+            self._setpoint is None or abs(t_setpoint - self._setpoint) > 0.05
+        ):
+            self._setpoint, self._setpoint_since = t_setpoint, ts
+        prev, self._last_ts = self._last_ts, ts
+        if prev is None or ts <= prev or ts - prev > self.max_gap_s:
+            return False
+        if not steering or capped or stationary_w <= 0:
+            return False
+        if t_setpoint is None or t_indoor is None or self._setpoint_since is None:
+            return False
+        if ts - self._setpoint_since < self.settle_s:
+            return False
+        deficit = t_setpoint - t_indoor
+        if abs(deficit) > self.max_deficit_k:
+            return False
+        step = self.catchup_factor * deficit * (ts - prev) / 3600.0 / self.ti_hours
+        self.bias_k = max(-self.max_k, min(self.max_k, self.bias_k + step))
+        return True
+
+
 def advice_demand(
     u_wk: float,
     balance_point: float,

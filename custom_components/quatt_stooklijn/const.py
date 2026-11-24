@@ -221,6 +221,28 @@ MPC_SUPPLY_TEMP_MAX = 55.0       # °C
 # Nog niet getoetst op een zware vloer.
 MPC_CATCHUP_FACTOR = 10.0
 
+# Correctie op het balanspunt tegen een blijvend tekort (BalanceBias). De
+# inhaalterm kijkt alleen naar het tekort van nu, en laat dan een vaste
+# afwijking staan als het warmteverlies te laag geschat is: elk tekort vraagt
+# 10·U per K, dus een schatting die 830 W te laag zit houdt de kamer 0,38 K onder
+# het setpoint (Tweakers 24-11-2026: vijf uur lang 19,62 bij 20,0 °C, U 218,7).
+# Deze term telt het tekort op, zoals het I-deel van een PI-regelaar.
+#
+# Traag, zodat de inhaalterm eerst zijn werk doet: met de integratietijd van
+# 48 uur is de regelkring ook bij een zware vloer (C ≈ 30 kWh/K, U ≈ 220) nog
+# kritisch gedempt (ζ ≈ 1,0; met 24 uur 0,7). Hij leert alleen als het advies
+# ook echt stuurt (max-water op deze bron): anders komt de afwijking niet van
+# het advies, en zou hij tot de grens doorlopen.
+BALANCE_BIAS_TI_HOURS = 48.0
+BALANCE_BIAS_MAX_K = 3.0
+#: Na een setpointwissel eerst zoveel uur niet leren: dat tekort is het inhalen
+#: van een nachtverlaging, en dat is werk voor de inhaalterm.
+BALANCE_BIAS_SETTLE_HOURS = 3.0
+#: Een groter tekort is geen kleine vaste afwijking maar een opwarmtraject.
+BALANCE_BIAS_MAX_DEFICIT_K = 1.0
+#: Een gat in de tikken (herstart) telt niet als tijd.
+BALANCE_BIAS_MAX_GAP_S = 900.0
+
 # Hoe lang de begintoestand van het 2R2C (kamer + gereconstrueerde massa) voor
 # de vooruitblik bewaard blijft. Het logboek krijgt elke vijf minuten een
 # monster, en de massa beweegt in die tijd nauwelijks; de attributen worden
