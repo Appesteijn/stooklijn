@@ -3,6 +3,27 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.14 — 2026-11-25
+
+Opgelost:
+
+- **De gasvergelijking vindt haar data weer** (#3). De gasperiode ligt vóór de
+  warmtepomp, en de analyse las die uit de ruwe recorderhistorie. Die gooit HA
+  standaard na 10 dagen weg, dus wie de integratie installeerde nadat de
+  warmtepomp er al was (de normale volgorde), kreeg nooit een gasvergelijking.
+  Nu komen het gasverbruik en de buitentemperatuur uit de
+  langetermijnstatistiek, die HA blijvend bewaart. De ruwe historie is alleen
+  nog de terugval voor een gasmeter zonder `state_class`. Vindt de analyse
+  niets, dan zegt de waarschuwing nu ook waarom. Gemeld door jwb66, met
+  analyse en oplossing.
+- **Dagen uit de recorder hebben weer de juiste datum.** HA telt een dag van
+  lokale middernacht tot lokale middernacht, en die begint in UTC de avond
+  ervoor. De analyse gebruikte de UTC-datum, waardoor elke dag uit de recorder
+  één dag te vroeg binnenkwam en de lopende dag als gisteren meetelde. Dat
+  raakte vooral wie de Quatt-cloud uit heeft staan, want dan komen alle nieuwe
+  dagen uit de recorder. Het ophaalvenster miste ook het eerste uur van de
+  eerste dag.
+
 ## v0.10.7-beta.13 — 2026-11-24
 
 Aanvoeradvies (Tweakers 24-11, vervolg):
