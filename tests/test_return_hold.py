@@ -164,6 +164,41 @@ class TestReturnHold:
         assert eff[retour.index(24.7)] == pytest.approx(29.8)
 
 
+    def test_retour_die_nog_stijgt_na_de_vlag_telt_mee(self):
+        """Testhuis 24-11-2026 21:15–21:30, live na beta.12, per minuut.
+
+        De vlag ging om 21:21 aan, de omkering kwam om 21:27. Tussendoor steeg
+        de retour nog naar 28,40, en in het dal rekende het advies met 28,28.
+        """
+        retour = [28.28] * 6 + [28.28, 28.28, 28.40, 28.40, 28.40, 28.40, 28.40,
+                                27.92, 27.07, 26.37]
+        vlag = [False] * 6 + [True] * 7 + [False] * 3
+        vermogen = [5300] * 11 + [351, -416, -4376, 3316, 5316]
+        h = ReturnHold()
+        eff = []
+        for m, (r, v, p) in enumerate(zip(retour, vlag, vermogen)):
+            h.update(r, v or p < DEFROST_POWER_W, _min(m))
+            eff.append(h.effective(r))
+        assert h.held == pytest.approx(28.40)
+        assert eff[-1] == pytest.approx(28.40)
+
+    def test_na_de_ontdooiing_stijgt_de_vastgehouden_waarde_niet(self):
+        """Na het einde is een stijgende retour herstel, geen nieuwe waarde."""
+        h = ReturnHold(transit_min=5)
+        _voed(h, 29.4, 10)
+        h.update(29.4, True, _min(11))
+        h.update(29.9, False, _min(12))       # binnen de transittijd
+        assert h.held == 29.4
+        assert h.effective(29.9) == 29.9      # wel meteen meegeteld
+
+    def test_koud_water_tijdens_de_ontdooiing_verandert_niets(self):
+        h = ReturnHold()
+        _voed(h, 29.4, 10)
+        h.update(29.0, True, _min(11))
+        h.update(26.0, True, _min(12))
+        assert h.held == 29.4
+
+
 class TestInDeAdviezen:
 
     def _sensor(self, **states):

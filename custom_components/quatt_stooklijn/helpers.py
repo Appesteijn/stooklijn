@@ -161,6 +161,11 @@ class ReturnHold:
                 if values:
                     self._held = max(values)
                     self._since = now
+            elif t_return is not None and t_return > self._held:
+                # De vlag gaat ~6 minuten vóór de omkering aan, en in die
+                # minuten stijgt de retour soms nog. Koud water is altijd
+                # lager, dus alleen omhoog en alleen zolang de ontdooiing loopt.
+                self._held = t_return
             return
 
         if self._held is not None:

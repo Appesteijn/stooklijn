@@ -289,6 +289,11 @@ minuten ervoor vast, en rekent nooit lager dan gemeten.
   vasthouden daar meteen loslaten, vóór het koude water aankomt. Op het
   testhuis scheelde het in de nagespeelde dips weinig (p90 1,20 → 1,08 K met
   vlaggen); het is een vangnet voor een vlag die uitgaat voor de retour zakt.
+- **Tijdens de ontdooiing mag de waarde nog omhoog.** De OpenQuatt-vlag gaat
+  ~6 minuten vóór de omkering aan; live 24-11 steeg de retour in die minuten
+  van 28,28 naar 28,40 en rekende het dal met 28,28. Alleen omhoog en alleen
+  zolang er ontdooid wordt: koud water is altijd lager, en na het einde is een
+  stijgende retour herstel. Naspeling: dip mediaan 0,30 → 0,23 K (met vlaggen).
 - Losgelaten na 30 minuten zonder ontdooiing: 10 min liet een dip van 0,8 K
   staan, 30 min 0,2 K, 45 min 0,18 K bij meer vastgehouden tijd. Een duo dat om
   beurten ontdooit herstelt soms een uur niet; daarom hoogstens 90 minuten.
