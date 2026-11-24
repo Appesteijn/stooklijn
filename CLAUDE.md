@@ -307,8 +307,25 @@ koudste meting wordt hij lineair doorgetrokken. Tweakers 24-11-2026: helling
 
 Daarom `min(totaal, max(capaciteit, stationair))`: nooit onder het
 warmteverlies. Kan de pomp het verlies echt niet halen, dan levert hij wat hij
-kan en kost een hoger advies niets. Dit lost het inhalen bij een te lage curve
-niet op; de curve zelf is nog niet verbeterd.
+kan en kost een hoger advies niets.
+
+De grens zelf blijft nodig: hij is de vangrail tegen adviespieken bij een groot
+tekort (nachtverlaging inhalen). Wat de lijn als capaciteit mag zeggen staat in
+`freezing_capacity` (analysis/stooklijn.py), het enige pad via `_capacity_w`:
+
+- **Niet doortrekken.** Kouder dan het koudste gemeten uur onder de knik
+  (`capacity_min_temp`, na de uitbijterfilter) geen grens. Tweakers 24-11,
+  tweede ronde: 832 W/K, knik 0,75 °C, nul bij −4,8 °C.
+- **Gemeten ondergrens.** Een uur met P bij T' bewijst minstens P voor elke
+  T ≥ T' (`measured_capacity_steps`, trap op `capacity_measured`). Slechte uren
+  trekken niets omlaag, dus ook de terugkoppeling via ons eigen plafond niet.
+  Testhuis, alleen november 2025: bij −3/−5 °C 4,1/2,9 → 4,3/4,3 kW (hele
+  winter 5,6/4,9). Hele cache: −4/−6 °C 5,2/4,5 → 5,7/5,3 kW.
+- **Geen stabiliteitsfilter.** `_filter_stable_hours` op de vriescurve getest
+  op maandvensters: helling 577 → 518–536 W/K, nauwelijks verschil. Het
+  probleem is het aantal uren per vak, niet halve uren.
+- De Power House-kalibratie gebruikt de lijn nog rechtstreeks (snijpunt met het
+  verlies); daar verandert niets.
 
 ## Een blijvend tekort werkt het I-deel weg (`BalanceBias`)
 

@@ -7,6 +7,7 @@ to determine heat pump performance at freezing temperatures.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -67,6 +68,11 @@ class StooklijnResult:
     slope_local: float | None = None
     intercept_local: float | None = None
     r2_local: float | None = None
+    # Wat de vriescurve als capaciteit mag zeggen: niet kouder dan het koudste
+    # gemeten uur, en nooit minder dan de pomp daar aantoonbaar leverde. Zie
+    # freezing_capacity().
+    capacity_min_temp: float | None = None
+    capacity_measured: list[list[float]] | None = None
 
     # Optimal stooklijn (from daily usage data)
     slope_optimal: float | None = None
@@ -79,6 +85,64 @@ class StooklijnResult:
 
     # Hourly COP data for dashboard
     cop_scatter_data: list[dict] | None = None
+
+
+def measured_capacity_steps(temps, powers) -> list[list[float]]:
+    """De ondergrens die de gemeten uren aan de capaciteit opleggen.
+
+    Een uur waarin de pomp bij T' gemiddeld P leverde, bewijst dat hij bij elke
+    buitentemperatuur T >= T' minstens P kan (een lucht-waterpomp levert bij
+    kouder weer niet meer). Een uur dat minder leverde, door ontdooien, stille
+    modus, de ketel die meedeed of ons eigen waterplafond, bewijst niets en
+    trekt de grens dus ook niet omlaag.
+
+    Geeft een trap ``[[T, P], ...]`` oplopend in T en in P: alleen de punten
+    waar het hoogste tot dan toe gemeten vermogen stijgt.
+    """
+    steps: list[list[float]] = []
+    best = 0.0
+    for t, p in sorted(zip(temps, powers)):
+        if not (math.isfinite(t) and math.isfinite(p)):
+            continue
+        if p > best:
+            best = float(p)
+            steps.append([round(float(t), 2), round(best, 0)])
+    return steps
+
+
+def freezing_capacity(
+    t_outdoor: float,
+    slope: float | None,
+    intercept: float | None,
+    min_temp: float | None = None,
+    measured: list[list[float]] | None = None,
+) -> float | None:
+    """Wat de warmtepomp bij ``t_outdoor`` kan leveren, of None als onbekend.
+
+    De vriescurve (``slope_local``/``intercept_local``) is een lijn door de
+    bovenrand van uurgemiddelden onder de knik. Met een maand data zijn dat een
+    handvol uren in een paar graden, en een steile lijn daardoor zakte bij vorst
+    tot ver onder wat de pomp aantoonbaar deed (Tweakers 24-11-2026: 832 W/K,
+    bij −3 °C 1,5 kW, nul bij −4,8 °C). Daarom:
+
+    - een dalende lijn (capaciteit groeit bij kou) is een fit op te weinig data:
+      None, liever geen plafond dan een verkeerd;
+    - kouder dan het koudste gemeten uur geen lijn doortrekken: None;
+    - nooit minder dan wat bij deze of een koudere temperatuur gemeten is
+      (``measured_capacity_steps``).
+    """
+    if not isinstance(slope, (int, float)) or not isinstance(intercept, (int, float)):
+        return None
+    if slope <= 0:
+        return None
+    if min_temp is not None and t_outdoor < min_temp:
+        return None
+    capacity = float(slope * t_outdoor + intercept)
+    for t, p in measured or ():
+        if t > t_outdoor:
+            break
+        capacity = max(capacity, float(p))
+    return capacity if capacity > 0 else None
 
 
 def _filter_stable_hours(df: pd.DataFrame, power_col: str, temp_col: str) -> pd.DataFrame:
@@ -844,6 +908,13 @@ def calculate_stooklijn(
                 # Pre-envelope outlier removal (z-score)
                 _, _, env_inlier_mask = robust_linear_fit(x, y)
                 df_clean = df_filtered[env_inlier_mask].copy()
+
+                # Na de uitbijterfilter: een meetfout van 20 kW mag de
+                # ondergrens niet optillen.
+                result.capacity_min_temp = float(df_clean["temperatureOutside"].min())
+                result.capacity_measured = measured_capacity_steps(
+                    df_clean["temperatureOutside"].values, df_clean["hpHeat"].values
+                )
 
                 # Max-envelope filter
                 df_clean["temp_bin"] = (

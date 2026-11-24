@@ -39,6 +39,7 @@ from homeassistant.util import dt as dt_util
 from .analysis.model_benchmark import Comparison, compare
 from .analysis.min_power import MinPowerCurve, learn_min_power
 from .analysis.shift_room_temp import TRACK_WINDOW_HOURS
+from .analysis.stooklijn import freezing_capacity
 from .analysis.thermal_model import (
     AdviceDemand,
     BalanceBias,
@@ -336,6 +337,12 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
             "intercept": d.stooklijn.intercept_local,
             "r2": d.stooklijn.r2_local,
             "knee_temperature": d.stooklijn.knee_temperature,
+            # Kouder dan dit trekt het advies de lijn niet door (geen grens).
+            "koudste_meting": (
+                round(d.stooklijn.capacity_min_temp, 1)
+                if d.stooklijn.capacity_min_temp is not None
+                else None
+            ),
         }
         if d.stooklijn.slope_local
         else None,
@@ -1342,20 +1349,20 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         """Wat de warmtepomp bij deze buitentemperatuur kan leveren, of None.
 
         De vriescurve uit de analyse (zelfde lijn als de Power House-kalibratie
-        gebruikt). Alleen met een stijgende lijn: een capaciteit die bij kouder
-        weer toeneemt is een fit op te weinig data, en dan liever geen plafond
-        dan een verkeerd.
+        gebruikt), niet doorgetrokken onder het koudste gemeten uur en nooit
+        onder wat de pomp aantoonbaar leverde. Zie ``freezing_capacity``.
         """
         data = getattr(self.coordinator, "data", None)
         stooklijn = getattr(data, "stooklijn", None)
-        slope = getattr(stooklijn, "slope_local", None)
-        intercept = getattr(stooklijn, "intercept_local", None)
-        if not isinstance(slope, (int, float)) or not isinstance(intercept, (int, float)):
-            return None
-        if slope <= 0:
-            return None
-        capacity = slope * t_outdoor + intercept
-        return capacity if capacity > 0 else None
+        min_temp = getattr(stooklijn, "capacity_min_temp", None)
+        measured = getattr(stooklijn, "capacity_measured", None)
+        return freezing_capacity(
+            t_outdoor,
+            getattr(stooklijn, "slope_local", None),
+            getattr(stooklijn, "intercept_local", None),
+            min_temp if isinstance(min_temp, (int, float)) else None,
+            measured if isinstance(measured, list) else None,
+        )
 
     def _resolve_room_setpoint(self) -> tuple[float, str]:
         """Het kamerdoel waar het advies op rekent, en waar het vandaan komt.
