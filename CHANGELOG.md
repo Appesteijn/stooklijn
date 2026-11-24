@@ -3,6 +3,32 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.13 — 2026-11-24
+
+Aanvoeradvies (Tweakers 24-11, vervolg):
+
+- **De capaciteitsgrens zakt bij vorst niet meer weg.** Het advies wordt
+  begrensd op wat de warmtepomp volgens de vriescurve kan leveren. Die curve is
+  een lijn door een handvol koude uren, en werd doorgetrokken tot ver onder de
+  koudste meting. Bij een gebruiker daalde hij 832 W per graad: 1,5 kW bij
+  −3 °C en nul bij −4,8 °C, terwijl het huis daar 4,3 kW verliest. Twee
+  aanpassingen:
+  - Kouder dan het koudste gemeten uur trekt het advies de lijn niet meer door;
+    daar geldt geen grens. Nieuw attribuut `koudste_meting` op de
+    vriesprestatie-sensor.
+  - De grens komt nooit onder wat de pomp bij dezelfde of een koudere
+    buitentemperatuur aantoonbaar per uur leverde. Uren met minder (ontdooien,
+    stille modus, ketel, het eigen waterplafond) trekken de grens niet omlaag.
+  Testhuis, alleen november-data: bij −3/−5 °C van 4,1/2,9 naar 4,3/4,3 kW;
+  over de hele winter bij −4/−6 °C van 5,2/4,5 naar 5,7/5,3 kW. De Power
+  House-kalibratie is ongewijzigd.
+- **Ontdooiing: de vastgehouden retour mag nog stijgen zolang er ontdooid
+  wordt.** De ontdooivlag gaat zo'n zes minuten vóór de omkering aan, en in die
+  minuten liep de retour soms nog op. Het advies rekende in het dal dan met de
+  waarde van vóór de vlag (live gemeten: 28,28 in plaats van 28,40 °C). Nu volgt
+  de vastgehouden waarde de retour omhoog tot het einde van de ontdooiing,
+  nooit omlaag. Naspeling van 109 ontdooiingen: dip mediaan 0,30 → 0,23 K.
+
 ## v0.10.7-beta.12 — 2026-11-24
 
 Aanvoeradvies (Tweakers 24-11):
