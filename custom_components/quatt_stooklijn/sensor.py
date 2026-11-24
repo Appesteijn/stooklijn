@@ -44,6 +44,7 @@ from .analysis.thermal_model import (
     OnlineRCModel,
     advice_demand,
     advice_forward_without_model,
+    cap_demand,
     rc_advice_demand,
     simulate_advice_forward,
     simulate_coast_time,
@@ -141,10 +142,13 @@ from .const import (
     ROOM_SETPOINT_MIN,
     SIGNAL_SOUND_LEVEL,
     SOLAR_RADIATION_DEFAULT_FACTOR,
+    DEFROST_POWER_W,
 )
 from .discovery import (
     ROLE_COMPRESSOR,
     ROLE_COMPRESSOR_2,
+    ROLE_DEFROST,
+    ROLE_DEFROST_2,
     ROLE_FLOW_RATE,
     ROLE_RETURN_TEMP,
     ROLE_INDOOR_TEMP,
@@ -153,9 +157,17 @@ from .discovery import (
     ROLE_SUPPLY_TEMP,
     ROLE_TOTAL_POWER,
     ROLE_BOILER_HEAT,
+    async_config_quatt_hubs,
+    async_resolve_candidates,
 )
 from .coordinator import QuattStooklijnCoordinator, QuattStooklijnData
-from .helpers import FlowSmoother, get_device_info, get_effective_flow, get_float_state
+from .helpers import (
+    FlowSmoother,
+    ReturnHold,
+    get_device_info,
+    get_effective_flow,
+    get_float_state,
+)
 from .heat_demand import (
     HEARTBEAT_INTERVAL_SECONDS,
     OPENQUATT_CACHE_SECONDS,
@@ -692,6 +704,67 @@ def _feed_flow(coordinator, flow_lph: float | None) -> None:
         smoother.update(flow_lph, dt_util.utcnow())
 
 
+#: Hoe vaak de ontdooivlaggen opnieuw worden opgezocht. Het register doorzoeken
+#: bij elke retourmeting is te duur; een nieuwe integratie komt zelden.
+DEFROST_ENTITIES_REFRESH_S = 600.0
+
+
+def _defrost_entities(hass: HomeAssistant, coordinator, entry: ConfigEntry) -> list[str]:
+    """De ontdooivlaggen van Quatt en OpenQuatt, beide units, allemaal."""
+    cached = getattr(coordinator, "defrost_entities", None)
+    if cached is not None and monotonic() - cached[0] < DEFROST_ENTITIES_REFRESH_S:
+        return cached[1]
+    hubs = async_config_quatt_hubs(hass, {**entry.data, **entry.options})
+    entities = [
+        entity_id
+        for role in (ROLE_DEFROST, ROLE_DEFROST_2)
+        for entity_id in async_resolve_candidates(hass, None, role, hubs=hubs)
+    ]
+    coordinator.defrost_entities = (monotonic(), entities)
+    return entities
+
+
+def _defrosting(hass: HomeAssistant, coordinator, entry: ConfigEntry) -> bool:
+    """Ontdooit een van de units nu?
+
+    Een vlag die aan staat, of een thermisch vermogen onder ``DEFROST_POWER_W``.
+    Het vermogen omdat een vlag kan ontbreken of niet meekomen: op het testhuis
+    stond de Quatt-vlag een week lang uit tijdens 128 ontdooiingen.
+    """
+    for entity_id in _defrost_entities(hass, coordinator, entry):
+        state = hass.states.get(entity_id)
+        if state is not None and state.state == "on":
+            return True
+    cfg = {**entry.data, **entry.options}
+    power_entity = async_source_entity(
+        hass, entry.entry_id, ROLE_TOTAL_POWER,
+        config=cfg, conf_key=CONF_POWER_ENTITY,
+    )
+    power = get_float_state(hass, power_entity) if power_entity else None
+    return power is not None and power < DEFROST_POWER_W
+
+
+def _advice_return(
+    hass: HomeAssistant, coordinator, entry: ConfigEntry, t_return: float | None
+) -> float | None:
+    """De retour waar een aanvoeradvies mee rekent; zie ReturnHold.
+
+    Zonder ReturnHold (een coordinator uit een test of van vóór deze versie)
+    de gemeten retour, zoals voorheen.
+    """
+    hold = getattr(coordinator, "return_hold", None)
+    if not isinstance(hold, ReturnHold):
+        return t_return
+    hold.update(t_return, _defrosting(hass, coordinator, entry), dt_util.utcnow())
+    return hold.effective(t_return)
+
+
+def _return_held(coordinator) -> bool:
+    """Houdt het advies nu een retour van vóór een ontdooiing vast?"""
+    hold = getattr(coordinator, "return_hold", None)
+    return isinstance(hold, ReturnHold) and hold.held is not None
+
+
 class QuattSupplyTempSensor(
     CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity
 ):
@@ -807,7 +880,10 @@ class QuattSupplyTempSensor(
             return None
 
         t_outdoor = get_float_state(self.hass, self._outdoor_entity)
-        t_return = get_float_state(self.hass, self._return_temp_entity)
+        t_return = _advice_return(
+            self.hass, self.coordinator, self._entry,
+            get_float_state(self.hass, self._return_temp_entity),
+        )
         flow_lph = get_float_state(self.hass, self._flow_entity)
 
         # De retour is alleen nodig als de pomp draait; stilstaand rekent het
@@ -887,6 +963,9 @@ class QuattSupplyTempSensor(
             "bron_naam": SOURCE_NAMES["stooklijn"],
             "outdoor_temp": t_outdoor,
             "return_temp": t_return,
+            # True: het advies rekent met de retour van vóór een ontdooiing
+            # (ReturnHold), niet met de gemeten return_temp.
+            "retour_vastgehouden": _return_held(self.coordinator),
             "flow_lph": flow_lph,
             "heat_demand_w": heat_demand_w,
             "aanvoer_uit": (
@@ -2238,7 +2317,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         aanvoer te warm is, het tweede dat er niets bekend is.
         """
         t_outdoor = get_float_state(self.hass, self._outdoor_entity)
-        t_return = get_float_state(self.hass, self._return_temp_entity)
+        t_return = self._advice_return()
         flow_lph = get_float_state(self.hass, self._flow_entity)
 
         if t_outdoor is None or t_return is None:
@@ -2300,10 +2379,9 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         if stationary <= 0:
             return {"kamer_over_uren": PREDICT_HOURS, "kamer_verwacht_c": round(t_room, 2),
                     "vraag_w": 0, "aanvoer_c": None}
-        demand = max(0.0, stationary + MPC_CATCHUP_FACTOR * u * (t_set - t_room))
-        cap = self._capacity_w(t_outdoor)
-        if cap is not None:
-            demand = min(demand, cap)
+        demand = max(0.0, cap_demand(
+            stationary + MPC_CATCHUP_FACTOR * u * (t_set - t_room),
+            stationary, self._capacity_w(t_outdoor)))
         supply = None
         if t_return is not None or self.emitter is not None:
             try:
@@ -2325,6 +2403,13 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             t_room = self._resolve_room_setpoint()[0]
         return {"emitter": self.emitter, "t_room": t_room}
 
+    def _advice_return(self) -> float | None:
+        """De gemeten retour, of die van vóór een ontdooiing; zie ReturnHold."""
+        return _advice_return(
+            self.hass, self.coordinator, self._entry,
+            get_float_state(self.hass, self._return_temp_entity),
+        )
+
     def rc_advice(self) -> dict:
         """Het aanvoeradvies volgens het lerende huismodel (1R1C).
 
@@ -2341,7 +2426,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             return {"value": value, "status": status, "terugval": True, "demand": None}
 
         t_outdoor = get_float_state(self.hass, self._outdoor_entity)
-        t_return = get_float_state(self.hass, self._return_temp_entity)
+        t_return = self._advice_return()
         flow_lph = get_float_state(self.hass, self._flow_entity)
         if t_outdoor is None or t_return is None:
             return {"value": None, "status": MPC_ADVICE_NO_INPUT, "terugval": False, "demand": None}
@@ -2433,7 +2518,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     def extra_state_attributes(self) -> dict | None:
         """Attribuut met de vooruitblik (MPC_FORECAST_HOURS uur) + huidige inputs."""
         t_outdoor = get_float_state(self.hass, self._outdoor_entity)
-        t_return = get_float_state(self.hass, self._return_temp_entity)
+        t_return_measured = get_float_state(self.hass, self._return_temp_entity)
+        t_return = self._advice_return()
         flow_lph = get_float_state(self.hass, self._flow_entity)
         effective_flow = _effective_flow(self.coordinator, flow_lph)
         room_setpoint, room_setpoint_source = self._resolve_room_setpoint()
@@ -2550,7 +2636,11 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             # De naam van deze stuurbron, zoals in de opties (SOURCE_NAMES).
             "bron_naam": SOURCE_NAMES["mpc"],
             "outdoor_temp": t_outdoor,
-            "return_temp": t_return,
+            "return_temp": t_return_measured,
+            # De retour waar het advies mee rekent, en of dat de waarde van
+            # vóór een ontdooiing is; zie ReturnHold.
+            "retour_advies": t_return,
+            "retour_vastgehouden": _return_held(self.coordinator),
             "flow_lph": flow_lph,
             # Het debiet waar het advies mee rekent; zie FlowSmoother.
             "flow_effectief_lph": round(effective_flow),

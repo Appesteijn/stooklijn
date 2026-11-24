@@ -101,9 +101,15 @@ class TestKamerLooptRealistischOp:
         assert kamers[-1] <= SETPOINT + 0.05
 
     def test_kouder_dan_de_capaciteit_aankan_wordt_begrensd(self):
+        # Verlies 280·20 = 5.600 W, met inhaalterm ruim 7 kW.
+        uren = _sim(temps=[-5.0] * 3, capacity=lambda t: 6000.0)
+        assert all(u["begrensd"] for u in uren)
+        assert all(u["q_hp_needed_w"] == 6000 for u in uren)
+
+    def test_capaciteit_onder_het_verlies_kapt_alleen_de_inhaalterm(self):
         uren = _sim(temps=[-5.0] * 3, capacity=lambda t: 4500.0)
         assert all(u["begrensd"] for u in uren)
-        assert all(u["q_hp_needed_w"] == 4500 for u in uren)
+        assert all(u["q_hp_needed_w"] == pytest.approx(U * (T_BAL + 5.0), abs=1) for u in uren)
 
     def test_capaciteit_volgt_de_buitentemperatuur_per_uur(self):
         gezien: list[float] = []

@@ -74,9 +74,16 @@ class TestLatereUren:
             assert u["q_hp_needed_w"] == pytest.approx(U * (T_BAL - t_out), abs=1)
 
     def test_capaciteit_per_uur(self):
-        uren = _vooruit(temps=[6.5, -5.0], capacity=lambda t: 3000.0 if t < 0 else 6000.0)
-        assert uren[0]["begrensd"] is False
-        assert uren[1]["begrensd"] is True
+        uren = _vooruit(t_in=19.0, temps=[6.5, -5.0],
+                        capacity=lambda t: 3000.0 if t > 0 else 9000.0)
+        assert uren[0]["begrensd"] is True
+        assert uren[1]["begrensd"] is False
+
+    def test_capaciteit_onder_het_verlies_telt_niet(self):
+        """Uur 1 heeft geen inhaalterm: een lagere capaciteit verandert niets."""
+        uren = _vooruit(temps=[6.5, -5.0], capacity=lambda t: 3000.0)
+        assert uren[1]["begrensd"] is False
+        assert uren[1]["q_hp_needed_w"] == pytest.approx(U * (T_BAL + 5.0), abs=1)
 
     def test_boven_het_balanspunt_geen_vraag(self):
         uren = _vooruit(t_in=19.0, temps=[6.5, 18.0])

@@ -153,6 +153,21 @@ class TestCapaciteitsplafond:
         assert a_met < a_zonder
         assert a_met == pytest.approx(28.0 + 6821.3 / (1.16 * 800), abs=0.1)
 
+    def test_nooit_onder_het_warmteverlies(self):
+        """Tweakers 24-11-2026, 09:00: U 218,7, balanspunt 16,46, buiten −2,8 °C.
+
+        De geleerde vriescurve gaf daar hooguit ~2,5 kW; het huis verloor
+        4,2 kW. Het advies rekende met 2,5 kW en de kamer zakte een graad.
+        """
+        from custom_components.quatt_stooklijn.analysis.thermal_model import advice_demand
+
+        d = advice_demand(218.7, 16.46, -2.8, 18.78, 20.0, 10.0, 2500.0)
+        assert d.stationary_w == pytest.approx(4212, abs=1)
+        assert d.capped_w == pytest.approx(d.stationary_w)
+        assert d.capped is True
+        # Een capaciteit tussen verlies en totaal kapt gewoon af.
+        assert advice_demand(218.7, 16.46, -2.8, 18.78, 20.0, 10.0, 5000.0).capped_w == 5000.0
+
     def test_normaal_tekort_niet_geraakt(self):
         states = {OUTDOOR: 3.0, RETURN: 28.0, FLOW: 800, INDOOR: 19.9, SETPOINT: 20.0}
         with _sources():

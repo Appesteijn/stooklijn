@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+from collections import deque
 import math
 from datetime import datetime
 
-from .const import DOMAIN, FLOW_SMOOTHING_TAU_MIN, MIN_FLOW_LPH, NOMINAL_FLOW_LPH
+from .const import (
+    DEFROST_HOLD_AFTER_MIN,
+    DEFROST_HOLD_MAX_MIN,
+    DEFROST_LOOKBACK_MIN,
+    DEFROST_RECOVERED_K,
+    DEFROST_TRANSIT_MIN,
+    DOMAIN,
+    FLOW_SMOOTHING_TAU_MIN,
+    MIN_FLOW_LPH,
+    NOMINAL_FLOW_LPH,
+)
 
 
 def get_device_info(entry_id: str) -> dict:
@@ -93,6 +104,92 @@ class FlowSmoother:
         # Pomp staat stil: het normale debiet van déze installatie, en pas als
         # dat nog onbekend is het nominale.
         return self._average if self._average is not None else NOMINAL_FLOW_LPH
+
+
+class ReturnHold:
+    """De retour waar een aanvoeradvies mee rekent, met ontdooiingen eruit.
+
+    Een advies is ``retour + vraag / (1,16 · debiet)``. Tijdens en na een
+    ontdooiing is de retour afgekoeld water dat de warmtepomp er zelf uit heeft
+    gehaald, en dan zakte het advies mee terwijl het huis niets anders nodig
+    had. Wie het advies volgt (de max-water-bijsturing leest het eens per half
+    uur) kreeg dan een plafond dat net na het ontdooien knijpt.
+
+    Daarom: bij een ontdooiing de hoogste retour van de minuten ervoor vasthouden
+    (``DEFROST_LOOKBACK_MIN``), en rekenen met de hoogste van die waarde en de
+    gemeten retour. Losgelaten als de retour hersteld is, als de laatste
+    ontdooiing ``DEFROST_HOLD_AFTER_MIN`` voorbij is, of na
+    ``DEFROST_HOLD_MAX_MIN``. Nooit lager dan gemeten: een retour die echt
+    stijgt telt meteen mee.
+
+    Eén per installatie, gedeeld door alle adviezen, zoals ``FlowSmoother``.
+    Vaker aanroepen op hetzelfde moment verandert niets.
+    """
+
+    def __init__(
+        self,
+        lookback_min: float = DEFROST_LOOKBACK_MIN,
+        after_min: float = DEFROST_HOLD_AFTER_MIN,
+        max_min: float = DEFROST_HOLD_MAX_MIN,
+        recovered_k: float = DEFROST_RECOVERED_K,
+        transit_min: float = DEFROST_TRANSIT_MIN,
+    ) -> None:
+        self._lookback_s = lookback_min * 60.0
+        self._transit_s = transit_min * 60.0
+        self._after_s = after_min * 60.0
+        self._max_s = max_min * 60.0
+        self._recovered_k = recovered_k
+        # Retourmetingen buiten een ontdooiing, nieuwste achteraan.
+        self._recent: deque[tuple[datetime, float]] = deque()
+        self._held: float | None = None
+        self._since: datetime | None = None
+        self._last_defrost: datetime | None = None
+
+    @property
+    def held(self) -> float | None:
+        """De vastgehouden retour, of None als er niets wordt vastgehouden."""
+        return self._held
+
+    def update(self, t_return: float | None, defrosting: bool, now: datetime) -> None:
+        """Verwerk de toestand van nu."""
+        if defrosting:
+            self._last_defrost = now
+            if self._held is None:
+                values = [v for _, v in self._recent]
+                if t_return is not None:
+                    values.append(t_return)
+                if values:
+                    self._held = max(values)
+                    self._since = now
+            return
+
+        if self._held is not None:
+            since_defrost = (now - self._last_defrost).total_seconds()
+            # Het koude water moet nog rond: vlak na het einde staat de retour
+            # nog op de oude waarde, en dat is geen herstel.
+            recovered = (
+                since_defrost >= self._transit_s
+                and t_return is not None
+                and t_return >= self._held - self._recovered_k
+            )
+            quiet = since_defrost >= self._after_s
+            too_old = (now - self._since).total_seconds() >= self._max_s
+            if not (recovered or quiet or too_old):
+                return
+            self._held = self._since = None
+            # Wat er tijdens het vasthouden binnenkwam was afgekoeld water.
+            self._recent.clear()
+
+        if t_return is not None:
+            self._recent.append((now, t_return))
+        while self._recent and (now - self._recent[0][0]).total_seconds() > self._lookback_s:
+            self._recent.popleft()
+
+    def effective(self, t_return: float | None) -> float | None:
+        """De retour voor het advies. None blijft None: geen meting is geen meting."""
+        if t_return is None or self._held is None:
+            return t_return
+        return max(t_return, self._held)
 
 
 def resolve_own_entity_id(

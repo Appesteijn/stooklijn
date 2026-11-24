@@ -50,6 +50,32 @@ NOMINAL_FLOW_LPH = 800
 # getal gaf pieken tot 46 °C. Nagespeeld op 14 dagen (nov 2026): elke
 # debietcorrectie haalt die pieken weg zonder dat de nauwkeurigheid verandert.
 FLOW_SMOOTHING_TAU_MIN = 30.0
+# Retour vasthouden rond een ontdooiing (ReturnHold). Bij het ontdooien haalt de
+# warmtepomp warmte uit het water; dat koude water komt een paar minuten later
+# als retour terug, en het advies (retour + vraag / (1,16 · debiet)) zakte even
+# hard mee, terwijl het huis niets anders nodig had. Gemeten op het testhuis
+# (duo, OpenQuatt, 17–24 nov 2026, 128 ontdooiingen): de retour bereikt zijn
+# dieptepunt ~3 min na het einde van de ontdooiing, 2,4 K onder de waarde
+# ervoor (mediaan).
+#
+# Herkend aan het thermisch vermogen: onder deze grens draait de warmtepomp
+# omgekeerd. Op het testhuis ving −1000 W alle 128 ontdooiingen en gaf het geen
+# enkele valse melding; −500 W gaf er twee, −100 W dertig (stilstand en
+# opstarten). Daarnaast tellen de ontdooivlaggen van Quatt en OpenQuatt.
+DEFROST_POWER_W = -1000.0
+# De vastgehouden retour is de hoogste van zoveel minuten vóór de ontdooiing:
+# het vermogen gaat pas onder de grens als de retour al begint te zakken.
+DEFROST_LOOKBACK_MIN = 10.0
+# Losgelaten zodra de retour weer zo dicht bij de vastgehouden waarde zit, of
+# zoveel minuten na de laatste ontdooiing, of na de absolute grens. Die laatste
+# voor een duo dat om beurten ontdooit: dan herstelt de retour soms een uur
+# lang niet helemaal, en een waarde van een uur oud zegt niets meer.
+DEFROST_RECOVERED_K = 0.2
+# Herstel telt pas zoveel minuten na de ontdooiing: zo lang duurt het voor het
+# afgekoelde water als retour terugkomt (testhuis: dieptepunt ~3 min na het einde).
+DEFROST_TRANSIT_MIN = 5.0
+DEFROST_HOLD_AFTER_MIN = 30.0
+DEFROST_HOLD_MAX_MIN = 90.0
 # W — hieronder levert de installatie geen warmte aan het huis. Debiet alleen is
 # geen bewijs van stoken: buiten het seizoen circuleert de pomp zonder productie,
 # en een advies daartegen afzetten levert een fout die nergens over gaat.

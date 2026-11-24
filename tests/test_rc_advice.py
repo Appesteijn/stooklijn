@@ -82,8 +82,15 @@ class TestRekensom:
         assert d.catchup_w == 0
 
     def test_begrensd_op_capaciteit(self):
+        # Stationair 250·30 − 900 = 6.600 W, inhaal 2.500 W.
+        d = rc_advice_demand(_model(), -10.0, 19.0, 20.0, 0.0, 10.0, 8000.0)
+        assert d.capped_w == 8000.0
+        assert d.capped is True
+
+    def test_nooit_onder_het_warmteverlies(self):
+        """Een capaciteit onder het verlies kapt alleen de inhaalterm af."""
         d = rc_advice_demand(_model(), -10.0, 19.0, 20.0, 0.0, 10.0, 4000.0)
-        assert d.capped_w == 4000.0
+        assert d.capped_w == pytest.approx(6600.0)
         assert d.capped is True
 
 

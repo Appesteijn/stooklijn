@@ -3,6 +3,35 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## Nog niet uitgebracht
+
+Aanvoeradvies (Tweakers 24-11):
+
+- **Ontdooiingen zakken niet meer door in het advies.** Het advies rekent met
+  de gemeten retour: retour + vraag / (1,16 · debiet). Bij een ontdooiing haalt
+  de warmtepomp warmte uit het water, dat koude water komt een paar minuten
+  later als retour terug, en alle adviezen zakten mee terwijl het huis niets
+  anders nodig had. Wie het advies als waterplafond gebruikt, kreeg dat plafond
+  soms net na een ontdooiing een half uur te laag. Nu houdt het advies tijdens
+  en na een ontdooiing de retour van de tien minuten ervoor vast, tot de retour
+  hersteld is (op 0,2 K, na minstens 5 minuten), tot 30 minuten na de laatste
+  ontdooiing, of hoogstens 90 minuten. Het rekent nooit met minder dan de
+  gemeten retour. Een ontdooiing wordt herkend aan de ontdooivlag van Quatt of
+  OpenQuatt, of aan een thermisch vermogen onder −1000 W. Testhuis (duo,
+  17–24 nov, 109 ontdooiingen): adviesdip van 2,4 K (p90 4,8 K) naar 0,2 K
+  (p90 1,1 K). Nieuwe attributen `retour_vastgehouden` op beide adviezen en
+  `retour_advies` op het MPC-advies; `return_temp` blijft de gemeten waarde.
+- **De capaciteitsgrens komt niet meer onder het warmteverlies.** Het advies
+  wordt begrensd op wat de warmtepomp volgens de vriescurve kan leveren. Die
+  curve is het meeste dat de pomp ooit per uur leverde, niet wat hij kan:
+  ontdooiingen, stille modus en het eigen plafond drukken dat getal, en onder
+  de koudste meting wordt hij doorgetrokken. Bij een gebruiker gaf hij bij
+  −2,8 °C hooguit ~2,5 kW, terwijl het huis 4,2 kW verloor. Het advies zakte
+  tien uur lang van 31 naar 26 °C terwijl het kouder werd, en de kamer van
+  19,6 naar 18,6 °C. Nu kapt de grens alleen nog de inhaalterm af; het
+  warmteverlies zelf blijft altijd staan. Geldt voor alle adviezen, de
+  vooruitblik en het voorspellende advies.
+
 ## v0.10.7-beta.11 — 2026-11-23
 
 Zonnesensor (Tweakers 22/23-11):

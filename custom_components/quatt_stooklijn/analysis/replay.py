@@ -26,6 +26,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .model_benchmark import MIN_BUCKET_COVERAGE, resample
+from .thermal_model import cap_demand
 from .thermal_model_2r2c import TwoStateParams, discretize, track_hidden_state
 
 #: Hoeveel dagen logboek de naspeler doorrekent.
@@ -73,7 +74,7 @@ def _demand(v: Variant, u: float, t_bal: float, target: float, t_room: float,
     if stationary <= 0:
         return 0.0
     q = stationary + v.catchup_factor * u * (target - t_room)
-    return float(min(capacity, max(0.0, q)))
+    return float(max(0.0, cap_demand(q, stationary, capacity)))
 
 
 def replay(

@@ -94,6 +94,13 @@ ROLE_COMPRESSOR_2 = "compressor_2"
 # als de retour. Op een solo blijft de tweede rol leeg.
 ROLE_HP1_WATER_OUT = "hp1_water_out"
 ROLE_HP2_WATER_OUT = "hp2_water_out"
+# Ontdooivlag per unit (binary_sensor). Alleen gelezen door de aanvoeradviezen,
+# die tijdens een ontdooiing de retour van ervoor vasthouden (ReturnHold). Geen
+# spiegel en geen bron in de registry: die rekenen met getallen. Alle kandidaten
+# tellen, niet één winnaar: op het testhuis stond de Quatt-vlag een week lang
+# uit terwijl OpenQuatt 128 ontdooiingen meldde.
+ROLE_DEFROST = "defrost"
+ROLE_DEFROST_2 = "defrost_2"
 # De twee geluidsniveau-keuzeknoppen van de CiC.
 #
 # Deze stonden tot v0.10.1 als kale entity-ID in switch.py — en dan uitsluitend
@@ -150,6 +157,8 @@ QUATT_KEYS: dict[str, tuple[str, ...]] = {
     ROLE_COMPRESSOR_2: ("heatPumps.1.compressorFrequency",),
     ROLE_HP1_WATER_OUT: ("hp1.temperatureWaterOut",),
     ROLE_HP2_WATER_OUT: ("hp2.temperatureWaterOut",),
+    ROLE_DEFROST: ("hp1.computedDefrost",),
+    ROLE_DEFROST_2: ("hp2.computedDefrost",),
     ROLE_SOUND_DAY: ("dayMaxSoundLevel",),
     ROLE_SOUND_NIGHT: ("nightMaxSoundLevel",),
 }
@@ -223,6 +232,16 @@ FALLBACK_ENTITIES: dict[str, tuple[str, ...]] = {
         "sensor.heatpump_hp2_temperature_water_out",
         "sensor.openquatt_hp2_water_out_temperature",
     ),
+    ROLE_DEFROST: (
+        "binary_sensor.heatpump_hp1_defrost",
+        "binary_sensor.heatpump_1_defrost",
+        "binary_sensor.openquatt_hp1_defrost",
+    ),
+    ROLE_DEFROST_2: (
+        "binary_sensor.heatpump_hp2_defrost",
+        "binary_sensor.heatpump_2_defrost",
+        "binary_sensor.openquatt_hp2_defrost",
+    ),
     ROLE_SOUND_DAY: (
         "select.heatpump_cic_day_max_sound_level",
         "select.cic_day_max_sound_level",
@@ -262,6 +281,8 @@ OPENQUATT_NAMES: dict[str, tuple[str, ...]] = {
     ROLE_COMPRESSOR_2: ("HP2 - Compressor frequency",),
     ROLE_HP1_WATER_OUT: ("HP1 - Water out temperature",),
     ROLE_HP2_WATER_OUT: ("HP2 - Water out temperature",),
+    ROLE_DEFROST: ("HP1 - Defrost",),
+    ROLE_DEFROST_2: ("HP2 - Defrost",),
     # "Maximum heating outdoor temperature" heet in de firmware nog
     # house_zero_power_temp_c; ESPHome bouwt de entity-ID uit de *naam*, dus dit
     # is de stabiele sleutel — niet de id en niet number.openquatt_house_zero_*.

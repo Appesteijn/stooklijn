@@ -910,7 +910,26 @@ class AdviceDemand:
         # bool(): de capaciteit komt uit een numpy-fit, en dan is de vergelijking
         # een numpy.bool, die Home Assistant niet naar JSON krijgt (beta.8/9:
         # de hele MPC-sensor gaf 500).
-        return bool(self.capacity_w is not None and self.total_w > self.capacity_w)
+        return bool(self.capped_w < self.total_w)
+
+
+def cap_demand(total_w: float, stationary_w: float, capacity_w: float | None) -> float:
+    """De vraag begrensd op de capaciteit, maar nooit onder het warmteverlies.
+
+    De capaciteitsgrens is een vangrail tegen een grote inhaalvraag, en mag
+    alleen de inhaalterm afkappen. Onder het warmteverlies garandeert een
+    advies dat de kamer afkoelt, en kan de pomp het verlies echt niet halen,
+    dan kost een hoger advies niets: hij levert wat hij kan.
+
+    Gevonden op Tweakers (24-11-2026): de geleerde vriescurve gaf bij −2,8 °C
+    hooguit ~2,5 kW tegen 4,2 kW warmteverlies. Het advies zakte tien uur lang
+    van 31 naar 26 °C terwijl het kouder werd, en de kamer van 19,6 naar 18,6.
+    De vriescurve is het meeste dat de pomp per uur ooit leverde, niet wat hij
+    kan: ontdooiingen, stille modus en het eigen plafond drukken dat getal.
+    """
+    if capacity_w is None:
+        return total_w
+    return min(total_w, max(capacity_w, stationary_w))
 
 
 def advice_demand(
@@ -925,7 +944,8 @@ def advice_demand(
     """Het vermogen waar het aanvoeradvies op rekent, voor één moment.
 
     ``U · max(0, T_balans − T_buiten)`` plus ``catchup_factor · U · (setpoint −
-    kamer)``, begrensd op ``capacity_w``. Boven het balanspunt geen inhaalterm.
+    kamer)``, begrensd op ``capacity_w`` maar niet onder het warmteverlies (zie
+    ``cap_demand``). Boven het balanspunt geen inhaalterm.
     Zie ``QuattMpcSensor._advice_demand`` voor het waarom van elk deel.
 
     Eén functie voor het advies van nu én elk uur van de vooruitblik, zodat de
@@ -939,7 +959,7 @@ def advice_demand(
     if t_indoor is not None and stationary > 0:
         catchup = catchup_factor * u_wk * (t_setpoint - t_indoor)
     total = stationary + catchup
-    capped = min(total, capacity_w) if capacity_w is not None else total
+    capped = cap_demand(total, stationary, capacity_w)
     return AdviceDemand(
         stationary_w=stationary,
         catchup_w=catchup,
@@ -994,7 +1014,7 @@ def rc_advice_demand(
     if t_indoor is not None and stationary > 0:
         catchup = catchup_factor * u_wk * (t_setpoint - t_indoor)
     total = stationary + catchup
-    capped = min(total, capacity_w) if capacity_w is not None else total
+    capped = cap_demand(total, stationary, capacity_w)
     return AdviceDemand(
         stationary_w=stationary,
         catchup_w=catchup,

@@ -269,6 +269,47 @@ restje onder het minimum een COP-bonus (review 22-11: 30 % besparing op een
 zachte dag, 0 % zonder aanvoer-COP); geen van beide klemmen strafte een blok op
 het minimum af tegen een vermogen dat de installatie niet kan leveren.
 
+## Ontdooiingen horen niet in het advies (ReturnHold)
+
+Het advies van nu rekent op de gemeten retour (zie hierboven, 0,09 K). Rond een
+ontdooiing klopt die aanname niet: de warmtepomp koelt zelf het water, dat komt
+~3 minuten na het einde als retour terug (testhuis: dieptepunt 2,4 K onder de
+waarde ervoor, mediaan; bij twee units tegelijk 5 K) en herstelt in 20–40
+minuten. `ReturnHold` (`helpers.py`) houdt dan de hoogste retour van de tien
+minuten ervoor vast, en rekent nooit lager dan gemeten.
+
+- **Herkennen op vermogen én vlag.** Thermisch vermogen < −1000 W ving op het
+  testhuis 128 van 128 ontdooiingen zonder valse melding (−500 W: 2 vals,
+  −100 W: 30, stilstand en opstarten). De Quatt-vlag (`hp1.computedDefrost`)
+  stond op hetzelfde huis een week lang uit, OpenQuatt meldde ze wel. Dus
+  alle vlaggen tellen, niet één winnaar, en het vermogen erbij. De vlaggen
+  zitten niet in de bronregistry: die rekent met getallen.
+- **Herstel pas na de transittijd** (`DEFROST_TRANSIT_MIN`): vlak na het einde
+  staat de retour nog op de oude waarde. Zonder die wachttijd zou het
+  vasthouden daar meteen loslaten, vóór het koude water aankomt. Op het
+  testhuis scheelde het in de nagespeelde dips weinig (p90 1,20 → 1,08 K met
+  vlaggen); het is een vangnet voor een vlag die uitgaat voor de retour zakt.
+- Losgelaten na 30 minuten zonder ontdooiing: 10 min liet een dip van 0,8 K
+  staan, 30 min 0,2 K, 45 min 0,18 K bij meer vastgehouden tijd. Een duo dat om
+  beurten ontdooit herstelt soms een uur niet; daarom hoogstens 90 minuten.
+- Het afgiftemodel is hier geen alternatief: met draaiende pomp is het 0,4 K
+  minder nauwkeurig, en een ontdooiing duurt maar 8 minuten.
+
+## De capaciteitsgrens kapt alleen de inhaalterm (`cap_demand`)
+
+De vriescurve (`slope_local`/`intercept_local`) is de bovenrand van de
+uurgemiddelden onder de knik: wat de pomp ooit leverde, niet wat hij kan.
+Ontdooiverdunning, stille modus en ons eigen waterplafond drukken hem, en een
+plafond dat de pomp afknijpt leert zo zijn eigen te lage capaciteit. Onder de
+koudste meting wordt hij lineair doorgetrokken. Tweakers 24-11-2026: helling
+≥ 640 W/K (testhuis 374), bij −2,8 °C ≤ 2,5 kW tegen 4,2 kW verlies; tien uur
+`advies_begrensd`, advies 31 → 26 °C, kamer 19,6 → 18,6 °C.
+
+Daarom `min(totaal, max(capaciteit, stationair))`: nooit onder het
+warmteverlies. Kan de pomp het verlies echt niet halen, dan levert hij wat hij
+kan en kost een hoger advies niets. Dit lost het inhalen bij een te lage curve
+niet op; de curve zelf is nog niet verbeterd.
+
 ## De PV-schaal: eigen monsters, dan bewaard, dan aangevuld, dan boven 10°
 
 Gemeten zon komt uit PV-vermogen gedeeld door een schaal (W per W/m² op het
