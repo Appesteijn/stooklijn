@@ -3,6 +3,30 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.15 — 2026-11-25
+
+Aanvoeradvies (Tweakers 25-11, Quatt Duo met ketel op zomerstand):
+
+- **Een klein kamertekort wordt altijd ingehaald.** Lag de vriescurve onder
+  het warmteverlies, dan viel de hele inhaalterm weg. "Advies buiten + kamer"
+  werd dan gelijk aan "Advies buiten" (30,8 °C), het plafond hield de Duo een
+  nacht lang op halve kracht (2 kW), en de kamer zakte een halve graad. De
+  vriescurve is wat de pomp leverde, niet wat hij kan, en ons eigen plafond
+  drukt dat getal. Nu blijft de inhaalterm voor de eerste graad tekort altijd
+  vrij; de capaciteitsgrens kapt alleen wat daarboven komt. Een groot tekort
+  (nachtverlaging inhalen) blijft begrensd, en het advies springt niet als de
+  curve het verlies kruist.
+- **De balanspuntcorrectie leert weer in die situatie.** Ze leert alleen als
+  het advies niet begrensd is. Bij een tekort tot 1 °C, precies waar ze voor
+  bedoeld is, is dat nu altijd zo. `balanspunt_correctie_k` bleef daardoor 0,0.
+
+Opgelost:
+
+- **Na een herstart leert de balanspuntcorrectie meteen verder.** De eerste
+  meting na elke herstart telde als setpointwissel, waarna de correctie drie
+  uur niets leerde, dus na elke update opnieuw. Het setpoint en sinds wanneer
+  het zo staat worden nu bewaard. Eén keer wachten na deze update hoort erbij.
+
 ## v0.10.7-beta.14 — 2026-11-25
 
 Opgelost:
