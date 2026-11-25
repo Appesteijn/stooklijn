@@ -82,3 +82,48 @@ def select_heating(df: pd.DataFrame, heat_col: str = "totalHeatPerHour") -> pd.D
     if heat_col not in df.columns:
         return df.iloc[0:0]
     return df[classify_heat_mode(df[heat_col]) == MODE_HEATING]
+
+
+def cop_energy(df: pd.DataFrame) -> pd.DataFrame:
+    """Warmte en stroom van de warmtepomp per stookdag, voor een COP over meerdere dagen.
+
+    Een COP over een periode is totale warmte gedeeld door totale stroom, niet
+    het gemiddelde van de dag-COP's. Dat gemiddelde laat een zachte dag met
+    5 kWh warmte even zwaar tellen als een koude dag met 80 kWh, en komt
+    daardoor te hoog uit: op het testhuis 3,98 tegen 3,39 (sep 2025 – nov 2026).
+
+    Alleen stookdagen (``select_heating``) met een positieve dag-COP, en alleen
+    de warmtepomp: de ketel hoort niet in een COP. Zonder kolom
+    ``totalHpElectric`` wordt de stroom teruggerekend uit ``averageCOP``.
+    Geeft kolommen ``temp``, ``heat`` en ``elec`` (zelfde eenheid), leeg als
+    er niets bruikbaars is.
+    """
+    empty = pd.DataFrame(columns=["temp", "heat", "elec"])
+    needed = ("avg_temperatureOutside", "averageCOP")
+    if df is None or df.empty or not all(c in df.columns for c in needed):
+        return empty
+    days = select_heating(df)
+    if days.empty:
+        return empty
+    cop = pd.to_numeric(days["averageCOP"], errors="coerce")
+    heat_col = "totalHpHeat" if "totalHpHeat" in days.columns else "totalHeatPerHour"
+    heat = pd.to_numeric(days[heat_col], errors="coerce")
+    if "totalHpElectric" in days.columns:
+        elec = pd.to_numeric(days["totalHpElectric"], errors="coerce")
+    else:
+        elec = heat / cop
+    out = pd.DataFrame({
+        "temp": pd.to_numeric(days["avg_temperatureOutside"], errors="coerce"),
+        "heat": heat,
+        "elec": elec,
+    }).replace([np.inf, -np.inf], np.nan)
+    ok = out.notna().all(axis=1) & (cop > 0) & (out["heat"] > 0) & (out["elec"] > 0)
+    return out[ok]
+
+
+def seasonal_cop(energy: pd.DataFrame) -> float | None:
+    """Totale warmte gedeeld door totale stroom over de dagen van ``cop_energy``."""
+    if energy.empty:
+        return None
+    elec = float(energy["elec"].sum())
+    return float(energy["heat"].sum()) / elec if elec > 0 else None

@@ -196,6 +196,11 @@ class TestSensorAttrFunctions:
         assert attrs is not None
         assert attrs["cop_scatter_data"] == [{"temp": 5, "cop": 3.5}]
 
+    def test_cop_attrs_stookdagen(self):
+        data = _make_data(average_cop=3.39, average_cop_days=277)
+        attrs = _find_desc("average_cop").attr_fn(data)
+        assert attrs["stookdagen"] == 277
+
     def test_freezing_attrs(self):
         data = _make_data(
             stooklijn=StooklijnResult(

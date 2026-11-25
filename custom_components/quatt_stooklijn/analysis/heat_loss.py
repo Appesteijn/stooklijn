@@ -7,7 +7,13 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .utils import calc_r2, robust_linear_fit, select_heating
+from .utils import (
+    calc_r2,
+    cop_energy,
+    robust_linear_fit,
+    seasonal_cop,
+    select_heating,
+)
 
 
 @dataclass
@@ -27,6 +33,35 @@ class HeatLossResult:
     heat_at_temps: dict[int, dict] | None = None
 
 
+# COP per buitentemperatuur in de tabel "Warmtevraag per temperatuur": de stookdagen
+# binnen ±COP_BAND_K van die temperatuur samen (warmte / stroom). De tabel loopt in
+# stappen van 5 K, dus de banden sluiten op elkaar aan.
+COP_BAND_K = 2.5
+# Minder dagen in de band: geen waarde. Eén of twee dagen is toeval.
+COP_MIN_DAYS = 3
+# De dagen in de band moeten gemiddeld zo dicht bij de temperatuur liggen. Anders
+# is het een waarde van een warmere (of koudere) dag die onder een ander label
+# staat: met de koudste stookdag op −3 °C zou "−5 °C" de COP van −3 °C tonen.
+COP_MAX_MEAN_OFFSET_K = 1.5
+
+
+def cop_at_temperature(energy: pd.DataFrame, temp: float) -> float | None:
+    """COP bij een buitentemperatuur: warmte / stroom van de stookdagen eromheen.
+
+    Tot v0.10.7-beta.16 was dit ``np.interp`` door de losse dag-COP's: de COP van
+    de één of twee dagen die toevallig het dichtst bij lagen, ook niet-stookdagen
+    met COP 0, en kouder dan de koudste dag vlak doorgetrokken. Tweakers
+    25-11-2026: drie keer 2,2 bij −10, −5 en 0 °C (de koudste dag), en op het
+    testhuis 0,0 bij 15 °C. Nu een waarde alleen waar gemeten is, anders None.
+    """
+    if energy.empty:
+        return None
+    band = energy[(energy["temp"] - temp).abs() <= COP_BAND_K]
+    if len(band) < COP_MIN_DAYS:
+        return None
+    if abs(float(band["temp"].mean()) - temp) > COP_MAX_MEAN_OFFSET_K:
+        return None
+    return seasonal_cop(band)
 
 
 def calculate_heat_loss(
@@ -84,28 +119,12 @@ def calculate_heat_loss(
     # Heat demand at specific temperatures (with COP if available)
     result.heat_at_temps = {}
 
-    # Check if COP data is available for interpolation
-    has_cop = "averageCOP" in df_daily.columns
-    cop_data = None
-    if has_cop:
-        cop_df = df_daily[["avg_temperatureOutside", "averageCOP"]].replace(
-            [np.inf, -np.inf], np.nan
-        ).dropna()
-        if len(cop_df) >= 2:
-            cop_data = cop_df.sort_values("avg_temperatureOutside")
+    energy = cop_energy(df_daily)
 
     for temp in [-10, -5, 0, 5, 10, 15]:
         demand = slope * temp + intercept
         heat_value = max(0.0, float(demand))
-
-        # Interpolate COP if data is available
-        cop_value = None
-        if cop_data is not None and len(cop_data) >= 2:
-            cop_value = float(np.interp(
-                temp,
-                cop_data["avg_temperatureOutside"].values,
-                cop_data["averageCOP"].values
-            ))
+        cop_value = cop_at_temperature(energy, temp)
 
         result.heat_at_temps[temp] = {
             "heat": heat_value,

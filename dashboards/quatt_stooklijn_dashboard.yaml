@@ -658,7 +658,10 @@ views:
 
 
               **COP ({{ cop }})** — Elke kWh stroom levert {{ cop }} kWh
-              warmte.
+              warmte, gerekend over alle stookdagen van de analyse (totale
+              warmte gedeeld door totale stroom). De COP per buitentemperatuur
+              staat in de tabel *Warmtevraag per temperatuur*; een streepje
+              betekent dat er bij die temperatuur te weinig stookdagen zijn.
 
               {% else %}
 

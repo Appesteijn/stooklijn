@@ -315,11 +315,14 @@ SENSOR_DESCRIPTIONS: list[QuattSensorDescription] = [
         translation_key="average_cop",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:gauge",
+        # Totale warmte / totale stroom over de stookdagen van de analyse, niet
+        # het gemiddelde van de dag-COP's (zie analysis.utils.cop_energy).
         value_fn=lambda d: round(d.average_cop, 2) if d.average_cop else None,
         attr_fn=lambda d: {
             "cop_scatter_data": d.stooklijn.cop_scatter_data,
+            "stookdagen": d.average_cop_days,
         }
-        if d.stooklijn.cop_scatter_data
+        if d.stooklijn.cop_scatter_data or d.average_cop_days
         else None,
     ),
     QuattSensorDescription(

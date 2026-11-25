@@ -6,8 +6,6 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 
-import pandas as pd
-
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
@@ -20,6 +18,7 @@ from .analysis.cop_performance import (
 )
 from .analysis.heat_loss import HeatLossResult, calculate_heat_loss
 from .analysis.quatt import async_fetch_quatt_insights, async_get_cache_stats
+from .analysis.utils import cop_energy, seasonal_cop
 from .analysis.stooklijn import (
     StooklijnResult,
     async_fetch_live_history,
@@ -71,6 +70,8 @@ class QuattStooklijnData:
     heat_loss_hp: HeatLossResult = field(default_factory=HeatLossResult)
     heat_loss_gas: HeatLossResult = field(default_factory=HeatLossResult)
     average_cop: float | None = None
+    # Aantal stookdagen waarover average_cop is berekend.
+    average_cop_days: int = 0
     # Rendement los van het weer — de maat waarop een regelwijziging beoordeeld
     # kan worden, want de kale dag-COP volgt vooral de buitentemperatuur.
     cop_performance: CopPerformanceResult = field(
@@ -272,18 +273,13 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
                 "gas",
             )
 
-        # Step 6: Calculate average COP (only heating days)
-        average_cop = None
-        if not df_daily.empty and "averageCOP" in df_daily.columns:
-            # Filter: only days with meaningful heating and valid COP
-            cop_mask = (
-                df_daily["averageCOP"].replace([float("inf"), -float("inf")], None).notna()
-                & (df_daily.get("totalHeatPerHour", pd.Series(0)) >= 200)
-                & (df_daily["averageCOP"] > 0)
-            )
-            cop_valid = df_daily.loc[cop_mask, "averageCOP"]
-            if len(cop_valid) > 0:
-                average_cop = float(cop_valid.mean())
+        # Step 6: COP over de hele periode: totale warmte / totale stroom van de
+        # stookdagen. Tot v0.10.7-beta.16 het gemiddelde van de dag-COP's, dat
+        # zachte dagen met weinig warmte even zwaar liet tellen als koude dagen
+        # (testhuis 3,98 tegen 3,39). Zie analysis.utils.cop_energy.
+        cop_days = await self.hass.async_add_executor_job(cop_energy, df_daily)
+        average_cop = seasonal_cop(cop_days)
+        average_cop_days = len(cop_days)
 
         # Step 6b: Rendement genormaliseerd op buitentemperatuur.
         #
@@ -390,6 +386,7 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             heat_loss_hp=heat_loss_hp,
             heat_loss_gas=heat_loss_gas,
             average_cop=average_cop,
+            average_cop_days=average_cop_days,
             cop_performance=cop_performance,
             last_analysis=datetime.now(timezone.utc),
             analysis_status=analysis_status,

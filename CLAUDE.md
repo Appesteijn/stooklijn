@@ -410,3 +410,19 @@ middernacht; `start` van de dag van 20-11 is 19-11 23:00 UTC. Label met
 `dt_util.as_local(...)`, en begin het venster op lokale middernacht. Met de
 UTC-datum schoof `_async_fetch_recorder_daily` elke dag één dag terug (en
 "vandaag" werd gisteren). Uurstatistiek heeft dit probleem niet.
+
+## Een COP over meerdere dagen is warmte gedeeld door stroom
+
+Niet het gemiddelde van de dag-COP's: dat laat een zachte dag met 5 kWh warmte
+even zwaar tellen als een koude dag met 80 kWh. Testhuis (sep 2025 – nov 2026,
+277 stookdagen): 3,98 als gemiddelde, 3,39 als warmte / stroom. Tweakers
+25-11-2026 las "gemiddelde COP 4,06" naast een tabel die nergens boven 3,68
+kwam. `cop_energy` + `seasonal_cop` (`analysis/utils.py`) zijn het ene pad,
+voor de gemiddelde COP en voor de tabel per buitentemperatuur.
+
+De tabel (`cop_at_temperature`) neemt de stookdagen binnen ±2,5 K, minstens 3,
+met een gemiddelde temperatuur binnen 1,5 K van het label; anders geen waarde.
+Niet interpoleren door losse dagen: `np.interp` gaf de COP van één toevallige
+dag, telde dagen met COP 0 mee (testhuis 0,0 bij 15 °C) en trok de koudste dag
+vlak door (Tweakers: drie keer 2,2 bij −10, −5 en 0 °C). De ketel hoort niet in
+een COP: alleen `totalHpHeat`.
