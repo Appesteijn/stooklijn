@@ -310,9 +310,21 @@ koudste meting wordt hij lineair doorgetrokken. Tweakers 24-11-2026: helling
 ≥ 640 W/K (testhuis 374), bij −2,8 °C ≤ 2,5 kW tegen 4,2 kW verlies; tien uur
 `advies_begrensd`, advies 31 → 26 °C, kamer 19,6 → 18,6 °C.
 
-Daarom `min(totaal, max(capaciteit, stationair))`: nooit onder het
-warmteverlies. Kan de pomp het verlies echt niet halen, dan levert hij wat hij
-kan en kost een hoger advies niets.
+Daarom `min(totaal, max(capaciteit, stationair + 10·U·1 K))`: nooit onder het
+warmteverlies plus de inhaalterm van de eerste kelvin tekort
+(`CAPACITY_FREE_CATCHUP_K`). Kan de pomp het echt niet halen, dan levert hij
+wat hij kan en kost een hoger advies niets.
+
+Tot 25-11-2026 was de ondergrens alleen het verlies. Tweakers (Duo, kamer
+0,9 K onder setpoint, vriescurve onder het verlies): de hele inhaalterm viel
+weg, advies "buiten + kamer" = advies "buiten" (30,8 °C), plafond hield de pomp
+op ~2 kW (halve kracht), kamer zakte 0,5 K in een nacht, en omdat het advies
+begrensd was leerde `BalanceBias` niet. De lus van hierboven, nu ook nog met
+de correctie uitgeschakeld. De vrije kelvin is gelijk aan
+`BALANCE_BIAS_MAX_DEFICIT_K`: zolang de correctie mag leren, is het advies
+nooit begrensd. Doorlopend in capaciteit en tekort; "geen grens als de
+capaciteit onder het verlies ligt" gaf een sprong van 10·U·tekort waar de
+curve het verlies kruist.
 
 De grens zelf blijft nodig: hij is de vangrail tegen adviespieken bij een groot
 tekort (nachtverlaging inhalen). Wat de lijn als capaciteit mag zeggen staat in
@@ -348,6 +360,10 @@ ook de vooruitblik en het voorspellende advies rekenen ermee.
   niets, dan komt een tekort niet van het advies, en loopt een integrator tot
   zijn grens. Ook niet bij begrensd advies, een tekort > 1 K, of binnen drie
   uur na een setpointwissel (nachtverlaging inhalen).
+- **Setpoint en wisselmoment worden bewaard** (`BalanceBias.state`), niet
+  alleen de bias. Tot beta.14 telde de eerste tik na elke herstart als
+  setpointwissel: drie uur niets leren na elke update of herstart. Alleen
+  zonder bewaard setpoint (eerste start, oude opslag) wacht hij één keer.
 - Grens ±3 K. Op het testhuis (22–24-11, twee dagen setpointkolom) gemiddeld
   tekort 0,05 K, 's nachts 0,13–0,23 K; een opengelusde naspeling zegt niets
   over de gesloten kring, dus effect daar nog niet gemeten.

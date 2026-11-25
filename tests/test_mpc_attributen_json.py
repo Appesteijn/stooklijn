@@ -57,7 +57,7 @@ def json_bytes(obj) -> bytes:
     return orjson.dumps(obj, option=orjson.OPT_NON_STR_KEYS, default=_json_encoder_default)
 
 
-KOUD = {OUTDOOR: 2.0, RETURN: 28.0, FLOW: 800, INDOOR: 19.5, SETPOINT: 20.5}
+KOUD = {OUTDOOR: 2.0, RETURN: 28.0, FLOW: 800, INDOOR: 19.0, SETPOINT: 20.5}
 UREN = 12
 
 

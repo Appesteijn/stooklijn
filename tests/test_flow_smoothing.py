@@ -163,10 +163,31 @@ class TestCapaciteitsplafond:
 
         d = advice_demand(218.7, 16.46, -2.8, 18.78, 20.0, 10.0, 2500.0)
         assert d.stationary_w == pytest.approx(4212, abs=1)
-        assert d.capped_w == pytest.approx(d.stationary_w)
+        # Sinds 25-11: verlies plus de inhaal van de eerste kelvin blijft vrij.
+        assert d.capped_w == pytest.approx(d.stationary_w + 10.0 * 218.7)
         assert d.capped is True
-        # Een capaciteit tussen verlies en totaal kapt gewoon af.
-        assert advice_demand(218.7, 16.46, -2.8, 18.78, 20.0, 10.0, 5000.0).capped_w == 5000.0
+        # Een capaciteit tussen die ondergrens en het totaal kapt gewoon af.
+        assert advice_demand(218.7, 16.46, -2.8, 18.78, 20.0, 10.0, 6500.0).capped_w == 6500.0
+
+    def test_klein_tekort_bij_lage_vriescurve_niet_begrensd(self):
+        """Tweakers 25-11-2026 (Duo): kamer 0,9 K onder het setpoint, vriescurve
+        onder het verlies. Het advies viel terug op het buitentemperatuuradvies,
+        het plafond hield de pomp op halve kracht, en BalanceBias leerde niet.
+        """
+        from custom_components.quatt_stooklijn.analysis.thermal_model import advice_demand
+
+        d = advice_demand(218.7, 16.46, -2.0, 19.1, 20.0, 10.0, 2500.0)
+        assert d.capped is False
+        assert d.capped_w == pytest.approx(d.stationary_w + 10.0 * 218.7 * 0.9)
+
+    def test_doorlopend_rond_het_verlies(self):
+        """Geen sprong als de vriescurve het warmteverlies kruist."""
+        from custom_components.quatt_stooklijn.analysis.thermal_model import advice_demand
+
+        verlies = advice_demand(218.7, 16.46, -2.0, 18.0, 20.0, 10.0, None).stationary_w
+        onder = advice_demand(218.7, 16.46, -2.0, 18.0, 20.0, 10.0, verlies - 1.0)
+        boven = advice_demand(218.7, 16.46, -2.0, 18.0, 20.0, 10.0, verlies + 1.0)
+        assert onder.capped_w == pytest.approx(boven.capped_w)
 
     def test_normaal_tekort_niet_geraakt(self):
         states = {OUTDOOR: 3.0, RETURN: 28.0, FLOW: 800, INDOOR: 19.9, SETPOINT: 20.0}

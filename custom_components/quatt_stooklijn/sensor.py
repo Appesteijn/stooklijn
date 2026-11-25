@@ -772,7 +772,11 @@ def _advice_return(
     return hold.effective(t_return)
 
 
-def _new_balance_bias(bias_k: float = 0.0) -> BalanceBias:
+def _new_balance_bias(
+    bias_k: float = 0.0,
+    setpoint: float | None = None,
+    setpoint_since: float | None = None,
+) -> BalanceBias:
     return BalanceBias(
         ti_hours=BALANCE_BIAS_TI_HOURS,
         max_k=BALANCE_BIAS_MAX_K,
@@ -781,7 +785,18 @@ def _new_balance_bias(bias_k: float = 0.0) -> BalanceBias:
         max_gap_s=BALANCE_BIAS_MAX_GAP_S,
         catchup_factor=MPC_CATCHUP_FACTOR,
         bias_k=bias_k,
+        setpoint=setpoint,
+        setpoint_since=setpoint_since,
     )
+
+
+def _finite_or_none(value) -> float | None:
+    """Een bewaard getal, of None als het ontbreekt of onbruikbaar is."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
 
 
 def _return_held(coordinator) -> bool:
@@ -1250,6 +1265,9 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             coordinator.hass, 1, f"{DOMAIN}.balance_bias_{entry.entry_id}"
         )
         self._balance_bias_saved: float = 0.0
+        # Het bewaarde setpoint met zijn tijdstip; een wissel moet ook bewaard
+        # worden, anders telt hij na een herstart niet mee.
+        self._balance_bias_saved_setpoint: tuple[float | None, float | None] = (None, None)
 
     # ------------------------------------------------------------------ helpers
 
@@ -1800,11 +1818,18 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             _LOGGER.warning("Bewaarde PV-schaal laden mislukt", exc_info=True)
         try:
             stored = await self._balance_bias_store.async_load()
-            if isinstance(stored, dict) and stored.get("bias_k") is not None:
-                bias_k = float(stored["bias_k"])
-                if math.isfinite(bias_k):
-                    self.balance_bias = _new_balance_bias(bias_k)
+            if isinstance(stored, dict):
+                bias_k = _finite_or_none(stored.get("bias_k"))
+                if bias_k is not None:
+                    self.balance_bias = _new_balance_bias(
+                        bias_k,
+                        _finite_or_none(stored.get("setpoint")),
+                        _finite_or_none(stored.get("setpoint_since")),
+                    )
                     self._balance_bias_saved = self.balance_bias.bias_k
+                    self._balance_bias_saved_setpoint = (
+                        self.balance_bias._setpoint, self.balance_bias._setpoint_since
+                    )
         except Exception:
             _LOGGER.warning("Bewaarde balanspuntcorrectie laden mislukt", exc_info=True)
         self.solar_lead_factor = self.solar_forecast_log.lead_factor(
@@ -1995,11 +2020,14 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             demand.capped if demand is not None else False,
             self._steers_max_water(),
         )
-        if abs(bias.bias_k - self._balance_bias_saved) >= 0.01:
+        setpoint_now = (bias._setpoint, bias._setpoint_since)
+        if (
+            abs(bias.bias_k - self._balance_bias_saved) >= 0.01
+            or setpoint_now != getattr(self, "_balance_bias_saved_setpoint", None)
+        ):
             self._balance_bias_saved = bias.bias_k
-            self._balance_bias_store.async_delay_save(
-                lambda: {"bias_k": round(bias.bias_k, 4)}, 60
-            )
+            self._balance_bias_saved_setpoint = setpoint_now
+            self._balance_bias_store.async_delay_save(bias.state, 60)
 
     def _highres_extra(self, now: datetime) -> dict[str, float | None]:
         """Aanvoer, retour, debiet, opgenomen vermogen, setpoint en de knoppen
@@ -2449,7 +2477,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
                     "vraag_w": 0, "aanvoer_c": None}
         demand = max(0.0, cap_demand(
             stationary + MPC_CATCHUP_FACTOR * u * (t_set - t_room),
-            stationary, self._capacity_w(t_outdoor)))
+            stationary, self._capacity_w(t_outdoor), MPC_CATCHUP_FACTOR * u))
         supply = None
         if t_return is not None or self.emitter is not None:
             try:

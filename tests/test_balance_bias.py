@@ -96,6 +96,53 @@ class TestLeren:
         assert _bias(bias_k=7.0).bias_k == 3.0
 
 
+class TestHerstart:
+    """Een herstart is geen setpointwissel.
+
+    Tot v0.10.7-beta.14 telde de eerste tik na elke herstart als wissel, en
+    leerde de correctie na elke update drie uur niets.
+    """
+
+    def test_bewaard_setpoint_leert_meteen_verder(self):
+        voor = _bias()
+        _loop(voor, 5)                          # setpoint al uren gelijk
+        na = _bias(**voor.state())
+        t = 6 * H
+        na.update(t, 20.0, 19.62, 3000.0, False, True)       # eerste tik: geen dt
+        na.update(t + TIK, 20.0, 19.62, 3000.0, False, True)
+        assert na.bias_k > voor.bias_k
+
+    def test_gewisseld_tijdens_de_herstart_wacht_wel(self):
+        voor = _bias()
+        _loop(voor, 5, setpoint=17.0, kamer=17.0)
+        na = _bias(**voor.state())
+        _loop(na, 2.9, start=6 * H)             # nu 20, kamer 19,62
+        assert na.bias_k == 0.0
+        _loop(na, 1.0, start=6 * H + 3.0 * H)
+        assert na.bias_k > 0.0
+
+    def test_wissel_vlak_voor_de_herstart_houdt_zijn_wachttijd(self):
+        voor = _bias()
+        _loop(voor, 5, setpoint=17.0, kamer=17.0)
+        _loop(voor, 1.0, start=5.5 * H)         # wissel om 5,5 u
+        na = _bias(**voor.state())
+        _loop(na, 1.0, start=7 * H)             # tot 8 u: nog geen 3 uur
+        assert na.bias_k == 0.0
+        _loop(na, 1.0, start=8.6 * H)
+        assert na.bias_k > 0.0
+
+    def test_oude_opslag_zonder_setpoint_wacht_een_keer(self):
+        b = _bias(bias_k=0.4)
+        _loop(b, 2.9)
+        assert b.bias_k == 0.4
+        _loop(b, 1.0, start=3.0 * H)
+        assert b.bias_k > 0.4
+
+    def test_setpoint_zonder_tijdstip_telt_niet(self):
+        b = _bias(setpoint=20.0)
+        assert b.state()["setpoint"] is None
+
+
 class TestRegelkring:
     """Een huis dat 3,8 K meer balanspunt nodig heeft dan de analyse zegt.
 
@@ -155,6 +202,31 @@ class TestInHetAdvies:
         assert sensor._steers_max_water()
         sensor.steering = None
         assert not sensor._steers_max_water()
+
+    def test_setpointwissel_wordt_bewaard(self, monkeypatch):
+        """Ook zonder dat de bias beweegt: anders kent hij de wissel na een herstart niet."""
+        from custom_components.quatt_stooklijn import sensor as mod
+
+        sensor = _mpc_sensor(**{OUTDOOR: 1.0, INDOOR: 20.0, SETPOINT: 20.0})
+        sensor.balance_bias = _new_balance_bias(0.5, 18.0, 0.0)
+        sensor._balance_bias_saved = 0.5
+        sensor._balance_bias_saved_setpoint = (18.0, 0.0)
+        sensor._balance_bias_store = MagicMock()
+        sensor.steering = MagicMock(last_knob_states=("mpc", "uit", False))
+        monkeypatch.setattr(mod.dt_util, "utcnow",
+                            lambda: MagicMock(timestamp=lambda: 10 * H))
+        with _sources():
+            sensor._update_balance_bias()
+        assert sensor.balance_bias.bias_k == 0.5
+        save = sensor._balance_bias_store.async_delay_save
+        save.assert_called_once()
+        assert save.call_args.args[0]() == {
+            "bias_k": 0.5, "setpoint": 20.0, "setpoint_since": 10 * H,
+        }
+        save.reset_mock()
+        with _sources():
+            sensor._update_balance_bias()
+        save.assert_not_called()
 
     def test_tik_werkt_bij_en_bewaart(self, monkeypatch):
         from custom_components.quatt_stooklijn import sensor as mod

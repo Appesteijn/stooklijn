@@ -82,16 +82,21 @@ class TestRekensom:
         assert d.catchup_w == 0
 
     def test_begrensd_op_capaciteit(self):
-        # Stationair 250·30 − 900 = 6.600 W, inhaal 2.500 W.
-        d = rc_advice_demand(_model(), -10.0, 19.0, 20.0, 0.0, 10.0, 8000.0)
-        assert d.capped_w == 8000.0
+        # Stationair 250·30 − 900 = 6.600 W, inhaal 2 K = 5.000 W.
+        d = rc_advice_demand(_model(), -10.0, 18.0, 20.0, 0.0, 10.0, 10000.0)
+        assert d.capped_w == 10000.0
         assert d.capped is True
 
-    def test_nooit_onder_het_warmteverlies(self):
-        """Een capaciteit onder het verlies kapt alleen de inhaalterm af."""
-        d = rc_advice_demand(_model(), -10.0, 19.0, 20.0, 0.0, 10.0, 4000.0)
-        assert d.capped_w == pytest.approx(6600.0)
+    def test_nooit_onder_verlies_plus_eerste_kelvin(self):
+        """Een capaciteit onder het verlies kapt alleen de inhaal boven 1 K af."""
+        d = rc_advice_demand(_model(), -10.0, 18.0, 20.0, 0.0, 10.0, 4000.0)
+        assert d.capped_w == pytest.approx(6600.0 + 2500.0)
         assert d.capped is True
+
+    def test_klein_tekort_nooit_begrensd(self):
+        d = rc_advice_demand(_model(), -10.0, 19.2, 20.0, 0.0, 10.0, 4000.0)
+        assert d.capped_w == pytest.approx(d.total_w)
+        assert d.capped is False
 
 
 KOUD = {OUTDOOR: 2.0, RETURN: 28.0, FLOW: 800, INDOOR: 19.8, SETPOINT: 20.5}

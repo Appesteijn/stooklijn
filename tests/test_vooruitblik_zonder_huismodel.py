@@ -57,9 +57,10 @@ class TestUurNul:
         assert uren[0]["q_hp_needed_w"] == pytest.approx(3733.5, abs=1)
 
     def test_begrensd_op_de_capaciteit(self):
-        uren = _vooruit(t_in=19.0, capacity=lambda t: 3000.0)
+        # 1,5 K tekort: 2.878,5 + 4.275 W; de grens van 6 kW kapt af.
+        uren = _vooruit(t_in=19.0)
         assert uren[0]["begrensd"] is True
-        assert uren[0]["q_hp_needed_w"] == 3000
+        assert uren[0]["q_hp_needed_w"] == 6000
 
     def test_zonder_kamertemperatuur_geen_inhaalterm(self):
         uren = _vooruit(t_in=None)

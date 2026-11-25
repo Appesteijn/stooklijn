@@ -101,15 +101,24 @@ class TestKamerLooptRealistischOp:
         assert kamers[-1] <= SETPOINT + 0.05
 
     def test_kouder_dan_de_capaciteit_aankan_wordt_begrensd(self):
-        # Verlies 280·20 = 5.600 W, met inhaalterm ruim 7 kW.
-        uren = _sim(temps=[-5.0] * 3, capacity=lambda t: 6000.0)
+        # Verlies 280·20 = 5.600 W; 2,5 K tekort: met inhaalterm 12,6 kW.
+        uren = _sim(t_in=18.0, temps=[-5.0] * 3, capacity=lambda t: 9000.0)
         assert all(u["begrensd"] for u in uren)
-        assert all(u["q_hp_needed_w"] == 6000 for u in uren)
+        assert all(u["q_hp_needed_w"] == 9000 for u in uren)
 
-    def test_capaciteit_onder_het_verlies_kapt_alleen_de_inhaalterm(self):
-        uren = _sim(temps=[-5.0] * 3, capacity=lambda t: 4500.0)
+    def test_capaciteit_onder_het_verlies_houdt_de_eerste_kelvin_vrij(self):
+        uren = _sim(t_in=18.0, temps=[-5.0] * 3, capacity=lambda t: 4500.0)
         assert all(u["begrensd"] for u in uren)
-        assert all(u["q_hp_needed_w"] == pytest.approx(U * (T_BAL + 5.0), abs=1) for u in uren)
+        assert all(
+            u["q_hp_needed_w"] == pytest.approx(U * (T_BAL + 5.0) + FACTOR * U, abs=1)
+            for u in uren
+        )
+
+    def test_klein_tekort_bij_lage_capaciteit_niet_begrensd(self):
+        # 0,8 K tekort: de hele inhaalterm, ook al zegt de curve 4,5 kW.
+        uren = _sim(temps=[-5.0] * 3, capacity=lambda t: 4500.0)
+        assert not any(u["begrensd"] for u in uren)
+        assert uren[0]["q_hp_needed_w"] == pytest.approx(U * 20.0 + FACTOR * U * 0.8, abs=1)
 
     def test_capaciteit_volgt_de_buitentemperatuur_per_uur(self):
         gezien: list[float] = []

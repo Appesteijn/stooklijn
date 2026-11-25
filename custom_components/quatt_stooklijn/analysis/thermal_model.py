@@ -36,7 +36,7 @@ from datetime import datetime
 
 import numpy as np
 
-from ..const import DEFAULT_ROOM_SETPOINT
+from ..const import CAPACITY_FREE_CATCHUP_K, DEFAULT_ROOM_SETPOINT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -913,8 +913,16 @@ class AdviceDemand:
         return bool(self.capped_w < self.total_w)
 
 
-def cap_demand(total_w: float, stationary_w: float, capacity_w: float | None) -> float:
-    """De vraag begrensd op de capaciteit, maar nooit onder het warmteverlies.
+def cap_demand(
+    total_w: float,
+    stationary_w: float,
+    capacity_w: float | None,
+    catchup_w_per_k: float,
+) -> float:
+    """De vraag begrensd op de capaciteit, maar nooit onder het warmteverlies
+    plus de inhaalterm van de eerste ``CAPACITY_FREE_CATCHUP_K`` tekort.
+
+    ``catchup_w_per_k`` is de inhaalterm per kelvin (inhaalfactor · U).
 
     De capaciteitsgrens is een vangrail tegen een grote inhaalvraag, en mag
     alleen de inhaalterm afkappen. Onder het warmteverlies garandeert een
@@ -926,10 +934,20 @@ def cap_demand(total_w: float, stationary_w: float, capacity_w: float | None) ->
     van 31 naar 26 °C terwijl het kouder werd, en de kamer van 19,6 naar 18,6.
     De vriescurve is het meeste dat de pomp per uur ooit leverde, niet wat hij
     kan: ontdooiingen, stille modus en het eigen plafond drukken dat getal.
+
+    Tweakers 25-11-2026 (Duo): met de grens op het warmteverlies viel bij een
+    vriescurve onder het verlies de hele inhaalterm weg. Het advies werd het
+    buitentemperatuuradvies, het plafond hield de pomp op ~31 °C en halve
+    kracht, en de kamer zakte. Omdat het advies begrensd was, leerde
+    ``BalanceBias`` niet, en de pomp kon nooit laten zien dat hij meer kan.
+    De eerste kelvin tekort is daarom altijd vrij: een klein tekort is geen
+    adviespiek, en kan de pomp het niet, dan kost het niets. Doorlopend in
+    capaciteit en tekort, dus geen sprong als de curve het verlies kruist.
     """
     if capacity_w is None:
         return total_w
-    return min(total_w, max(capacity_w, stationary_w))
+    free_w = stationary_w + catchup_w_per_k * CAPACITY_FREE_CATCHUP_K
+    return min(total_w, max(capacity_w, free_w))
 
 
 class BalanceBias:
@@ -943,6 +961,12 @@ class BalanceBias:
     Leert alleen als het advies stuurt, met stookvraag, niet begrensd, met een
     tekort binnen ``max_deficit_k`` en een setpoint dat ``settle_hours`` gelijk
     is gebleven. Begrensd op ``±max_k``.
+
+    Het setpoint en sinds wanneer het zo staat horen bij de bewaarde toestand
+    (``state``). Zonder die twee telde de eerste tik na elke herstart als een
+    setpointwissel, en leerde de correctie na elke update drie uur niets.
+    Alleen zonder bewaard setpoint (eerste start, of opslag van vóór deze
+    velden) wacht hij één keer: dan is niet bekend of er net gewisseld is.
     """
 
     def __init__(
@@ -954,6 +978,8 @@ class BalanceBias:
         max_gap_s: float,
         catchup_factor: float,
         bias_k: float = 0.0,
+        setpoint: float | None = None,
+        setpoint_since: float | None = None,
     ) -> None:
         self.ti_hours = ti_hours
         self.max_k = max_k
@@ -962,9 +988,22 @@ class BalanceBias:
         self.max_gap_s = max_gap_s
         self.catchup_factor = catchup_factor
         self.bias_k = max(-max_k, min(max_k, bias_k))
-        self._setpoint: float | None = None
-        self._setpoint_since: float | None = None
+        # Alleen samen geldig: een setpoint zonder tijdstip zegt niet of het
+        # al lang genoeg staat.
+        if setpoint is not None and setpoint_since is not None:
+            self._setpoint: float | None = setpoint
+            self._setpoint_since: float | None = setpoint_since
+        else:
+            self._setpoint, self._setpoint_since = None, None
         self._last_ts: float | None = None
+
+    def state(self) -> dict[str, float | None]:
+        """Wat over een herstart heen moet: de bias en het setpoint met zijn tijdstip."""
+        return {
+            "bias_k": round(self.bias_k, 4),
+            "setpoint": self._setpoint,
+            "setpoint_since": self._setpoint_since,
+        }
 
     def update(
         self,
@@ -1009,8 +1048,8 @@ def advice_demand(
     """Het vermogen waar het aanvoeradvies op rekent, voor één moment.
 
     ``U · max(0, T_balans − T_buiten)`` plus ``catchup_factor · U · (setpoint −
-    kamer)``, begrensd op ``capacity_w`` maar niet onder het warmteverlies (zie
-    ``cap_demand``). Boven het balanspunt geen inhaalterm.
+    kamer)``, begrensd op ``capacity_w`` maar niet onder het warmteverlies plus
+    de eerste kelvin inhaalterm (zie ``cap_demand``). Boven het balanspunt geen inhaalterm.
     Zie ``QuattMpcSensor._advice_demand`` voor het waarom van elk deel.
 
     Eén functie voor het advies van nu én elk uur van de vooruitblik, zodat de
@@ -1024,7 +1063,7 @@ def advice_demand(
     if t_indoor is not None and stationary > 0:
         catchup = catchup_factor * u_wk * (t_setpoint - t_indoor)
     total = stationary + catchup
-    capped = cap_demand(total, stationary, capacity_w)
+    capped = cap_demand(total, stationary, capacity_w, catchup_factor * u_wk)
     return AdviceDemand(
         stationary_w=stationary,
         catchup_w=catchup,
@@ -1079,7 +1118,7 @@ def rc_advice_demand(
     if t_indoor is not None and stationary > 0:
         catchup = catchup_factor * u_wk * (t_setpoint - t_indoor)
     total = stationary + catchup
-    capped = cap_demand(total, stationary, capacity_w)
+    capped = cap_demand(total, stationary, capacity_w, catchup_factor * u_wk)
     return AdviceDemand(
         stationary_w=stationary,
         catchup_w=catchup,

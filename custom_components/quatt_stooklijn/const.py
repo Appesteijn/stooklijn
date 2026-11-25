@@ -240,6 +240,11 @@ BALANCE_BIAS_MAX_K = 3.0
 BALANCE_BIAS_SETTLE_HOURS = 3.0
 #: Een groter tekort is geen kleine vaste afwijking maar een opwarmtraject.
 BALANCE_BIAS_MAX_DEFICIT_K = 1.0
+#: Zoveel kelvin tekort mag de inhaalterm altijd inhalen, wat de vriescurve
+#: ook zegt; de capaciteitsgrens kapt alleen wat daarboven komt (zie
+#: ``cap_demand``). Bewust gelijk aan ``BALANCE_BIAS_MAX_DEFICIT_K``: zolang
+#: de correctie mag leren, is het advies nooit begrensd.
+CAPACITY_FREE_CATCHUP_K = BALANCE_BIAS_MAX_DEFICIT_K
 #: Een gat in de tikken (herstart) telt niet als tijd.
 BALANCE_BIAS_MAX_GAP_S = 900.0
 

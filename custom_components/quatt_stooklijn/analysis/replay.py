@@ -74,7 +74,7 @@ def _demand(v: Variant, u: float, t_bal: float, target: float, t_room: float,
     if stationary <= 0:
         return 0.0
     q = stationary + v.catchup_factor * u * (target - t_room)
-    return float(max(0.0, cap_demand(q, stationary, capacity)))
+    return float(max(0.0, cap_demand(q, stationary, capacity, v.catchup_factor * u)))
 
 
 def replay(
