@@ -3,6 +3,35 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.16 — 2026-11-25
+
+COP (Tweakers 25-11, "gemiddelde COP 4,06, maar de tabel komt niet boven 3,68"):
+
+- **De gemiddelde COP is nu totale warmte gedeeld door totale stroom.** Tot
+  nu toe was het het gemiddelde van de dag-COP's, waarin een zachte dag met
+  weinig warmte even zwaar telde als een koude dag. Dat gaf een te hoog getal.
+  **Na deze update zakt de gemiddelde COP daarom zichtbaar**; op het testhuis
+  van 3,98 naar 3,39. Er is niets slechter geworden, het getal klopt nu.
+  Nieuw attribuut `stookdagen`: over hoeveel dagen gerekend is.
+- **De COP-kolom in "Warmtevraag per temperatuur" middelt per temperatuur.**
+  Hij nam de COP van de één of twee dagen die toevallig het dichtst bij
+  lagen, telde ook dagen met COP 0 mee, en trok de koudste dag door naar
+  kouder weer (drie keer 2,2 bij −10, −5 en 0 °C). Nu: de stookdagen binnen
+  2,5 °C van die temperatuur samen. Zijn er te weinig, dan staat er een
+  streepje.
+
+Gasvergelijking (GitHub #3, tweede ronde):
+
+- **Buitentemperatuur uit alle ingestelde sensoren samen.** Alleen de eerste
+  sensor met data telde. Een warmtepompsensor begint pas bij de installatie,
+  dus bleef er van de gasperiode bijna niets over (27 dagen, 11 W/K). Nu vult
+  de volgende sensor de uren aan die de eerste mist.
+- **Temperaturen altijd in °C.** Een sensor waarvan HA de statistiek in °F
+  bewaart (sommige Hue-sensoren) kwam onomgerekend binnen.
+- **De gasperiode staat in de opties** (sectie "Gasvergelijking"). Aanpassen
+  kan nu zonder de integratie opnieuw toe te voegen. Loopt de gasperiode door
+  tot in de warmtepompperiode, dan staat er een waarschuwing in het log.
+
 ## v0.10.7-beta.15 — 2026-11-25
 
 Aanvoeradvies (Tweakers 25-11, Quatt Duo met ketel op zomerstand):
