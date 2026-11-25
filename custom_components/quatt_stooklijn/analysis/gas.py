@@ -12,6 +12,8 @@ from homeassistant.components.recorder.history import state_changes_during_perio
 from homeassistant.components.recorder.statistics import statistics_during_period
 from homeassistant.core import HomeAssistant
 
+from ..const import STATS_UNITS
+
 _LOGGER = logging.getLogger(__name__)
 
 # Eén meterstapje groter dan dit is een sprong (meterwissel, reset), geen verbruik.
@@ -54,7 +56,7 @@ async def _async_hourly_statistic(
     def _fetch() -> dict:
         return statistics_during_period(
             hass, start_time=start_dt, end_time=end_dt,
-            statistic_ids={entity_id}, period="hour", units=None,
+            statistic_ids={entity_id}, period="hour", units=STATS_UNITS,
             types={stat_type},
         )
 
@@ -139,30 +141,50 @@ async def async_fetch_gas_data(
     # Temperature data & hot water correction
     has_temp = False
 
-    # Buitentemperatuur voor de gasperiode: statistiek (uurgemiddelde), anders
-    # de ruwe historie, per sensor in de volgorde van de configuratie.
+    # Buitentemperatuur voor de gasperiode: per sensor de statistiek
+    # (uurgemiddelde), anders de ruwe historie. Per uur wint de eerste sensor in
+    # de volgorde van de configuratie die een waarde heeft; de volgende vullen
+    # de gaten. Tot v0.10.7-beta.16 telde alleen de eerste sensor met data:
+    # met een warmtepompsensor die pas bij de installatie begint, overlapte die
+    # alleen met de staart van de gasperiode (GitHub #3: 27 dagen, 11 W/K,
+    # terwijl een tweede sensor het hele jaar had).
+    temp_hourly: pd.Series | None = None
     for temp_entity in temp_entities or []:
-        df_temp = None
         series = await _async_hourly_statistic(hass, temp_entity, start_dt, end_dt, "mean")
-        if series is not None:
-            df_temp = series.to_frame("temperatureOutside")
-            temp_source = "statistics"
-        else:
-            df_temp = await _async_temp_from_history(hass, temp_entity, start_dt, end_dt)
+        temp_source = "statistics"
+        if series is None:
+            df_hist = await _async_temp_from_history(hass, temp_entity, start_dt, end_dt)
+            series = (
+                df_hist["temperatureOutside"]
+                if df_hist is not None and not df_hist.empty else None
+            )
             temp_source = "history"
-        if df_temp is None or df_temp.empty:
+        if series is None or series.empty:
             continue
+        added = (
+            len(series) if temp_hourly is None
+            else int((~series.index.isin(temp_hourly.index)).sum())
+        )
+        temp_hourly = series if temp_hourly is None else temp_hourly.combine_first(series)
+        _LOGGER.info(
+            "Gas temperature from %s: %s (%d hours, %d new)",
+            temp_source, temp_entity, len(series), added,
+        )
 
+    if temp_hourly is not None:
+        df_temp = temp_hourly.sort_index().to_frame("temperatureOutside")
         df_gas_hourly = df_gas_hourly.join(df_temp, how="left")
         daily_temp = df_temp.groupby(df_temp.index.date)["temperatureOutside"].mean()
         df_gas_daily["avg_temperatureOutside"] = df_gas_daily.index.map(
             lambda d: daily_temp.get(d.date(), None)
         )
         has_temp = True
-        _LOGGER.info(
-            "Gas temperature from %s: %s (%d hours)", temp_source, temp_entity, len(df_temp)
-        )
-        break
+        missing = int(df_gas_daily["avg_temperatureOutside"].isna().sum())
+        if missing:
+            _LOGGER.info(
+                "Gas period: %d of %d days without outdoor temperature",
+                missing, len(df_gas_daily),
+            )
 
     # Fallback: use heat pump hourly data (works when date ranges overlap)
     if not has_temp and df_hourly_hp is not None and not df_hourly_hp.empty:

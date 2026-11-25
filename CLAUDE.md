@@ -405,6 +405,18 @@ een sensor zonder `state_class`. `start` is in de Python-API een epoch in
 seconden (de websocket geeft milliseconden). Wie een nieuwe historische
 periode ophaalt: zelfde volgorde.
 
+Twee dingen uit de tweede ronde van #3 (beta.15):
+
+- **Alle temperatuursensoren samen, niet de eerste met data.** Per uur wint
+  de eerste in de configuratievolgorde die een waarde heeft; de rest vult de
+  gaten (`combine_first`). Een warmtepompsensor begint pas bij de installatie,
+  dus overlapte hij alleen met de staart van de gasperiode: 27 dagen, 11 W/K
+  tegen ~300 uit een Hue-sensor met een heel jaar.
+- **Temperatuur in °C opvragen** (`STATS_UNITS` in `const.py`). Met
+  `units=None` komt statistiek binnen in de eenheid waarin HA hem opsloeg, en
+  een Hue-sensor kan °F hebben. Geldt voor elke `statistics_during_period`
+  die temperatuur leest.
+
 Dagstatistiek (`period="day"`) loopt van lokale middernacht tot lokale
 middernacht; `start` van de dag van 20-11 is 19-11 23:00 UTC. Label met
 `dt_util.as_local(...)`, en begin het venster op lokale middernacht. Met de

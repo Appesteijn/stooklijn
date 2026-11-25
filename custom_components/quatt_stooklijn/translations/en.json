@@ -146,6 +146,28 @@
               "price_dal_weekend": "Saturday and Sunday count entirely as off-peak."
             }
           },
+          "gas": {
+            "name": "Gas comparison",
+            "description": "Compares your heat loss with the gas consumption from before the heat pump. Use a period that ends before the heat pump was installed.",
+            "data": {
+              "gas_enabled": "Enable gas analysis",
+              "gas_entity": "Gas meter entity (cumulative m³)",
+              "gas_start_date": "Gas period start date (YYYY-MM-DD)",
+              "gas_end_date": "Gas period end date (YYYY-MM-DD)",
+              "gas_calorific_value": "Gas calorific value (kWh/m³)",
+              "boiler_efficiency": "Boiler efficiency (0-1)",
+              "hot_water_temp_threshold": "Hot water threshold temperature (°C)"
+            },
+            "data_description": {
+              "gas_enabled": "On = the heat loss from your gas period appears next to the heat pump's.",
+              "gas_entity": "Your gas meter, cumulative in m³. Needs long-term statistics (state_class total or total_increasing).",
+              "gas_start_date": "First day of the gas period. A full year gives the best fit.",
+              "gas_end_date": "Last day of the gas period. Must be before the heat pump was installed: gas used while the heat pump heats is mostly hot water.",
+              "gas_calorific_value": "Energy per m³ of gas. Dutch natural gas: 9.77 kWh/m³.",
+              "boiler_efficiency": "Share of the gas energy that became heat. 0.90 fits a modern condensing boiler.",
+              "hot_water_temp_threshold": "Days at or above this outdoor temperature only use gas for hot water; their median is subtracted from every day."
+            }
+          },
           "analyse": {
             "name": "Analysis",
             "description": "Which period of your heating history is analysed, and what is left out.",
@@ -205,7 +227,9 @@
     },
     "error": {
       "invalid_date_format": "Invalid date format. Use YYYY-MM-DD",
-      "price_entity_required": "A dynamic tariff needs a price sensor with hourly prices as attributes"
+      "price_entity_required": "A dynamic tariff needs a price sensor with hourly prices as attributes",
+      "invalid_date_range": "End date must be after start date",
+      "gas_entity_required": "Gas entity is required when gas analysis is enabled"
     }
   },
   "services": {

@@ -144,6 +144,17 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
         df_gas_daily = None
         if config.get(CONF_GAS_ENABLED):
             _LOGGER.info("Fetching gas consumption data...")
+            # Een gasperiode die doorloopt in de warmtepomptijd meet warm water,
+            # geen verwarming, en drukt het warmteverlies naar nul (GitHub #3:
+            # gas t/m 19-11-2025, warmtepomp sinds 18-09-2025). Niet blokkeren:
+            # de startdatum van de analyse is niet per se de installatiedatum.
+            if str(config[CONF_GAS_END_DATE]) >= str(config[CONF_QUATT_START_DATE]):
+                _LOGGER.warning(
+                    "Gas period ends %s, on or after the heat pump analysis start "
+                    "%s. Gas used while the heat pump heats is mostly hot water; "
+                    "end the gas period before the heat pump was installed",
+                    config[CONF_GAS_END_DATE], config[CONF_QUATT_START_DATE],
+                )
             _, df_gas_daily = await async_fetch_gas_data(
                 self.hass,
                 config[CONF_GAS_ENTITY],

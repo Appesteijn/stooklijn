@@ -26,6 +26,7 @@ from ..const import (
     CONF_POWER_ENTITY,
     CONF_POWER_INPUT_ENTITY,
     CONF_TEMP_ENTITIES,
+    STATS_UNITS,
 )
 from ..discovery import (
     ROLE_BOILER_HEAT,
@@ -95,7 +96,7 @@ async def _async_fetch_recorder_daily(
             end_time=end_dt,
             statistic_ids=statistic_ids,
             period="day",
-            units=None,
+            units=STATS_UNITS,
             types={"mean"},
         )
 

@@ -137,3 +137,54 @@ class TestOphalen:
         stats["sensor.tweede"] = stats.pop(TEMP)
         _, daily = await _fetch(stats, history={}, temp_entities=(TEMP, "sensor.tweede"))
         assert daily["avg_temperatureOutside"].iloc[0] == pytest.approx(2.0)
+
+
+class TestTemperatuurOverSensoren:
+    """GitHub #3, tweede ronde: de eerste sensor met data won, ook als die maar
+    een staartje van de gasperiode dekte."""
+
+    async def test_eerste_sensor_alleen_de_staart(self):
+        stats = _stats_jaar()
+        volledig = stats.pop(TEMP)
+        # Warmtepompsensor: pas data vanaf dag 300, en dan 5 °C.
+        stats["sensor.heatpump_1_temperature_outside"] = [
+            {"start": r["start"], "mean": 5.0} for r in volledig[300 * 24:]
+        ]
+        stats["sensor.hue"] = volledig
+        _, daily = await _fetch(
+            stats, history={},
+            temp_entities=("sensor.heatpump_1_temperature_outside", "sensor.hue"),
+        )
+        assert daily["avg_temperatureOutside"].notna().all()
+        # Vóór dag 300 vult de tweede sensor; daarna wint de eerste.
+        assert daily["avg_temperatureOutside"].iloc[0] == pytest.approx(2.0)
+        assert daily["avg_temperatureOutside"].iloc[320] == pytest.approx(5.0)
+
+    async def test_statistiek_en_historie_samen(self):
+        def st(ts, v):
+            return SimpleNamespace(state=str(v), last_changed=datetime.fromtimestamp(ts, timezone.utc))
+        stats = _stats_jaar()
+        stats[TEMP] = stats[TEMP][24:]  # dag 0 ontbreekt in de statistiek
+        history = {"sensor.oud": [st(ts, 7.0) for ts in _uren(24)]}
+        _, daily = await _fetch(stats, history=history, temp_entities=(TEMP, "sensor.oud"))
+        assert daily["avg_temperatureOutside"].iloc[0] == pytest.approx(7.0)
+        assert daily["avg_temperatureOutside"].iloc[1] == pytest.approx(2.0)
+
+
+class TestEenheden:
+    async def test_temperatuur_in_celsius_opgevraagd(self):
+        """Een Hue-sensor kan zijn statistiek in °F hebben; HA rekent om als we erom vragen."""
+        gevraagd = []
+
+        def _stats(hass, start_time, end_time, statistic_ids, period, units, types):
+            gevraagd.append(units)
+            (eid,) = statistic_ids
+            return {eid: _stats_jaar()[eid]}
+
+        with patch.object(gas, "get_instance", return_value=_Recorder()), \
+             patch.object(gas, "statistics_during_period", side_effect=_stats), \
+             patch.object(gas, "state_changes_during_period", return_value={}):
+            await async_fetch_gas_data(
+                _hass(), GAS, "2024-11-08", "2025-11-07", temp_entities=[TEMP]
+            )
+        assert gevraagd and all(u == {"temperature": "°C"} for u in gevraagd)

@@ -146,6 +146,28 @@
               "price_dal_weekend": "Zaterdag en zondag tellen helemaal als daltarief."
             }
           },
+          "gas": {
+            "name": "Gasvergelijking",
+            "description": "Vergelijkt je warmteverlies met het gasverbruik van vóór de warmtepomp. Kies een periode die eindigt vóór de warmtepomp er kwam.",
+            "data": {
+              "gas_enabled": "Gasanalyse inschakelen",
+              "gas_entity": "Gasmeter entiteit (cumulatief m³)",
+              "gas_start_date": "Gasperiode startdatum (JJJJ-MM-DD)",
+              "gas_end_date": "Gasperiode einddatum (JJJJ-MM-DD)",
+              "gas_calorific_value": "Calorische waarde gas (kWh/m³)",
+              "boiler_efficiency": "Ketelrendement (0-1)",
+              "hot_water_temp_threshold": "Drempeltemperatuur tapwater (°C)"
+            },
+            "data_description": {
+              "gas_enabled": "Aan = het warmteverlies uit je gasperiode staat naast dat van de warmtepomp.",
+              "gas_entity": "Je gasmeter, cumulatief in m³. Heeft langetermijnstatistiek nodig (state_class total of total_increasing).",
+              "gas_start_date": "Eerste dag van de gasperiode. Een heel jaar geeft de beste fit.",
+              "gas_end_date": "Laatste dag van de gasperiode. Moet vóór de warmtepomp liggen: gas dat je verbruikt terwijl de warmtepomp stookt, is vooral warm water.",
+              "gas_calorific_value": "Energie per m³ gas. Nederlands aardgas: 9,77 kWh/m³.",
+              "boiler_efficiency": "Deel van de gasenergie dat warmte werd. 0,90 past bij een moderne HR-ketel.",
+              "hot_water_temp_threshold": "Dagen op of boven deze buitentemperatuur gebruiken alleen gas voor warm water; hun mediaan gaat van elke dag af."
+            }
+          },
           "analyse": {
             "name": "Analyse",
             "description": "Over welke periode je stookhistorie wordt geanalyseerd, en wat erbuiten valt.",
@@ -205,7 +227,9 @@
     },
     "error": {
       "invalid_date_format": "Ongeldige datum. Gebruik YYYY-MM-DD",
-      "price_entity_required": "Een dynamisch tarief heeft een prijssensor nodig met de uurprijzen als attribuut"
+      "price_entity_required": "Een dynamisch tarief heeft een prijssensor nodig met de uurprijzen als attribuut",
+      "invalid_date_range": "De einddatum moet na de startdatum liggen",
+      "gas_entity_required": "Gasmeter entiteit is verplicht wanneer gasanalyse is ingeschakeld"
     }
   },
   "services": {

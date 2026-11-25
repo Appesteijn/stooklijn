@@ -196,6 +196,17 @@ OPTION_SECTIONS: dict[str, tuple[str, ...]] = {
         CONF_DAL_END_HOUR,
         CONF_DAL_WEEKEND,
     ),
+    # Tot v0.10.7-beta.16 alleen bij het toevoegen in te stellen; corrigeren
+    # betekende de integratie opnieuw toevoegen (GitHub #3).
+    "gas": (
+        CONF_GAS_ENABLED,
+        CONF_GAS_ENTITY,
+        CONF_GAS_START_DATE,
+        CONF_GAS_END_DATE,
+        CONF_GAS_CALORIFIC_VALUE,
+        CONF_BOILER_EFFICIENCY,
+        CONF_HOT_WATER_TEMP_THRESHOLD,
+    ),
     "analyse": (
         CONF_QUATT_START_DATE,
         CONF_PERFORMANCE_BASELINE_DATE,
@@ -220,6 +231,22 @@ OPTION_SECTIONS: dict[str, tuple[str, ...]] = {
         CONF_PV_POWER_ENTITY,
     ),
 }
+
+
+def _gas_errors(values: dict) -> str | None:
+    """Foutsleutel voor de gasvelden, of None. Zelfde regels bij toevoegen en in de opties."""
+    if not values.get(CONF_GAS_ENABLED):
+        return None
+    if not values.get(CONF_GAS_ENTITY):
+        return "gas_entity_required"
+    try:
+        start = date.fromisoformat(str(values.get(CONF_GAS_START_DATE) or "").strip())
+        end = date.fromisoformat(str(values.get(CONF_GAS_END_DATE) or "").strip())
+    except ValueError:
+        return "invalid_date_format"
+    if start >= end:
+        return "invalid_date_range"
+    return None
 
 
 def _field_name(marker) -> str:
@@ -332,21 +359,12 @@ class QuattStooklijnConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._data[CONF_GAS_ENABLED] = gas_enabled
 
             if gas_enabled:
-                # Validate gas fields
                 gas_entity = user_input.get(CONF_GAS_ENTITY, "")
-                gas_start = user_input.get(CONF_GAS_START_DATE, "")
-                gas_end = user_input.get(CONF_GAS_END_DATE, "")
-
-                if not gas_entity:
-                    errors["base"] = "gas_entity_required"
-                else:
-                    try:
-                        s = date.fromisoformat(gas_start)
-                        e = date.fromisoformat(gas_end)
-                        if s >= e:
-                            errors["base"] = "invalid_date_range"
-                    except ValueError:
-                        errors["base"] = "invalid_date_format"
+                gas_start = str(user_input.get(CONF_GAS_START_DATE, "")).strip()
+                gas_end = str(user_input.get(CONF_GAS_END_DATE, "")).strip()
+                error = _gas_errors(user_input)
+                if error:
+                    errors["base"] = error
 
                 if not errors:
                     self._data[CONF_GAS_ENTITY] = gas_entity
@@ -522,8 +540,14 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                 CONF_PRICE_ENTITY
             ):
                 errors["base"] = "price_entity_required"
+            gas_error = _gas_errors(result)
+            if gas_error:
+                errors["base"] = gas_error
             if not errors:
                 result[CONF_PERFORMANCE_BASELINE_DATE] = baseline
+                for key in (CONF_GAS_START_DATE, CONF_GAS_END_DATE):
+                    if key in result:
+                        result[key] = str(result[key] or "").strip()
                 return self.async_create_entry(title="", data=result)
 
         # Bij een fout het formulier terugtonen zoals de gebruiker het invulde,
@@ -671,6 +695,33 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_COMPRESSOR_2_ENTITY,
                         _current(CONF_COMPRESSOR_2_ENTITY, ROLE_COMPRESSOR_2),
                     ): _entity("sensor"),
+                    # Gasvergelijking: de periode vóór de warmtepomp.
+                    vol.Optional(
+                        CONF_GAS_ENABLED, default=data.get(CONF_GAS_ENABLED, False)
+                    ): bool,
+                    _prefill(
+                        CONF_GAS_ENTITY, _existing(data.get(CONF_GAS_ENTITY))
+                    ): _entity("sensor"),
+                    vol.Optional(
+                        CONF_GAS_START_DATE, default=data.get(CONF_GAS_START_DATE) or ""
+                    ): str,
+                    vol.Optional(
+                        CONF_GAS_END_DATE, default=data.get(CONF_GAS_END_DATE) or ""
+                    ): str,
+                    vol.Optional(
+                        CONF_GAS_CALORIFIC_VALUE,
+                        default=data.get(CONF_GAS_CALORIFIC_VALUE, DEFAULT_GAS_CALORIFIC_VALUE),
+                    ): vol.Coerce(float),
+                    vol.Optional(
+                        CONF_BOILER_EFFICIENCY,
+                        default=data.get(CONF_BOILER_EFFICIENCY, DEFAULT_BOILER_EFFICIENCY),
+                    ): vol.Coerce(float),
+                    vol.Optional(
+                        CONF_HOT_WATER_TEMP_THRESHOLD,
+                        default=data.get(
+                            CONF_HOT_WATER_TEMP_THRESHOLD, DEFAULT_HOT_WATER_TEMP_THRESHOLD
+                        ),
+                    ): vol.Coerce(float),
                     # Uit = draaien op recorder + eigen stores. De opgebouwde
                     # insights-cache blijft meedoen, hij groeit alleen niet meer.
                     # De datum waarop je iets aan de regeling veranderde.
@@ -809,6 +860,7 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
             "max_aanvoertemperatuur": not data.get(CONF_CH_MAX_WATER_ENABLED, False),
             "soundslider": not data.get(CONF_SOUND_LEVEL_ENABLED, False),
             "prijsverschuiving": data.get(CONF_PRICE_MODE, DEFAULT_PRICE_MODE) == PRICE_MODE_OFF,
+            "gas": not data.get(CONF_GAS_ENABLED, False),
             "analyse": True,
             "metingen": True,
         }

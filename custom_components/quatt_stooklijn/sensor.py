@@ -59,6 +59,7 @@ from homeassistant.helpers.storage import Store
 
 from .const import (
     SOURCE_NAMES,
+    STATS_UNITS,
     CONF_DAL_END_HOUR,
     CONF_DAL_START_HOUR,
     CONF_DAL_WEEKEND,
@@ -1110,6 +1111,8 @@ async def async_hourly_means(
 ) -> dict[str, dict[float, float]]:
     """Uurgemiddelden van meerdere sensoren uit de recorder, in hun eigen eenheid.
 
+    Behalve temperatuur: die altijd in °C (``STATS_UNITS``).
+
     ``{entity: {begin van het uur (UTC-seconden): gemiddelde}}``.
     """
     from homeassistant.components.recorder import get_instance
@@ -1121,7 +1124,8 @@ async def async_hourly_means(
     def _fetch() -> dict:
         return statistics_during_period(
             hass, start_time=start, end_time=end,
-            statistic_ids=set(entities), period="hour", units=None, types={"mean"},
+            statistic_ids=set(entities), period="hour", units=STATS_UNITS,
+            types={"mean"},
         )
 
     stats = await get_instance(hass).async_add_executor_job(_fetch)

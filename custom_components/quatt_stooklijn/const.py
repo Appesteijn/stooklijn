@@ -115,6 +115,12 @@ OUTLIER_STD_THRESHOLD = 2.5  # Z-score threshold for outlier removal
 BIN_SIZE = 0.5  # °C - temperature bin width
 KEEP_THRESHOLD = 0.90  # Keep values >= 90% of max in each bin
 DAYS_HISTORY = 30  # Days of live history for stooklijn analysis
+# Eenheden waarin de langetermijnstatistiek wordt opgevraagd. Met ``units=None``
+# komt een waarde binnen in de eenheid waarin HA hem ooit opsloeg, en een
+# temperatuursensor die in °F is aangemaakt (Hue, GitHub #3) blijft dan °F.
+# Alleen temperatuur: vermogen en gas rekenen elk met hun eigen omrekening.
+STATS_UNITS = {"temperature": "°C"}
+
 MIN_HEATING_WATTS = 200  # Minimum W/h to count as a heating day
 MIN_MODULATION_WATTS = 2000  # W - minimum Quatt output at lowest compressor step (30Hz, v1.5)
 

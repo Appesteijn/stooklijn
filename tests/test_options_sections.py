@@ -21,6 +21,10 @@ from custom_components.quatt_stooklijn.config_flow import (
 )
 from custom_components.quatt_stooklijn.const import (
     CONF_CH_MAX_WATER_ENABLED,
+    CONF_GAS_ENABLED,
+    CONF_GAS_END_DATE,
+    CONF_GAS_ENTITY,
+    CONF_GAS_START_DATE,
     CONF_PERFORMANCE_BASELINE_DATE,
     CONF_PRICE_ENTITY,
     CONF_PRICE_MODE,
@@ -53,7 +57,7 @@ def _schema(options=None):
 
 
 class TestIndeling:
-    def test_zes_secties_in_vaste_volgorde(self):
+    def test_secties_in_vaste_volgorde(self):
         assert list(_schema()) == list(OPTION_SECTIONS)
 
     def test_elk_veld_precies_een_keer_en_niets_in_het_vangnet(self):
@@ -122,6 +126,47 @@ class TestOpslaan:
             "soundslider": {CONF_SOUND_LEVEL_ENABLED: True},
         }))
         assert result["data_schema"]["soundslider"]["options"]["collapsed"] is False
+
+
+class TestGasInOpties:
+    """GitHub #3: de gasperiode was alleen bij het toevoegen in te stellen."""
+
+    GAS = {
+        CONF_GAS_ENABLED: True,
+        CONF_GAS_ENTITY: "sensor.gas",
+        CONF_GAS_START_DATE: "2024-09-18",
+        CONF_GAS_END_DATE: "2025-09-17",
+    }
+
+    def test_ingesteld_bij_toevoegen_staat_open(self):
+        flow = _flow()
+        flow._config_entry.data = dict(self.GAS)
+        schema = _run(flow.async_step_init())["data_schema"]
+        assert schema["gas"]["options"]["collapsed"] is False
+        # De voluptuous-stub gooit defaults weg; alleen de velden zijn te zien.
+        assert CONF_GAS_END_DATE in schema["gas"]["section"]
+
+    def test_uit_dan_ingeklapt(self):
+        assert _schema()["gas"]["options"]["collapsed"] is True
+
+    def test_periode_corrigeren(self):
+        gas = {**self.GAS, CONF_GAS_END_DATE: " 2025-09-17 "}
+        result = _run(_flow().async_step_init({"gas": gas}))
+        assert result["data"][CONF_GAS_END_DATE] == "2025-09-17"
+        assert result["data"][CONF_GAS_ENABLED] is True
+
+    @pytest.mark.parametrize("wijziging, fout", [
+        ({CONF_GAS_ENTITY: ""}, "gas_entity_required"),
+        ({CONF_GAS_END_DATE: "17-09-2025"}, "invalid_date_format"),
+        ({CONF_GAS_END_DATE: "2024-01-01"}, "invalid_date_range"),
+    ])
+    def test_zelfde_controle_als_bij_toevoegen(self, wijziging, fout):
+        result = _run(_flow().async_step_init({"gas": {**self.GAS, **wijziging}}))
+        assert result["errors"] == {"base": fout}
+
+    def test_uit_zonder_velden_is_goed(self):
+        result = _run(_flow().async_step_init({"gas": {CONF_GAS_ENABLED: False}}))
+        assert result["type"] == "create_entry"
 
 
 class TestVertalingen:

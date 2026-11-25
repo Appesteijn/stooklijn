@@ -146,6 +146,28 @@
               "price_dal_weekend": "Samstag und Sonntag zählen ganz als Niedertarif."
             }
           },
+          "gas": {
+            "name": "Gasvergleich",
+            "description": "Vergleicht deinen Wärmeverlust mit dem Gasverbrauch aus der Zeit vor der Wärmepumpe. Wähle einen Zeitraum, der vor der Installation der Wärmepumpe endet.",
+            "data": {
+              "gas_enabled": "Gasanalyse aktivieren",
+              "gas_entity": "Gaszähler Entität (kumulativ m³)",
+              "gas_start_date": "Gasperiode Startdatum (JJJJ-MM-TT)",
+              "gas_end_date": "Gasperiode Enddatum (JJJJ-MM-TT)",
+              "gas_calorific_value": "Heizwert Gas (kWh/m³)",
+              "boiler_efficiency": "Kesselwirkungsgrad (0-1)",
+              "hot_water_temp_threshold": "Schwelltemperatur Warmwasser (°C)"
+            },
+            "data_description": {
+              "gas_enabled": "An = der Wärmeverlust aus deinem Gaszeitraum steht neben dem der Wärmepumpe.",
+              "gas_entity": "Dein Gaszähler, kumulativ in m³. Benötigt Langzeitstatistik (state_class total oder total_increasing).",
+              "gas_start_date": "Erster Tag des Gaszeitraums. Ein ganzes Jahr liefert die beste Anpassung.",
+              "gas_end_date": "Letzter Tag des Gaszeitraums. Muss vor der Installation der Wärmepumpe liegen: Gas, das verbraucht wird, während die Wärmepumpe heizt, ist überwiegend Warmwasser.",
+              "gas_calorific_value": "Energie pro m³ Gas. Niederländisches Erdgas: 9,77 kWh/m³.",
+              "boiler_efficiency": "Anteil der Gasenergie, der zu Wärme wurde. 0,90 passt zu einem modernen Brennwertkessel.",
+              "hot_water_temp_threshold": "Tage mit dieser Außentemperatur oder wärmer verbrauchen Gas nur für Warmwasser; ihr Median wird von jedem Tag abgezogen."
+            }
+          },
           "analyse": {
             "name": "Analyse",
             "description": "Welcher Zeitraum deiner Heizhistorie analysiert wird und was außen vor bleibt.",
@@ -205,7 +227,9 @@
     },
     "error": {
       "invalid_date_format": "Ungültiges Datumsformat. Verwenden Sie YYYY-MM-DD",
-      "price_entity_required": "Ein dynamischer Tarif braucht einen Preissensor mit den Stundenpreisen als Attribut"
+      "price_entity_required": "Ein dynamischer Tarif braucht einen Preissensor mit den Stundenpreisen als Attribut",
+      "invalid_date_range": "Das Enddatum muss nach dem Startdatum liegen",
+      "gas_entity_required": "Gaszähler Entität ist erforderlich wenn die Gasanalyse aktiviert ist"
     }
   },
   "services": {
