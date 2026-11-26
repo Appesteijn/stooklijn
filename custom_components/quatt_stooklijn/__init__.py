@@ -8,12 +8,15 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.helpers.event import async_track_time_change
 
 from .ch_max_water import ChMaxWaterController
 from .supply_check import SupplySensorCheck
 from .dashboard import DashboardManager
 from .sources import ENTITY_PREFIX, MIRROR_SPECS, OVERVIEW_SLUG, SourceRegistry
 from .const import (
+    ANALYSIS_DAILY_HOUR,
+    ANALYSIS_DAILY_MINUTE,
     CH_MAX_WATER_RESTORE_INTERVAL,
     CONF_CH_MAX_WATER_ENABLED,
     CONF_CH_MAX_WATER_ENTITY,
@@ -293,6 +296,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 cancel()
 
         entry.async_on_unload(_cancel_if_pending)
+
+    # Elke ochtend opnieuw, zodat de capaciteitsgrens en de ankers de uren
+    # van de afgelopen nacht meenemen (zie ANALYSIS_DAILY_HOUR).
+    entry.async_on_unload(
+        async_track_time_change(
+            hass,
+            coordinator.async_scheduled_refresh,
+            hour=ANALYSIS_DAILY_HOUR,
+            minute=ANALYSIS_DAILY_MINUTE,
+            second=0,
+        )
+    )
 
     # chMaxWaterTemperatuur bijsturing (opt-in)
     if merged_config.get(CONF_CH_MAX_WATER_ENABLED, False):

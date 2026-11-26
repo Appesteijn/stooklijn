@@ -343,6 +343,14 @@ tekort (nachtverlaging inhalen). Wat de lijn als capaciteit mag zeggen staat in
   probleem is het aantal uren per vak, niet halve uren.
 - De Power House-kalibratie gebruikt de lijn nog rechtstreeks (snijpunt met het
   verlies); daar verandert niets.
+- **De analyse draait elke ochtend** (`ANALYSIS_DAILY_HOUR`, 06:30), niet
+  alleen bij het opstarten. Anders telt een nacht waarin de pomp meer liet
+  zien pas na de volgende herstart mee (Tweakers 26-11-2026: ~5 kW geleverd
+  bij −1 °C, `capaciteit_w` bleef 2,8 kW). De dagrun loopt via
+  `async_scheduled_refresh`, niet via `async_refresh`: mislukt hij, of vindt hij
+  geen stookdata, dan blijft de vorige analyse staan. Een mislukte
+  `async_refresh` zet `last_update_success` op False, en dan is ook het
+  MPC-advies onbeschikbaar.
 
 ## Een blijvend tekort werkt het I-deel weg (`BalanceBias`)
 

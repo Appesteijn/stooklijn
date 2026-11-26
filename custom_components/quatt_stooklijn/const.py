@@ -534,6 +534,17 @@ DEMAND_SHIFT_MIN_RUN_MINUTES = 45
 DEMAND_SHIFT_MAX_DRIFT_K = 0.3
 DEMAND_SHIFT_MAX_OVERSHOOT_K = 0.5
 
+# Tijdstip van de dagelijkse analyse (lokale tijd). Daarnaast draait hij bij
+# het opstarten en op de service ``run_analysis``. Tot v0.10.7-beta.16 alleen
+# die twee, en dan leerde de capaciteitsgrens (vriescurve plus gemeten trap)
+# pas na een herstart van nieuwe uren. Tweakers 26-11-2026: de pomp leverde
+# een nacht lang ~5 kW bij −1 °C, en `capaciteit_w` bleef 2,8 kW zeggen.
+# Na de koudste nachturen, zodat een koude nacht dezelfde ochtend meetelt.
+# Niet rond middernacht: dan is de Quatt-dag van gisteren nog niet af, en
+# draait de prijsverschuiving.
+ANALYSIS_DAILY_HOUR = 6
+ANALYSIS_DAILY_MINUTE = 30
+
 # Tijdstip van de dagelijkse meting (lokale tijd). Net na middernacht: het
 # venster valt dan samen met de kalenderdag en alle prijzen liggen vast.
 PRICE_SHIFT_RUN_HOUR = 0

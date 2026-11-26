@@ -204,7 +204,7 @@ Worth knowing: this switch does not affect the Quatt HA integration, which polls
 
 ## Usage
 
-The analysis runs **automatically** when Home Assistant starts, so your dashboards are always populated after a restart.
+The analysis runs **automatically** when Home Assistant starts, so your dashboards are always populated after a restart, and again **every morning at 06:30**, so last night's hours count the same day (for instance in the heat pump capacity that limits the advice). If the morning run fails or finds no heating data, the previous analysis stays in place.
 
 You can also trigger an analysis manually:
 

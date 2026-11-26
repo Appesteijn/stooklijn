@@ -118,6 +118,47 @@ class QuattStooklijnCoordinator(DataUpdateCoordinator[QuattStooklijnData]):
             _LOGGER.exception("Quatt Stooklijn analysis failed")
             raise
 
+    async def async_scheduled_refresh(self, _now=None) -> None:
+        """De dagelijkse analyse (``ANALYSIS_DAILY_HOUR``).
+
+        Niet via ``async_refresh``: mislukt die, dan zet de coordinator
+        ``last_update_success`` op False, en worden alle sensoren die op de
+        analyse leunen onbeschikbaar, het MPC-advies incluis. De max-water-
+        sturing geeft dan na een kwartier het plafond terug. Bij het opstarten
+        is dat terecht, want dan is er niets. Hier ligt er een analyse van
+        hoogstens een dag oud, en die blijft staan tot de volgende lukt.
+
+        Om dezelfde reden houdt een run zonder bruikbare uitkomst ("no_data")
+        een eerdere geslaagde analyse niet tegen: een recorder die even
+        niets teruggeeft, mag geen werkend advies wissen.
+        """
+        previous = self.data
+        if previous.analysis_status == "running":
+            _LOGGER.debug("Dagelijkse analyse overgeslagen: er draait er al een")
+            return
+        _LOGGER.info("Dagelijkse analyse gestart")
+        previous_status = previous.analysis_status
+        previous.analysis_status = "running"
+        self.async_set_updated_data(previous)
+        try:
+            data = await self._async_update_data()
+        except Exception:  # noqa: BLE001 — al gelogd in _async_update_data
+            self.data = previous
+            previous.analysis_status = "error"
+            self.async_set_updated_data(previous)
+            return
+        if data.analysis_status == "no_data" and previous_status == "completed":
+            _LOGGER.warning(
+                "Dagelijkse analyse vond geen stookdata; de vorige analyse "
+                "(%s) blijft staan",
+                previous.last_analysis,
+            )
+            self.data = previous
+            previous.analysis_status = previous_status
+            self.async_set_updated_data(previous)
+            return
+        self.async_set_updated_data(data)
+
     async def _run_analysis(self) -> QuattStooklijnData:
         """Execute the analysis steps."""
         config = self.config
