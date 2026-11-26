@@ -3,6 +3,21 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.17 — 2026-11-26
+
+Analyse (Tweakers 26-11, "capaciteit_w 2.826 W" na een nacht met ~5 kW):
+
+- **De analyse draait nu ook elke ochtend om 06:30.** Tot nu toe alleen bij
+  het opstarten en als je hem zelf startte. Daardoor telden nieuwe uren pas
+  mee na een herstart. Dat gold ook voor de capaciteit van de warmtepomp
+  waarop het advies begrensd wordt: een nacht waarin de pomp ~5 kW leverde
+  bij −1 °C, veranderde niets aan een capaciteit van 2,8 kW. Nu telt een
+  koude nacht dezelfde ochtend mee.
+- **Een mislukte ochtendanalyse zet niets uit.** Lukt de analyse niet, of
+  vindt hij geen stookdata, dan blijft de vorige staan, en daarmee ook het
+  advies en de max-water-sturing. De status toont dan "error". Bij het
+  opstarten blijft het zoals het was.
+
 ## v0.10.7-beta.16 — 2026-11-25
 
 COP (Tweakers 25-11, "gemiddelde COP 4,06, maar de tabel komt niet boven 3,68"):
