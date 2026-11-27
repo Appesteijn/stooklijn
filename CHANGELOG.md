@@ -12,10 +12,12 @@ COP (testhuis 27-11, "de COP van OpenQuatt verschilt erg van de geschatte actuel
   is een schatting die bij hoog vermogen te hoog uitvalt. Tegen de slimme
   meter (135 nachturen) klopte OpenQuatt (helling 0,997), Quatt zat bij 2 kW
   ~10 % te hoog. De warmte was gelijk. **Op koude dagen stijgt de dag-COP
-  daardoor**; op het testhuis bij −5 tot 2,5 °C van 2,63 naar 2,86. Zacht weer
-  verandert niet. Dagen van vóór OpenQuatt blijven zoals ze waren, en een dag
-  met gaten in de OpenQuatt-data ook. Heb je warmte of stroom zelf op een
-  andere sensor gezet, dan blijft die gelden.
+  daardoor**; met de CiC-sensoren bij −5 tot 2,5 °C 2,63, met OpenQuatt 2,86.
+  Zacht weer verandert niet. Dagen van vóór OpenQuatt blijven zoals ze waren,
+  en een dag met gaten in de OpenQuatt-data ook. Heb je warmte of stroom zelf
+  op een andere sensor gezet, dan blijft die gelden. Wie warmte en stroom al
+  op de OpenQuatt-sensoren had gezet (zoals het testhuis), merkt hier niets
+  van: dat ging al goed.
 - **"Geschatte actuele COP" rekent met de COP-tabel.** Hij interpoleerde nog
   door losse dagen, de fout die de tabel in beta.16 kwijtraakte. Nu tussen
   twee punten van dezelfde tabel, en een streepje waar de tabel er geen heeft.

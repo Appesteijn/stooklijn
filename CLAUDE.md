@@ -462,8 +462,11 @@ Wat eronder ligt is altijd Quatt, ook met de cloud uit: de cloud-cache (dagen
 van toen hij aan stond), en daarna de recorder. Die tak kiest zijn sensoren op
 bestaan (`async_resolve_entity`, Quatt-detectie eerst) en leest dus de
 CiC-sensoren van de Quatt-integratie, terwijl het bronnenregister live
-OpenQuatt gebruikt. Testhuis: cloud uit sinds 27-08-2026, daarna
-`heatpump_total_power_input`.
+OpenQuatt gebruikt, tenzij warmte en stroom in de opties zijn ingesteld.
+Testhuis: cloud uit sinds 27-08-2026 en de opties op de OpenQuatt-sensoren,
+dus daar las de recorder al OpenQuatt en verandert stap 7 niets. Zijn
+dag-COP's van vorige winter komen uit de cloud-cache (Quatt) en drukken de
+koude kant van de COP-tabel.
 
 Daarom legt `apply_openquatt_days` (`analysis/quatt.py`, stap 7) warmte en
 stroom van OpenQuatt per dag over het samengevoegde resultaat:
