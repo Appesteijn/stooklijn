@@ -1330,10 +1330,8 @@ views:
 
               | Niets doen | {{ niets if niets is not none else '—' }}&nbsp;K |
 
-              {% set gz = state_attr(s, 'gevelzon_rmse_k') %}{% if gz is not none %}| 2R2C, zon op de ramen | {{ gz }}&nbsp;K |{% endif %}
 
 
-              {% set rr = state_attr(s, 'richting_ramen') %}{% if rr is not none %}{% set rp = state_attr(s, 'richting_panelen') %}{% if state_attr(s, 'richting_ramen_bron') == 'ingesteld' %}Ramen op **{{ rr | int }}°** (ingesteld){% if rp is not none %}, panelen op **{{ rp | int }}°** (geleerd){% endif %} (90 oost · 180 zuid · 270 west).{% else %}Geleerd uit je data: ramen op **{{ rr | int }}°**{% if rp is not none %}, panelen op **{{ rp | int }}°**{% endif %} (90 oost · 180 zuid · 270 west). De raamrichting is uit de data nauwelijks te leren: oost tot west voorspellen vaak even goed. Ken je hem, vul hem dan in bij de opties (Metingen).{% endif %}{% endif %}
 
               {% set winst = state_attr(s, 'verbetering_pct') %}
 
@@ -1467,6 +1465,7 @@ views:
               **Correctiefactor** (gemeten / verwacht, 1–6 u vooruit, 14 dagen):
               **{{ f }}**.{% endif %}
               {% if state_attr(z, 'reden') %} {{ state_attr(z, 'reden') }}.{% endif %}
+              {% set rp = state_attr(z, 'richting_panelen') %}{% if rp is not none %} Panelen geleerd op **{{ rp | int }}°** (90 oost · 180 zuid · 270 west).{% endif %}
 
               {% endif %}
             grid_options:
@@ -1553,16 +1552,6 @@ views:
                 name: Zonfactor horizontaal (Open-Meteo)
                 yaxis_id: g
                 color: "#90A4AE"
-                type: line
-                stroke_width: 2
-                extend_to: false
-                show:
-                  legend_value: false
-              - entity: sensor.quatt_warmteanalyse_modelvergelijking
-                attribute: zonfactor_gevel
-                name: Zonfactor op de ramen (zonnesensor)
-                yaxis_id: g
-                color: "#F9A825"
                 type: line
                 stroke_width: 2
                 extend_to: false
@@ -2502,7 +2491,7 @@ views:
 
               {% endfor %}
 
-              {% set a = state_attr(s, 'afgekapt_14d') %}{% if a %}Afgekapt in de laatste 14 dagen: **{{ a.uren }} uur**, gemiddeld {{ a.gem_k }} K.{% endif %}
+              {% set a = state_attr(s, 'afgekapt_14d') %}{% if a %}Afgekapt in de laatste 14 dagen: **{{ a.uren }} uur**, gemiddeld {{ a.gem_k }} K.{% endif %}{% set lg = state_attr(s, 'logboek_gecorrigeerd') %}{% if lg %} Het meetlogboek van vóór de extra sensoren is achteraf begrensd ({{ lg.uren }} uur afgekapt), zodat het huismodel er ook van leert.{% endif %}
               De thermostaat blijft de bron: extra sensoren kappen alleen zonpieken af, nooit omhoog.
               Zon bepaald uit {{ state_attr(s, 'zon_bron') or '*nog niet bepaald*' }}.
 

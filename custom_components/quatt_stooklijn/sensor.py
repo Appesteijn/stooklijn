@@ -131,11 +131,9 @@ from .const import (
     MPC_ADVICE_STATUS_ATTR,
     MPC_2R2C_START_TTL_S,
     CONF_PV_POWER_ENTITY,
-    CONF_WINDOW_AZIMUTH,
     DEFAULT_ORIENTATION_AZIMUTH,
     PV_ORIENTATION_HISTORY_DAYS,
     PV_ORIENTATION_REFRESH_HOURS,
-    WINDOW_AZIMUTH_CANDIDATES,
     SOLAR_FORECAST_LOG_STORAGE_KEY,
     MPC_CATCHUP_FACTOR,
     MPC_SUPPLY_TEMP_MAX,
@@ -199,7 +197,7 @@ _COMPRESSOR_STORE_KEYS = {
     ROLE_COMPRESSOR_2: "runs_hp2",
 }
 from .highres_log import SAMPLE_INTERVAL, HighResLogStore
-from .room_temperature import async_room_temperature, reference_entities, room_value
+from .room_temperature import async_room_temperature, room_value
 from .analysis.solar_forecast_log import SolarForecastLog
 from .analysis.solar_input import SCALE_MEASURED, Orientation
 from .thermal_store import ThermalModelStore
@@ -1259,11 +1257,10 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         # weinig zonuren zijn. Zie SolarForecastLog.lead_factor.
         self.solar_lead_factor: float | None = None
         # Geleerd, niet ingesteld: richting van de panelen (uit een jaar
-        # PV-statistiek) en van de ramen (nachtelijke modelvergelijking).
+        # PV-statistiek).
         self.pv_azimuth: float | None = None
         self.pv_azimuth_scores: dict[int, float] = {}
         self._pv_orientation_at: datetime | None = None
-        self.window_azimuth: float | None = None
         # De laatste PV-schaal die met de zon boven 15° bepaald is, per
         # zonnesensor; zie analysis/solar_input.measured_ghi. Bewaard, want rond
         # de jaarwisseling is hij uit het venster van 30 dagen niet te bepalen.
@@ -1658,6 +1655,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         if room is not None:
             room.clearness_provider = self.async_hourly_clearness
             room.rows_provider = self.highres_rows
+            room.log_rewriter = self._highres_store.rewrite_indoor
 
         self.async_on_remove(
             async_track_state_change_event(
@@ -1857,23 +1855,13 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             dt_util.utcnow().timestamp()
         )
 
-    # -- zon zoals de ramen hem zien ---------------------------------------
+    # -- de zonnesensor ----------------------------------------------------
 
     @property
     def pv_power_entity(self) -> str | None:
         """De zonnesensor (PV-vermogen), of None als die niet is ingesteld."""
         cfg = {**self._entry.data, **self._entry.options}
         return cfg.get(CONF_PV_POWER_ENTITY) or None
-
-    @property
-    def window_azimuth_configured(self) -> float | None:
-        """De opgegeven richting van de ramen, of None (dan wordt hij geleerd)."""
-        cfg = {**self._entry.data, **self._entry.options}
-        value = cfg.get(CONF_WINDOW_AZIMUTH)
-        try:
-            return float(value) % 360.0 if value not in (None, "") else None
-        except (TypeError, ValueError):
-            return None
 
     def _pv_power_w(self) -> float | None:
         """PV-vermogen nu, in W. None als onbekend (omvormers slapen 's nachts)
@@ -1964,10 +1952,9 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
 
     @property
     def solar_orientation(self) -> Orientation:
-        """Waar het huis staat en waar ramen en panelen naar wijzen.
+        """Waar het huis staat en waar de panelen naar wijzen.
 
-        De panelen worden geleerd. De ramen: de opgegeven richting, anders de
-        geleerde; zolang geen van beide er is geldt zuid.
+        De panelen worden geleerd; zolang dat niet gelukt is geldt zuid.
         De helling van de panelen staat vast: uit de data nauwelijks te
         bepalen, en op het gemeten huis maakte 15–35° geen verschil.
         """
@@ -1976,11 +1963,6 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         return Orientation(
             lat=float(self.hass.config.latitude),
             lon=float(self.hass.config.longitude),
-            window_azimuth=float(
-                self.window_azimuth_configured
-                if self.window_azimuth_configured is not None
-                else getattr(self, "window_azimuth", None) or DEFAULT_ORIENTATION_AZIMUTH
-            ),
             pv_tilt=PV_TILT_ASSUMED,
             pv_azimuth=float(
                 getattr(self, "pv_azimuth", None) or DEFAULT_ORIENTATION_AZIMUTH
@@ -3425,7 +3407,6 @@ class QuattModelBenchmarkSensor(
         )
         # Het 2R2C met de zon op de ramen (zonnesensor), naast de hoofduitkomst.
         # None zonder zonnesensor of zolang er niet gemeten is.
-        self._window: dict | None = None
         self._running = False
         self._attr_unique_id = f"{entry.entry_id}_model_benchmark"
         self._attr_device_info = get_device_info(entry.entry_id)
@@ -3470,16 +3451,10 @@ class QuattModelBenchmarkSensor(
             attrs["goedkeuring"] = (
                 "verlopen: geen nieuwe meting in "
                 f"{int(APPROVAL_MAX_AGE.total_seconds() // 3600)} uur")
-        # Gevelzon (ZONNEWARMTE_PLAN.md). De zonfactoren ook los, zodat een
-        # grafiek per meting kan laten zien of ze stabiliseren.
-        window = getattr(self, "_window", None)
+        # De zonfactor ook los, zodat een grafiek per meting laat zien of hij
+        # stabiliseert. Zon op de ramen (gevelzon) is er sinds beta.20 uit:
+        # op een schone kamertemperatuur niet beter dan horizontaal (CLAUDE.md).
         attrs["zonfactor_horizontaal"] = (self._result.params or {}).get("g")
-        attrs["gevelzon"] = window
-        attrs["zonfactor_gevel"] = ((window or {}).get("params") or {}).get("g")
-        attrs["gevelzon_rmse_k"] = (window or {}).get("rmse_k")
-        attrs["richting_ramen"] = (window or {}).get("richting_ramen")
-        attrs["richting_ramen_bron"] = (window or {}).get("richting_ramen_bron")
-        attrs["richting_panelen"] = (window or {}).get("richting_panelen")
         attrs["naspeler"] = getattr(self, "_replay", None)
         return attrs
 
@@ -3572,7 +3547,6 @@ class QuattModelBenchmarkSensor(
                 replay_out = await self.hass.async_add_executor_job(
                     _run_replay, result.params_use, rows, u, bp
                 )
-            window = await self._async_window_variant(rows, u, bp)
         except Exception:
             _LOGGER.warning("Modelvergelijking mislukt", exc_info=True)
             return
@@ -3580,61 +3554,14 @@ class QuattModelBenchmarkSensor(
             self._running = False
         self._result = result
         self._replay = replay_out
-        self._window = window
         self._schedule_expiry()
         self._store.async_delay_save(self._storage, 30)
         _LOGGER.info(
-            "Modelvergelijking: 2R2C %s K, huidig %s K, niets doen %s K — %s; "
-            "gevelzon %s K",
+            "Modelvergelijking: 2R2C %s K, huidig %s K, niets doen %s K — %s",
             result.rmse_k, result.reference_rmse_k, result.persistence_rmse_k,
-            result.reason, (window or {}).get("rmse_k"),
+            result.reason,
         )
         self.async_write_ha_state()
-
-    async def _async_window_variant(
-        self, rows: list[list[float]], u: float | None = None, bp: float | None = None,
-    ) -> dict | None:
-        """Het 2R2C met de zon op de ramen, gemeten met de zonnesensor.
-
-        Met dezelfde ankers als de hoofdvergelijking (U en de totale gratis
-        warmte, de gemiddelde zon uit de eigen zonkolom), anders zegt het
-        verschil tussen beide ook iets over de ankers en niet alleen over de zon.
-
-        PV staat pas sinds v0.10.6-beta.12 in het meetlogboek. Voor de oudere
-        monsters wordt hij aangevuld uit de uurstatistiek van de recorder,
-        zodat er meteen een uitkomst is in plaats van over vier weken. Een fout
-        hier mag de hoofduitkomst niet meenemen.
-        """
-        from .analysis.model_benchmark import compare_variant
-        from .analysis.solar_input import window_rows
-
-        entity = self._mpc.pv_power_entity
-        if not entity:
-            return None
-        try:
-            await self._mpc.async_learn_pv_orientation()
-            hourly = await async_pv_hourly(
-                self.hass, entity, min(r[0] for r in rows), max(r[0] for r in rows)
-            )
-            where = self._mpc.solar_orientation
-            configured = self._mpc.window_azimuth_configured
-            candidates = (
-                (configured,) if configured is not None else WINDOW_AZIMUTH_CANDIDATES
-            )
-            result = await self.hass.async_add_executor_job(
-                _window_variant_with_learned_direction, rows, where, hourly, u, bp,
-                self._mpc.saved_pv_scale(entity), candidates,
-            )
-        except Exception:
-            _LOGGER.warning("Modelvergelijking met gevelzon mislukt", exc_info=True)
-            return {"reden": "berekening mislukt"}
-        if result.get("richting_ramen") is not None:
-            result["richting_ramen_bron"] = "ingesteld" if configured is not None else "geleerd"
-            if configured is None:
-                self._mpc.window_azimuth = result["richting_ramen"]
-        result["richting_panelen"] = self._mpc.pv_azimuth
-        return result
-
 
 
 def _run_replay(params_dict, rows, u, balance_point) -> dict | None:
@@ -3656,53 +3583,6 @@ def _compare_anchored(rows, model, u, balance_point, now_ts):
 
     return compare(rows, model, anchors=anchors_from_rows(rows, u, balance_point),
                    now_ts=now_ts)
-
-
-def _window_variant_with_learned_direction(
-    rows, where, hourly, u=None, balance_point=None, saved_scale=None,
-    candidates=WINDOW_AZIMUTH_CANDIDATES,
-) -> dict:
-    """De gevelzonvariant voor elke kandidaat-raamrichting; de beste wint.
-
-    Met een opgegeven richting is er één kandidaat. Dat is ook beter: op het
-    gemeten huis lagen 135–270° binnen 0,01 K van elkaar en won op 20-11 225°,
-    op 27-11 135°, terwijl de ramen op ~180° staan.
-
-    Gekozen op het gemiddelde van beide week-splitsingen: met één splitsing
-    sprong het beste punt op het gemeten huis tussen 135° en 250°. De getoonde
-    uitkomst is die van de gewone splitsing, net als de hoofdvergelijking.
-    Draait in de executor.
-    """
-    from dataclasses import replace
-
-    from .analysis import model_benchmark as mb
-    from .analysis.solar_input import window_rows
-
-    per_richting: dict[int, float] = {}
-    gewoon: dict[int, dict] = {}
-    info: dict = {}
-    for cand in candidates:
-        variant, info = window_rows(
-            rows, replace(where, window_azimuth=float(cand)), hourly, saved_scale)
-        if variant is None:
-            return {**info, "reden": "te weinig PV-data in het meetlogboek"}
-        # Per richting eigen ankers: de gemiddelde zon hangt aan de zonkolom.
-        anchors = mb.anchors_from_rows(variant, u, balance_point)
-        a = mb.compare_variant(variant, anchors=anchors)
-        b = mb.compare_variant(variant, reverse=True, anchors=anchors)
-        if a.get("rmse_k") is None or b.get("rmse_k") is None:
-            return {**info, **a}
-        cand = int(round(cand))
-        per_richting[cand] = round((a["rmse_k"] + b["rmse_k"]) / 2, 3)
-        gewoon[cand] = a
-    best = min(per_richting, key=per_richting.get)
-    return {
-        **info,
-        **gewoon[best],
-        "geankerd": anchors is not None,
-        "richting_ramen": float(best),
-        "rmse_per_richting": {str(k): v for k, v in per_richting.items()},
-    }
 
 
 class QuattSolarForecastSensor(

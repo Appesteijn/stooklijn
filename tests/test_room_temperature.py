@@ -289,3 +289,70 @@ class TestPiekenInDeRuntime:
         assert raw[0] == 20.6 and used[0] == 20.0
         room._update_clipped(t0 + 7200)
         assert room.clipped == {"uren": 1.0, "gem_k": 0.6}
+
+
+class TestLogboekAchteraf:
+    """``_async_backfill``: het oude meetlogboek één keer begrenzen per set referenties."""
+
+    def _data(self):
+        start = datetime(2026, 11, 6, 0, 0, tzinfo=AMS).timestamp()
+        th, mid, clear = {}, {}, {}
+        for k in range(21 * 24):
+            t = start + k * 3600
+            zonnig = (k // 24) % 2 == 0
+            clear[t] = 0.9 if zonnig else 0.1
+            th[t] = 20.0 + (1.2 if zonnig and datetime.fromtimestamp(t, AMS).hour == 14 else 0.0)
+            mid[t] = 21.45
+        return start, start + 21 * 86400, th, mid, clear
+
+    def _run(self, room, th, mid, clear, now, refs=(MID,)):
+        from custom_components.quatt_stooklijn.highres_log import COLUMNS
+        rows = [[t] + [20.0] + [None] * (len(COLUMNS) - 2) for t in sorted(th)[7 * 24:]]
+        room.rows_provider = lambda since: [r for r in rows if since is None or r[0] >= since]
+        room.clearness_provider = AsyncMock(return_value=(clear, "zonnesensor"))
+        room._hass.async_add_executor_job = AsyncMock(side_effect=lambda f, *a: f(*a))
+        means = {TH: th, MID: mid, BEW: mid}
+        with patch("custom_components.quatt_stooklijn.sensor.async_hourly_means",
+                   AsyncMock(side_effect=lambda h, ents, s, e: {x: means[x] for x in ents})), \
+             patch.object(rt.time, "time", return_value=now), \
+             patch.object(rt.dt_util, "get_default_time_zone", return_value=AMS):
+            asyncio.run(room.async_refresh())
+
+    def test_een_keer_en_bewaard(self):
+        start, now, th, mid, clear = self._data()
+        hass, room, _ = _room({TH: 20.0, MID: 21.45}, refs=[MID])
+        room.log_rewriter = MagicMock(return_value=40)
+        self._run(room, th, mid, clear, now)
+        corr = room.log_rewriter.call_args.args[0]
+        assert corr and all(datetime.fromtimestamp(t, AMS).hour == 14 for t in corr)
+        assert all(v == pytest.approx(-(1.2 - CLIP_K)) for v in corr.values())
+        assert room.backfill["refs"] == [MID] and room.backfill["monsters"] == 40
+        assert room._store.async_save.call_args.args[0]["backfill"] == room.backfill
+        assert room.attributes()["logboek_gecorrigeerd"]["monsters"] == 40
+        self._run(room, th, mid, clear, now)
+        assert room.log_rewriter.call_count == 1
+
+    def test_andere_referenties_eerst_terug(self):
+        start, now, th, mid, clear = self._data()
+        hass, room, _ = _room({TH: 20.0, MID: 21.45, BEW: 21.45}, refs=[MID, BEW])
+        room.backfill = {"refs": [MID], "uren": 3, "monsters": 36, "op": "x"}
+        room.log_rewriter = MagicMock(return_value=12)
+        self._run(room, th, mid, clear, now)
+        calls = [c.args[0] for c in room.log_rewriter.call_args_list]
+        assert calls[0] is None and isinstance(calls[1], dict)
+        assert room.backfill["refs"] == sorted([MID, BEW])
+
+    def test_referenties_weg_dan_terug(self):
+        hass, room, _ = _room({TH: 20.0}, refs=[])
+        room.backfill = {"refs": [MID], "uren": 3, "monsters": 36, "op": "x"}
+        room.log_rewriter = MagicMock(return_value=36)
+        asyncio.run(room.async_refresh())
+        room.log_rewriter.assert_called_once_with(None)
+        assert room.backfill is None
+
+    def test_logboek_nog_niet_gelezen(self):
+        start, now, th, mid, clear = self._data()
+        hass, room, _ = _room({TH: 20.0, MID: 21.45}, refs=[MID])
+        room.log_rewriter = MagicMock(return_value=None)
+        self._run(room, th, mid, clear, now)
+        assert room.backfill is None

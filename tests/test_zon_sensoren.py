@@ -1,4 +1,4 @@
-"""Zonnesensor, zonverwachtingslog en gevelzon op sensorniveau (v0.10.6-beta.12).
+"""Zonnesensor en zonverwachtingslog op sensorniveau (v0.10.6-beta.12).
 
 Zie ZONNEWARMTE_PLAN.md. De rekenkern staat in test_solar_*.py; hier gaat het
 om de koppeling: wat de sensoren vastleggen en of het door HA's JSON-encoder
@@ -30,7 +30,7 @@ from tests.test_mpc_attributen_json import json_bytes
 
 AMS = ZoneInfo("Europe/Amsterdam")
 PV = "sensor.pv_vermogen"
-WAAR = Orientation(lat=52.37, lon=4.90, window_azimuth=200, pv_tilt=35, pv_azimuth=180)
+WAAR = Orientation(lat=52.37, lon=4.90, pv_tilt=35, pv_azimuth=180)
 
 
 class _State:
@@ -109,28 +109,17 @@ class TestBewaardePVSchaal:
 
     def test_zonder_geleerde_richting_zuid(self):
         o = _mpc(pv=0).solar_orientation
-        assert (o.window_azimuth, o.pv_tilt, o.pv_azimuth) == (180, 30, 180)
+        assert (o.pv_tilt, o.pv_azimuth) == (30, 180)
 
-    def test_geleerde_richtingen_worden_gebruikt(self):
+    def test_geleerde_richting_wordt_gebruikt(self):
         s = _mpc(pv=0)
-        s.pv_azimuth, s.window_azimuth = 195.0, 225.0
-        o = s.solar_orientation
-        assert (o.window_azimuth, o.pv_azimuth) == (225, 195)
+        s.pv_azimuth = 195.0
+        assert s.solar_orientation.pv_azimuth == 195
 
-    def test_opgegeven_raamrichting_gaat_voor(self):
-        """27-11-2026: geleerd 135° (eerder 225°) bij ramen op ~180°."""
-        s = _mpc(pv=0, options={"window_azimuth": 180})
-        s.pv_azimuth, s.window_azimuth = 195.0, 135.0
-        assert s.window_azimuth_configured == 180.0
-        assert s.solar_orientation.window_azimuth == 180
-
-    @pytest.mark.parametrize("waarde", [None, "", "zuid"])
-    def test_leeg_of_onleesbaar_wordt_geleerd(self, waarde):
-        s = _mpc(pv=0, options={"window_azimuth": waarde})
-        s.window_azimuth = 225.0
-        assert s.window_azimuth_configured is None
-        assert s.solar_orientation.window_azimuth == 225
-
+    def test_oude_raamrichting_in_de_opties_doet_niets(self):
+        """beta.18–19 had een optie window_azimuth; een oude waarde mag niets breken."""
+        o = _mpc(pv=0, options={"window_azimuth": 180}).solar_orientation
+        assert not hasattr(o, "window_azimuth")
 
 class TestRichtingPanelenLeren:
     """Eens per etmaal uit een jaar PV-statistiek; mislukken laat de vorige staan."""
@@ -185,79 +174,6 @@ class TestRichtingPanelenLeren:
         s.pv_azimuth, s._pv_orientation_at = None, None
         asyncio.run(s.async_learn_pv_orientation())
         assert s.pv_azimuth is None
-
-
-class TestRichtingRamenKiezen:
-    def test_beste_op_gemiddelde_van_beide_splitsingen(self, monkeypatch):
-        import custom_components.quatt_stooklijn.analysis.model_benchmark as mb
-        import custom_components.quatt_stooklijn.analysis.solar_input as si
-        from custom_components.quatt_stooklijn.sensor import (
-            _window_variant_with_learned_direction,
-        )
-
-        # Gewone splitsing wil 135, omgedraaide 270; gemiddeld wint 180.
-        rmse = {(90, False): .30, (90, True): .30, (135, False): .20, (135, True): .30,
-                (180, False): .22, (180, True): .22, (225, False): .25, (225, True): .25,
-                (270, False): .30, (270, True): .18}
-        monkeypatch.setattr(si, "window_rows",
-                            lambda rows, where, hourly, saved=None: ([[where.window_azimuth]], {"pv_dekking": 1.0}))
-        monkeypatch.setattr(mb, "compare_variant",
-                            lambda v, reverse=False, **kw: {"rmse_k": rmse[(int(v[0][0]), reverse)],
-                                                            "params": {"g": 10.0}})
-        r = _window_variant_with_learned_direction([], WAAR, [])
-        assert r["richting_ramen"] == 180
-        assert r["rmse_k"] == .22                      # de gewone splitsing van de winnaar
-        assert r["rmse_per_richting"]["135"] == .25
-
-    def test_zelfde_ankers_als_de_hoofdvergelijking(self, monkeypatch):
-        """Review 22-11: de variant werd vrij gefit, de hoofdvergelijking
-        verankerd. Nu per richting ankers uit de eigen zonkolom."""
-        import custom_components.quatt_stooklijn.analysis.model_benchmark as mb
-        import custom_components.quatt_stooklijn.analysis.solar_input as si
-        from custom_components.quatt_stooklijn.sensor import (
-            _window_variant_with_learned_direction,
-        )
-
-        monkeypatch.setattr(si, "window_rows",
-                            lambda rows, where, hourly, saved=None: ([[where.window_azimuth]], {}))
-        gezien = []
-        monkeypatch.setattr(mb, "anchors_from_rows",
-                            lambda v, u, bp: ("anker", v[0][0], u, bp))
-        monkeypatch.setattr(mb, "compare_variant",
-                            lambda v, reverse=False, anchors=None: gezien.append(anchors)
-                            or {"rmse_k": 0.2, "params": {}})
-        r = _window_variant_with_learned_direction([], WAAR, [], 280.0, 16.5)
-        assert gezien and all(a is not None and a[2:] == (280.0, 16.5) for a in gezien)
-        assert len({a[1] for a in gezien}) > 1          # eigen ankers per richting
-        assert r["geankerd"] is True
-
-    def test_opgegeven_richting_is_de_enige_kandidaat(self, monkeypatch):
-        import custom_components.quatt_stooklijn.analysis.model_benchmark as mb
-        import custom_components.quatt_stooklijn.analysis.solar_input as si
-        from custom_components.quatt_stooklijn.sensor import (
-            _window_variant_with_learned_direction,
-        )
-
-        gezien = []
-        monkeypatch.setattr(si, "window_rows",
-                            lambda rows, where, hourly, saved=None: gezien.append(where.window_azimuth)
-                            or ([[where.window_azimuth]], {"pv_dekking": 1.0}))
-        monkeypatch.setattr(mb, "compare_variant",
-                            lambda v, reverse=False, **kw: {"rmse_k": 0.25, "params": {}})
-        r = _window_variant_with_learned_direction([], WAAR, [], candidates=(180.0,))
-        assert gezien == [180.0]
-        assert r["richting_ramen"] == 180
-        assert r["rmse_per_richting"] == {"180": 0.25}
-
-    def test_te_weinig_pv(self, monkeypatch):
-        import custom_components.quatt_stooklijn.analysis.solar_input as si
-        from custom_components.quatt_stooklijn.sensor import (
-            _window_variant_with_learned_direction,
-        )
-
-        monkeypatch.setattr(si, "window_rows", lambda rows, where, hourly, saved=None: (None, {"pv_dekking": 0.2}))
-        r = _window_variant_with_learned_direction([], WAAR, [])
-        assert "richting_ramen" not in r and r["pv_dekking"] == 0.2
 
 
 class TestVerwachtingVastleggen:
@@ -368,19 +284,9 @@ class TestModelvergelijkingAttributen:
         from custom_components.quatt_stooklijn.sensor import QuattModelBenchmarkSensor
 
         b = QuattModelBenchmarkSensor.__new__(QuattModelBenchmarkSensor)
-        b._result = MagicMock(params={"g": 18.0}, to_dict=lambda: {"rmse_k": 0.27})
-        b._window = {"rmse_k": 0.228, "params": {"g": np.float64(14.3)}, "pv_dekking": 1.0}
+        b._result = MagicMock(params={"g": np.float64(18.0)}, to_dict=lambda: {"rmse_k": 0.27})
         a = b.extra_state_attributes
         assert a["zonfactor_horizontaal"] == 18.0
-        assert a["zonfactor_gevel"] == pytest.approx(14.3)
-        assert a["gevelzon_rmse_k"] == 0.228
+        assert not {"gevelzon", "zonfactor_gevel", "gevelzon_rmse_k", "richting_ramen"} & set(a)
         json_bytes(a)
 
-    def test_zonder_zonnesensor(self):
-        from custom_components.quatt_stooklijn.sensor import QuattModelBenchmarkSensor
-
-        b = QuattModelBenchmarkSensor.__new__(QuattModelBenchmarkSensor)
-        b._result = MagicMock(params={"g": 18.0}, to_dict=lambda: {})
-        b._window = None
-        a = b.extra_state_attributes
-        assert a["zonfactor_gevel"] is None and a["gevelzon"] is None

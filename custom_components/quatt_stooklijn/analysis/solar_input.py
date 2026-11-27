@@ -1,16 +1,14 @@
-"""Gemeten zon uit het meetlogboek, en de zon zoals de ramen hem zien.
+"""Gemeten zon uit het meetlogboek.
 
 Het meetlogboek heeft per vijf minuten de Open-Meteo-straling (horizontaal) en,
 sinds v0.10.6-beta.12, het PV-vermogen van een optionele zonnesensor. Hier
-wordt daaruit afgeleid:
+wordt daaruit de **gemeten** horizontale straling afgeleid (PV → helderheid →
+straling), per monster en per uur: de "waarheid" waartegen de zonverwachting
+gescoord wordt.
 
-* de **gemeten** horizontale straling (PV → helderheid → straling), per monster
-  en per uur — de "waarheid" waartegen de zonverwachting gescoord wordt;
-* logboekrijen waarin de zonkolom vervangen is door wat er **door de ramen**
-  binnenkomt, voor het 2R2C met gevelzon in de modelvergelijking.
-
-Zie ZONNEWARMTE_PLAN.md voor waarom: gemeten zon op de gevel gaf het 2R2C
-14–20 % minder fout op 12 uur vooruit dan horizontale straling uit Open-Meteo.
+Tot beta.19 stond hier ook ``window_rows``: de zon op de ramen, voor een
+2R2C-variant met gevelzon. Die won alleen door de zon op de thermostaat; op
+een begrensde kamertemperatuur was horizontaal even goed of beter (CLAUDE.md).
 """
 
 from __future__ import annotations
@@ -27,15 +25,9 @@ from .solar_geometry import (
     ghi_from_pv,
     pv_clear_sky,
     sun_position,
-    window_irradiance,
 )
 
 _TS, _SOL, _PV = 0, 4, 5
-
-#: Minimaal aandeel daglichtmonsters met een PV-waarde (gemeten of aangevuld)
-#: voordat de gevelzon-variant meedoet. Met minder valt het grootste deel terug
-#: op Open-Meteo en zegt de vergelijking niets over de zonnesensor.
-MIN_PV_COVERAGE = 0.8
 
 #: Hoeveel monsters een uur minstens moet hebben voor een uurwaarde (van 12).
 MIN_SAMPLES_PER_HOUR = 6
@@ -43,11 +35,10 @@ MIN_SAMPLES_PER_HOUR = 6
 
 @dataclass(frozen=True)
 class Orientation:
-    """Waar de ramen en de panelen naar wijzen, en waar het huis staat."""
+    """Waar de panelen naar wijzen, en waar het huis staat."""
 
     lat: float
     lon: float
-    window_azimuth: float = 180.0
     pv_tilt: float = 35.0
     pv_azimuth: float = 180.0
 
@@ -174,34 +165,3 @@ def hourly_measured(
         out[int(h)] = (mean, mean / cs if cs > 50.0 else None)
     return out
 
-
-def window_rows(
-    rows,
-    where: Orientation,
-    hourly_pv: list[tuple[float, float]] | None = None,
-    saved_scale: float | None = None,
-) -> tuple[list[list[float]] | None, dict]:
-    """Logboekrijen met de zonkolom vervangen door de zon op de ramen (W/m²).
-
-    Bron per monster: gemeten (PV, eventueel aangevuld uit de recorder), anders
-    terugval op de Open-Meteo-waarde uit het logboek. Geeft ``(None, info)`` als
-    de dekking door de zonnesensor te laag is om iets over de sensor te zeggen.
-    ``saved_scale``: zie ``measured_ghi``.
-    """
-    arr = _as_array(rows)
-    info: dict = {"pv_dekking": None, "pv_schaal": None, "pv_schaal_bron": None}
-    if len(arr) == 0:
-        return None, info
-    ts, ghi_pv, scale, source = measured_ghi(arr, where, hourly_pv, saved_scale)
-    info["pv_schaal"] = round(scale, 2) if scale is not None else None
-    info["pv_schaal_bron"] = source
-    el, az, e0 = sun_position(ts, where.lat, where.lon)
-    day = el > 1.0
-    covered = np.isfinite(ghi_pv)
-    info["pv_dekking"] = round(float(covered[day].mean()), 3) if day.any() else None
-    if scale is None or info["pv_dekking"] is None or info["pv_dekking"] < MIN_PV_COVERAGE:
-        return None, info
-    ghi = np.where(covered, ghi_pv, arr[:, _SOL])
-    out = arr[:, :5].copy()
-    out[:, _SOL] = window_irradiance(ghi, el, az, e0, where.window_azimuth)
-    return out.tolist(), info

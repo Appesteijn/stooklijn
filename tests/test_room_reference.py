@@ -133,3 +133,63 @@ class TestSamenstellen:
 
     def test_zonder_thermostaat_niets(self):
         assert compose(None, {"midden": 21.0}, {"midden": -1.45})[0] is None
+
+
+class TestAchteraf:
+    """``history_corrections``: wat compose live had afgekapt, per uur."""
+
+    def _reeks(self, days=21):
+        from custom_components.quatt_stooklijn.analysis.room_reference import history_corrections
+        hrs = _hours(days)
+        th, mid, clear = {}, {}, {}
+        for t in hrs:
+            dag = int((t - hrs[0]) // 86400)
+            zonnig = dag % 2 == 0
+            clear[t] = 0.9 if zonnig else 0.1
+            th[t] = 20.0 + (1.5 if zonnig and _hod(t) == 14 else 0.0)
+            mid[t] = 21.45
+        return history_corrections, hrs, th, {"midden": mid}, clear
+
+    def test_zonpiek_afgekapt_tot_de_clipgrens(self):
+        hc, hrs, th, refs, clear = self._reeks()
+        out = hc(th, refs, clear, AMS, hrs[0], hrs[-1] + 1)
+        assert out and all(_hod(t) == 14 for t in out)
+        assert all(v == pytest.approx(-(1.5 - CLIP_K)) for v in out.values())
+
+    def test_niet_voordat_het_verschil_geleerd_is(self):
+        # De eerste dagen zijn er te weinig nachturen (12): geen correctie.
+        hc, hrs, th, refs, clear = self._reeks()
+        out = hc(th, refs, clear, AMS, hrs[0], hrs[-1] + 1)
+        assert min(out) >= hrs[0] + 2 * 86400
+
+    def test_weet_niets_van_later(self):
+        # Een verschil dat pas later verandert, mag eerdere uren niet raken.
+        hc, hrs, th, refs, clear = self._reeks()
+        half = hrs[len(hrs) // 2]
+        voor = hc(th, refs, clear, AMS, hrs[0], half)
+        later = {t: (v - 5.0 if t >= half else v) for t, v in refs["midden"].items()}
+        assert hc(th, {"midden": later}, clear, AMS, hrs[0], half) == voor
+
+    def test_referentie_in_de_zon_telt_niet(self):
+        # Drie referenties; de bench krijgt om 11 u zon. Telt hij mee, dan is de
+        # mediaan de bewegingsmelder (20,4 → afkappen tot 20,7); telt hij niet,
+        # dan het midden van midden en beweging (20,2 → 20,5).
+        from custom_components.quatt_stooklijn.analysis.room_reference import history_corrections
+        hrs = _hours(21)
+        th, mid, bew, bench, clear = {}, {}, {}, {}, {}
+        for t in hrs:
+            zonnig = int((t - hrs[0]) // 86400) % 2 == 0
+            elf = _hod(t) == 11
+            clear[t] = 0.9 if zonnig else 0.1
+            th[t] = 20.0 + (1.0 if zonnig and elf else 0.0)
+            mid[t] = 21.45
+            bew[t] = 20.1 + (0.4 if elf else 0.0)
+            bench[t] = 20.6 + (2.0 if zonnig and elf else 0.0)
+        out = history_corrections(th, {"midden": mid, "beweging": bew, "bench": bench},
+                                  clear, AMS, hrs[0], hrs[-1] + 1)
+        laatste_week = [v for t, v in out.items() if t >= hrs[-1] - 7 * 86400 and _hod(t) == 11]
+        assert laatste_week and all(v == pytest.approx(-0.5) for v in laatste_week)
+
+    def test_zonder_referenties_niets(self):
+        hc, hrs, th, _refs, clear = self._reeks()
+        assert hc(th, {}, clear, AMS, hrs[0], hrs[-1] + 1) == {}

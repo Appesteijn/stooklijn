@@ -190,6 +190,39 @@ class HighResLog:
         return [[None if _missing(v) else v for v in row] for row in self._samples
                 if since is None or row[0] >= since]
 
+    def correct_indoor(self, corrections: Mapping[float, float]) -> int:
+        """Leg een correctie per uur over de oude kamertemperatuur.
+
+        Alleen monsters zonder ``t_indoor_raw``: die zijn van vóór de extra
+        kamersensoren. Per monster de correctie van zijn uur (begin, UTC-
+        seconden); de thermostaat zelf gaat naar ``t_indoor_raw``, zodat
+        ``restore_indoor`` het terugdraait. Geeft het aantal gewijzigde monsters.
+        """
+        i_in, i_raw = COLUMNS.index("t_indoor"), COLUMNS.index("t_indoor_raw")
+        n = 0
+        for row in self._samples:
+            if not _missing(row[i_raw]):
+                continue
+            corr = corrections.get(float(row[0] // 3600 * 3600))
+            if not corr:
+                continue
+            row[i_raw] = row[i_in]
+            row[i_in] = round(row[i_in] + corr, 2)
+            n += 1
+        return n
+
+    def restore_indoor(self) -> int:
+        """De thermostaat terug in ``t_indoor`` waar hij in ``t_indoor_raw``
+        staat (achteraf gecorrigeerd of live begrensd). Geeft het aantal."""
+        i_in, i_raw = COLUMNS.index("t_indoor"), COLUMNS.index("t_indoor_raw")
+        n = 0
+        for row in self._samples:
+            if _missing(row[i_raw]):
+                continue
+            row[i_in], row[i_raw] = row[i_raw], math.nan
+            n += 1
+        return n
+
     def column(self, index: int, since: float | None = None) -> list[float]:
         """Eén kolom als lijst, zonder onbekende waarden."""
         return [row[index] for row in self._samples
@@ -369,6 +402,22 @@ class HighResLogStore:
             self._store.async_delay_save(self._snapshot, SAVE_DELAY.total_seconds())
         self._dirty = self._dirty or recorded
         return recorded
+
+    def rewrite_indoor(self, corrections: Mapping[float, float] | None) -> int | None:
+        """``correct_indoor`` (of met None ``restore_indoor``) en wegschrijven.
+
+        None als het logboek nog niet gelezen is: dan valt er niets te
+        corrigeren, en zou opslaan een heel seizoen overschrijven.
+        """
+        if not self._loaded:
+            return None
+        n = (self.log.restore_indoor() if corrections is None
+             else self.log.correct_indoor(corrections))
+        if n:
+            if not self._dirty:
+                self._store.async_delay_save(self._snapshot, SAVE_DELAY.total_seconds())
+            self._dirty = True
+        return n
 
     def _snapshot(self) -> dict:
         """Wat de uitgestelde opslag wegschrijft, bepaald op het moment zelf."""

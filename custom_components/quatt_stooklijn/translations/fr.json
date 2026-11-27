@@ -203,7 +203,6 @@
               "compressor_2_entity": "Fréquence du compresseur PAC2 (Hz)",
               "weather_entity": "Prévisions météo",
               "pv_power_entity": "Capteur solaire : puissance PV (W ou kW)",
-              "window_azimuth": "Orientation des fenêtres (°)",
               "indoor_temp_reference_entities": "Capteurs de pièce supplémentaires"
             },
             "data_description": {
@@ -222,7 +221,6 @@
               "compressor_2_entity": "Duo uniquement ; laisser vide sur un Solo.",
               "weather_entity": "La température extérieure des heures à venir, pour la prévision et le décalage tarifaire.",
               "pv_power_entity": "Facultatif. Mesure le soleil localement. L'orientation des panneaux est apprise.",
-              "window_azimuth": "Facultatif. 90 est, 180 sud, 270 ouest : la façade avec le plus de fenêtres. Vide = appris grossièrement à partir des données, mais peu fiable.",
               "indoor_temp_reference_entities": "Facultatif. Des capteurs de température dans la même pièce que votre thermostat, à des endroits sans soleil, loin des radiateurs, fenêtres et portes extérieures. Ils servent uniquement à écrêter les pics de soleil du thermostat ; la consigne reste celle de votre thermostat."
             }
           }

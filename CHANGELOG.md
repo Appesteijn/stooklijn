@@ -3,6 +3,25 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## Nog niet uitgebracht
+
+- **Het oude meetlogboek wordt achteraf begrensd** zodra je extra
+  kamersensoren kiest. Het huismodel (2R2C) leert van de laatste 90 dagen;
+  zonder dit leerde het nog maanden van de zonpieken op de thermostaat. De
+  integratie rekent met de uurgemiddelden van de recorder uit wat de extra
+  sensoren toen hadden afgekapt, en bewaart de thermostaat zelf ernaast, zodat
+  het terug te draaien is (haal je de extra sensoren weg, dan gebeurt dat
+  vanzelf). Testhuis: het huismodel voorspelt de kamer 12 uur vooruit 0,19
+  in plaats van 0,22–0,26 K mis, en de zonnewinst komt van de grens af. De
+  kaart Kamersensoren meldt hoeveel uur er achteraf is begrensd.
+- **"Zon op de ramen" is eruit**, met de raamrichting (geleerd of in de opties,
+  sinds beta.18). Die variant van het huismodel was alleen beter door de zon
+  op de thermostaat; met een schone kamertemperatuur voorspelt de gewone
+  (horizontale) zon even goed of beter, en is de richting van de ramen uit de
+  data niet te leren. Het scheelt tien extra modelfits per vergelijking. Een
+  ingevulde raamrichting wordt genegeerd. De geleerde richting van de panelen
+  staat nu op de kaart Zonverwachting.
+
 ## v0.10.7-beta.19 — 2026-11-27
 
 Kamertemperatuur (testhuis 27-11: zon op de thermostaat):

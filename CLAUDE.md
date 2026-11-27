@@ -520,3 +520,44 @@ tegen. Een melding zonder referenties moet dus neutraal zijn (plan, stap 2).
 
 `highres_log` bewaart de thermostaat zelf in `t_indoor_raw` als er extra
 sensoren zijn; `t_indoor` is dan de begrensde waarde.
+
+**Het oude logboek wordt achteraf begrensd** (`RoomTemperature._async_backfill`,
+`history_corrections`), één keer per set referenties. Het 2R2C leert van het
+hele logboek (90 dagen), dus anders leert het nog maanden van de zon op de
+sensor. Uit de uurgemiddelden van de recorder, met dezelfde regels als live en
+elk uur alleen met wat er toen bekend was; de correctie van een uur gaat over
+zijn vijfminutenmonsters, de thermostaat zelf naar `t_indoor_raw`. Andere
+referenties: eerst terugdraaien (`restore_indoor`), dan opnieuw. Geen
+referenties meer: terug naar de thermostaat. Testhuis (08-09 t/m 27-11-2026,
+368 uur gecorrigeerd), 2R2C 12 u **getoetst op de begrensde kamer**, beide
+splitsingen:
+
+| zon in het model | geleerd op ruw | geleerd op begrensd |
+|---|---|---|
+| horizontaal | 0,220 / 0,258 K | 0,194 / 0,183 K |
+| op de ramen (180°) | 0,202 / 0,274 K | 0,202 / 0,206 K |
+
+g van 14–20 naar ~11. Vergelijk niet de fout op ruw met de fout op begrensd:
+"niets doen" zakt mee (0,461 → 0,343 K), want het doel zelf wordt rustiger.
+
+## Zon in het 2R2C: horizontaal, niet op de ramen
+
+Van v0.10.6-beta.12 tot beta.19 rekende de modelvergelijking ook een 2R2C met
+de gemeten zon (PV) op de ramen, met een raamrichting die geleerd werd uit vijf
+kandidaten (of opgegeven, beta.18). Die variant won alleen door de zon op de
+thermostaat (zie hierboven). Op het begrensde logboek (testhuis, 12 u, beide
+splitsingen, alles geleerd en getoetst op de begrensde kamer):
+
+| zon in het model | fout |
+|---|---|
+| Open-Meteo, horizontaal (de hoofdvergelijking) | 0,194 / 0,183 K |
+| PV-gemeten, horizontaal | 0,181 / 0,200 K |
+| PV-gemeten, op de ramen (180°) | 0,202 / 0,206 K |
+
+135° en 180° gelijk: de richting is niet te leren. Daarom is de variant er in
+beta.20 uit, met de optie `window_azimuth` en tien extra fits per meting. De
+zonnesensor blijft voor de helderheid per uur (zonuren per kamersensor) en de
+toets van de zonverwachting. `solar_geometry.window_irradiance` staat er nog,
+zonder aanroeper. Wie de ramen terug wil: eerst meten, in het voorjaar
+(hogere zon, en dan verschilt verticaal glas het meest van horizontaal), op
+een begrensde kamertemperatuur.

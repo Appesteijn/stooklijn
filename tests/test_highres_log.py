@@ -522,3 +522,55 @@ class TestExtraUitHetSturingseffect:
         from custom_components.quatt_stooklijn.sensor import QuattMpcSensor
         s = QuattMpcSensor.__new__(QuattMpcSensor)
         assert s._highres_extra(T0) == {}
+
+
+class TestKamerAchterafBegrenzen:
+    """``correct_indoor`` / ``restore_indoor``: zie RoomTemperature._async_backfill."""
+
+    def _log(self):
+        log = HighResLog()
+        for i in range(24):  # twee uur
+            log.record(T0 + SAMPLE_INTERVAL * i, 21.0, 4.0, 2500.0, 0.0)
+        return log
+
+    def _col(self, log, name):
+        from custom_components.quatt_stooklijn.highres_log import COLUMNS
+        return [r[COLUMNS.index(name)] for r in log.rows()]
+
+    def test_per_uur_en_ruw_bewaard(self):
+        log = self._log()
+        h1 = T0.timestamp() + 3600
+        assert log.correct_indoor({h1: -0.8}) == 12
+        assert self._col(log, "t_indoor") == [21.0] * 12 + [20.2] * 12
+        assert self._col(log, "t_indoor_raw") == [None] * 12 + [21.0] * 12
+
+    def test_tweede_keer_niets(self):
+        log = self._log()
+        h0 = T0.timestamp()
+        log.correct_indoor({h0: -0.5})
+        assert log.correct_indoor({h0: -0.5}) == 0
+        assert self._col(log, "t_indoor")[0] == 20.5
+
+    def test_live_begrensde_monsters_blijven(self):
+        log = HighResLog()
+        log.record(T0, 20.3, 4.0, 2500.0, 0.0, extra={"t_indoor_raw": 21.0})
+        assert log.correct_indoor({T0.timestamp(): -0.5}) == 0
+        assert self._col(log, "t_indoor") == [20.3]
+
+    def test_terugdraaien(self):
+        log = self._log()
+        log.record(T0 + SAMPLE_INTERVAL * 24, 20.3, 4.0, 2500.0, 0.0, extra={"t_indoor_raw": 21.0})
+        log.correct_indoor({T0.timestamp(): -0.5})
+        assert log.restore_indoor() == 13
+        assert self._col(log, "t_indoor") == [21.0] * 25
+        assert self._col(log, "t_indoor_raw") == [None] * 25
+
+    def test_store_niet_voor_het_lezen(self):
+        import asyncio
+        store, inner = TestStore()._store(None)
+        assert store.rewrite_indoor({0.0: -1.0}) is None
+        asyncio.run(store.async_load())
+        store.log.record(T0, 21.0, 4.0, 2500.0, 0.0)
+        assert store.rewrite_indoor({T0.timestamp(): -1.0}) == 1
+        inner.async_delay_save.assert_called_once()
+        assert store.rewrite_indoor(None) == 1

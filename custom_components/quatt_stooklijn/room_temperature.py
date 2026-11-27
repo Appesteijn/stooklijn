@@ -42,6 +42,7 @@ from .analysis.room_reference import (
     SUN_DAYS,
     compose,
     day_is_sunny,
+    history_corrections,
     night_offsets,
     peak_notice_step,
     sun_effects,
@@ -68,6 +69,9 @@ STARTUP_DELAY_S = 120.0
 ClearnessProvider = Callable[[float, float], Awaitable[tuple[dict[float, float], str | None]]]
 #: since → rijen van het meetlogboek in de volgorde van ``highres_log.COLUMNS``.
 RowsProvider = Callable[[float], list[list[float | None]]]
+#: Correctie per uur over het meetlogboek leggen, of met None terugdraaien
+#: (``HighResLogStore.rewrite_indoor``). None terug: logboek nog niet gelezen.
+LogRewriter = Callable[[dict[float, float] | None], int | None]
 
 #: Meldingen onder Reparaties (vertaalsleutels); de issue-id krijgt de entry erbij.
 ISSUE_SUN_PEAKS = "room_sun_peaks"
@@ -148,6 +152,10 @@ class RoomTemperature:
         self.clearness_source: str | None = None
         self.clearness_provider: ClearnessProvider | None = None
         self.rows_provider: RowsProvider | None = None
+        self.log_rewriter: LogRewriter | None = None
+        #: Het meetlogboek is achteraf gecorrigeerd voor deze referenties:
+        #: {"refs", "uren", "monsters", "op"}. Zie ``_async_backfill``.
+        self.backfill: dict | None = None
         #: Melding zonder referenties (``peak_notice_step``) en de laatst verwerkte dag.
         self.peak_state: dict | None = None
         self.peak_day: str | None = None
@@ -220,6 +228,10 @@ class RoomTemperature:
             },
             "thermostaat_zon_uren": sorted(self.sun.get(primary, set())) if primary else [],
             "afgekapt_14d": self.clipped,
+            "logboek_gecorrigeerd": (
+                {k: self.backfill.get(k) for k in ("uren", "monsters", "op")}
+                if self.backfill else None
+            ),
             "zon_bron": self.clearness_source,
             "bepaald_op": self.updated_at,
         })
@@ -244,6 +256,7 @@ class RoomTemperature:
         self.peak_state = data.get("peak_state")
         self.peak_day = data.get("peak_day")
         self.clipped = data.get("clipped")
+        self.backfill = data.get("backfill")
 
     def _snapshot(self) -> dict:
         return {
@@ -256,6 +269,7 @@ class RoomTemperature:
             "peak_state": self.peak_state,
             "peak_day": self.peak_day,
             "clipped": self.clipped,
+            "backfill": self.backfill,
         }
 
     @callback
@@ -316,8 +330,13 @@ class RoomTemperature:
                 self.offsets, self._learned_for = offsets, primary
                 self.sun_k = effects
                 self.sun = {k: set(v) for k, v in effects.items()}
+                await self._async_backfill(primary, refs, now, tz)
             else:
                 self.offsets, self.sun, self.sun_k, self._learned_for = {}, {}, {}, None
+                if self.backfill and self.log_rewriter is not None:
+                    # Geen referenties meer: het logboek weer de thermostaat zelf.
+                    if self.log_rewriter(None) is not None:
+                        self.backfill = None
 
             self._update_peaks(clear, now, tz)
             self._update_clipped(now)
@@ -326,6 +345,59 @@ class RoomTemperature:
             self._async_update_issues()
         finally:
             self._refreshing = False
+
+    async def _async_backfill(self, primary: str, refs: list[str], now: float, tz) -> None:
+        """Het meetlogboek van vóór de referenties achteraf begrenzen.
+
+        Het 2R2C leert van het hele logboek (90 dagen). Zonder dit leert het
+        nog maanden van de thermostaat in de zon. Testhuis (08-09 t/m
+        27-11-2026, midden + bewegingsmelder): 2R2C 12 u, getoetst op de
+        begrensde kamer, 0,220/0,258 → 0,194/0,183 K (horizontaal) en
+        0,202/0,274 → 0,202/0,206 K (zon op de ramen); g van 14–20 naar ~11.
+
+        Eén keer per set referenties; bij een andere set eerst terugdraaien.
+        Nieuwe monsters krijgen live al de begrensde waarde. Uit de
+        uurgemiddelden van de recorder met dezelfde regels als live
+        (``history_corrections``), elk uur alleen met wat er toen bekend was.
+        """
+        if self.log_rewriter is None or self.rows_provider is None or not self.offsets:
+            return
+        wanted = sorted(refs)
+        if self.backfill and self.backfill.get("refs") == wanted:
+            return
+        rows = self.rows_provider(None) or []
+        if not rows:
+            return
+        if self.backfill:
+            # Andere referenties: eerst de thermostaat terug, ook in de
+            # monsters die live begrensd zijn, en dan alles opnieuw.
+            if self.log_rewriter(None) is None:
+                return
+            self.backfill = None
+        first = float(min(r[0] for r in rows))
+        start = first - SUN_DAYS * 86400
+        # Laat import: sensor.py importeert deze module.
+        from .sensor import async_hourly_means
+
+        means = await async_hourly_means(self._hass, [primary, *refs], start, now)
+        clear: dict[float, float] = {}
+        if self.clearness_provider is not None:
+            clear = (await self.clearness_provider(start, now))[0] or {}
+        corrections = await self._hass.async_add_executor_job(
+            history_corrections, means.get(primary, {}),
+            {e: means.get(e, {}) for e in refs}, clear, tz, first - 3600, now,
+        )
+        n = self.log_rewriter(corrections)
+        if n is None:
+            return
+        self.backfill = {
+            "refs": wanted, "uren": len(corrections), "monsters": n,
+            "op": dt_util.utcnow().isoformat(),
+        }
+        _LOGGER.info(
+            "Meetlogboek achteraf begrensd op de extra kamersensoren: %d uur, %d monsters",
+            len(corrections), n,
+        )
 
     def _thermostat_samples(self, since: float):
         """Vijfminutenmonsters van de thermostaat zelf: ``t_indoor_raw`` waar

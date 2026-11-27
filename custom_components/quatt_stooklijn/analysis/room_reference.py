@@ -26,8 +26,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime, tzinfo
+import math
 
 import numpy as np
+
+#: Naam van de thermostaat in ``sun_effects``; kan geen entity-ID zijn.
+_PRIMARY = "\0thermostaat"
 
 #: Nachturen (lokaal, begin van het uur) waarop het vaste verschil geleerd wordt.
 NIGHT_HOURS = range(0, 6)
@@ -180,6 +184,52 @@ def compose(
     details["referentie"] = ref
     details["afgekapt_k"] = primary - value
     return value, details
+
+
+#: Zo vaak bepaalt de integratie live het verschil en de zonuren opnieuw.
+REFRESH_S = 6 * 3600
+
+
+def history_corrections(
+    primary: Mapping[float, float],
+    references: Mapping[str, Mapping[float, float]],
+    clearness: Mapping[float, float],
+    tz: tzinfo,
+    start: float,
+    end: float,
+    refresh_s: float = REFRESH_S,
+) -> dict[float, float]:
+    """Wat ``compose`` in het verleden had afgekapt, per uur (K, ≤ 0).
+
+    Uit uurgemiddelden: ``primary`` de thermostaat, ``references`` per naam.
+    Het verschil en de zonuren worden net als live om de ``refresh_s``
+    opnieuw bepaald, steeds alleen uit de uren daarvóór; een uur weet dus
+    niets van later. Uren zonder correctie (geen verschil geleerd, niets
+    afgekapt) ontbreken.
+
+    Voor het meetlogboek (``RoomTemperature.async_backfill``): de referenties
+    zijn traag genoeg om de correctie van een uur over zijn vijfminuten-
+    monsters te leggen. Zo nagespeeld op het testhuis (KAMERSENSOREN_PLAN.md).
+    """
+    out: dict[float, float] = {}
+    offsets: dict[str, float] | None = None
+    sun: dict[str, set[int]] = {}
+    next_refresh = -math.inf
+    for t in sorted(h for h in primary if start <= h < end):
+        if t >= next_refresh:
+            offsets = night_offsets(primary, references, t, tz)
+            sun = sun_hours({_PRIMARY: primary, **references},
+                            {_PRIMARY: 0.0, **offsets}, clearness, t, tz)
+            next_refresh = t + refresh_s
+        if not offsets:
+            continue
+        hod = _local_hour(t, tz)
+        excluded = {n for n in references if hod in sun.get(n, set())}
+        value, _ = compose(primary[t], {n: s.get(t) for n, s in references.items()},
+                           offsets, excluded)
+        if value is not None and value < primary[t]:
+            out[t] = value - primary[t]
+    return out
 
 
 # --------------------------------------------------------------------------- #

@@ -1,4 +1,4 @@
-"""Gemeten zon uit het meetlogboek en de zon op de ramen (ZONNEWARMTE_PLAN.md)."""
+"""Gemeten zon uit het meetlogboek (ZONNEWARMTE_PLAN.md)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from custom_components.quatt_stooklijn.analysis.solar_geometry import (
     sun_position,
 )
 from custom_components.quatt_stooklijn.analysis.solar_input import (
-    MIN_PV_COVERAGE,
     SCALE_FILLED,
     SCALE_LOW_SUN,
     SCALE_MEASURED,
@@ -22,10 +21,9 @@ from custom_components.quatt_stooklijn.analysis.solar_input import (
     fill_pv_from_hourly,
     hourly_measured,
     measured_ghi,
-    window_rows,
 )
 
-WAAR = Orientation(lat=52.37, lon=4.90, window_azimuth=200, pv_tilt=35, pv_azimuth=180)
+WAAR = Orientation(lat=52.37, lon=4.90, pv_tilt=35, pv_azimuth=180)
 START = datetime(2026, 3, 1, tzinfo=timezone.utc).timestamp()
 
 
@@ -81,37 +79,15 @@ class TestGemetenStraling:
         assert helderheid == pytest.approx(1.0, abs=0.05)
 
 
-class TestRamen:
-    def test_zonkolom_vervangen(self):
-        rijen, info = window_rows(_logboek(), WAAR)
-        assert info["pv_dekking"] == 1.0
-        assert len(rijen) == len(_logboek())
-        assert len(rijen[0]) == 5
-        middag = [r for r in rijen if (r[0] - START) % 86400 == 11 * 3600]
-        assert middag[0][4] > 0
-
-    def test_te_weinig_pv_geen_variant(self):
-        rijen, info = window_rows(_logboek(met_pv=False), WAAR)
-        assert rijen is None
-        assert info["pv_dekking"] < MIN_PV_COVERAGE
-
+class TestAanvullenUitDeRecorder:
     def test_aangevuld_uit_de_recorder(self):
         """Een logboek van vóór de zonnesensor krijgt PV uit de uurstatistiek."""
         log = _logboek(met_pv=False)
-        met = _logboek()
-        ts = np.array([r[0] for r in met])
-        pv = np.array([r[5] for r in met])
-        uur = (ts // 3600) * 3600
-        hourly = [(float(h), float(pv[uur == h].mean())) for h in np.unique(uur)]
-        rijen, info = window_rows(log, WAAR, hourly)
-        assert rijen is not None
-        assert info["pv_dekking"] > 0.95
-        assert info["pv_schaal_bron"] == SCALE_FILLED
-
-    def test_oud_logboek_met_vijf_kolommen(self):
-        oud = [r[:5] for r in _logboek()]
-        rijen, info = window_rows(oud, WAAR)
-        assert rijen is None and info["pv_dekking"] == 0.0
+        hourly = _uurgemiddelden(_logboek())
+        ts, ghi, _schaal, bron = measured_ghi(log, WAAR, hourly)
+        el, _az, _e0 = sun_position(ts, WAAR.lat, WAAR.lon)
+        assert bron == SCALE_FILLED
+        assert np.isfinite(ghi[el > 1.0]).mean() > 0.95
 
 
 class TestSchaalInDeWinter:
@@ -119,7 +95,7 @@ class TestSchaalInDeWinter:
     Eind november zijn dat er ~35 per dag; rond de jaarwisseling komt de zon in
     Groningen helemaal niet meer boven 15°."""
 
-    NOORD = Orientation(lat=53.5, lon=6.5, window_azimuth=200, pv_tilt=35, pv_azimuth=180)
+    NOORD = Orientation(lat=53.5, lon=6.5, pv_tilt=35, pv_azimuth=180)
     KERST = datetime(2026, 12, 15, tzinfo=timezone.utc).timestamp()
 
     def _winter(self, schaal=4.0, kc=0.8, dagen=10):
@@ -149,11 +125,6 @@ class TestSchaalInDeWinter:
     def test_nul_of_negatief_bewaard_telt_niet(self):
         _ts, _ghi, _schaal, bron = measured_ghi(self._winter(), self.NOORD, saved_scale=0.0)
         assert bron == SCALE_LOW_SUN
-
-    def test_gevelzon_krijgt_de_bewaarde_schaal(self):
-        rijen, info = window_rows(self._winter(), self.NOORD, saved_scale=3.3)
-        assert rijen is not None
-        assert (info["pv_schaal"], info["pv_schaal_bron"]) == (3.3, SCALE_SAVED)
 
 
 def _uurgemiddelden(rijen):

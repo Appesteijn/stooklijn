@@ -203,7 +203,6 @@
               "compressor_2_entity": "Compressor frequency HP2 (Hz)",
               "weather_entity": "Weather forecast",
               "pv_power_entity": "Sun sensor: PV power (W or kW)",
-              "window_azimuth": "Window orientation (°)",
               "indoor_temp_reference_entities": "Extra room sensors"
             },
             "data_description": {
@@ -222,7 +221,6 @@
               "compressor_2_entity": "Duo only; leave empty on a Solo.",
               "weather_entity": "Outdoor temperature for the coming hours, for the look-ahead and the price shift.",
               "pv_power_entity": "Optional. Measures the sun locally. The orientation of the panels is learned.",
-              "window_azimuth": "Optional. 90 east, 180 south, 270 west: the facade with most of the windows. Empty = learned roughly from the data, but that is unreliable.",
               "indoor_temp_reference_entities": "Optional. Temperature sensors in the same room as your thermostat, in places without sun and away from radiators, windows and outside doors. They are only used to cut off sun spikes of the thermostat; the setpoint still belongs to your thermostat."
             }
           }

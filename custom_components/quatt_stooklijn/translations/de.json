@@ -203,7 +203,6 @@
               "compressor_2_entity": "Verdichterfrequenz WP2 (Hz)",
               "weather_entity": "Wettervorhersage",
               "pv_power_entity": "Sonnensensor: PV-Leistung (W oder kW)",
-              "window_azimuth": "Ausrichtung der Fenster (°)",
               "indoor_temp_reference_entities": "Zusätzliche Raumsensoren"
             },
             "data_description": {
@@ -222,7 +221,6 @@
               "compressor_2_entity": "Nur beim Duo; bei einem Solo leer lassen.",
               "weather_entity": "Die Außentemperatur der kommenden Stunden, für die Vorschau und die Preisverschiebung.",
               "pv_power_entity": "Optional. Misst die Sonne lokal. Die Ausrichtung der Module wird gelernt.",
-              "window_azimuth": "Optional. 90 Ost, 180 Süd, 270 West: die Fassade mit den meisten Fenstern. Leer = grob aus den Daten gelernt, das ist aber unzuverlässig.",
               "indoor_temp_reference_entities": "Optional. Temperatursensoren im selben Raum wie dein Thermostat, an Stellen ohne Sonne und nicht an Heizkörper, Fenster oder Außentür. Sie dienen nur dazu, Sonnenspitzen des Thermostats abzuschneiden; der Sollwert gehört weiterhin zu deinem Thermostat."
             }
           }
