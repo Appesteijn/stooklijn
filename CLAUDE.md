@@ -446,3 +446,36 @@ Niet interpoleren door losse dagen: `np.interp` gaf de COP van één toevallige
 dag, telde dagen met COP 0 mee (testhuis 0,0 bij 15 °C) en trok de koudste dag
 vlak door (Tweakers: drie keer 2,2 bij −10, −5 en 0 °C). De ketel hoort niet in
 een COP: alleen `totalHpHeat`.
+
+## Stroom en warmte per dag: OpenQuatt gaat voor op Quatt
+
+De stroom van Quatt (cloud én CiC) is een schatting die bij hoog vermogen te
+hoog uitvalt. Tegen de slimme meter op het testhuis (135 nachturen, november
+2026, geen PV): netafname = basislast + a × WP-stroom gaf voor OpenQuatt
+a = 0,997 met basislast 357 W, gelijk aan de nachten met de pompen uit
+(354–365 W, september en oktober). Voor Quatt a = 0,837. Rond 800 W lopen ze
+gelijk, bij 2 kW zit Quatt ~10 % te hoog. De warmte was gelijk (0,4 %). Over
+het seizoen (48 stookdagen) scheelde de dag-COP daardoor alleen op koude dagen:
+−5…2,5 °C 2,86 (OpenQuatt) tegen 2,63.
+
+Wat eronder ligt is altijd Quatt, ook met de cloud uit: de cloud-cache (dagen
+van toen hij aan stond), en daarna de recorder. Die tak kiest zijn sensoren op
+bestaan (`async_resolve_entity`, Quatt-detectie eerst) en leest dus de
+CiC-sensoren van de Quatt-integratie, terwijl het bronnenregister live
+OpenQuatt gebruikt. Testhuis: cloud uit sinds 27-08-2026, daarna
+`heatpump_total_power_input`.
+
+Daarom legt `apply_openquatt_days` (`analysis/quatt.py`, stap 7) warmte en
+stroom van OpenQuatt per dag over het samengevoegde resultaat:
+
+- uit de **uurstatistiek** van "Total Heat Power" en "Total Power Input" (op
+  firmwarenaam), alleen dagen met minstens 22 uur aan beide. Een dag met gaten
+  houdt de Quatt-waarden;
+- alleen **stookdagen**: OpenQuatt telt koelen apart, zijn warmte is op een
+  koeldag 0 en de dag zou anders stilstand worden;
+- de ketel blijft zoals hij was in de warmtevraag;
+- heeft de gebruiker warmte of stroom op een andere sensor gezet, dan gaat dat
+  voor (bijvoorbeeld een eigen kWh-meter).
+
+Dagen van vóór OpenQuatt blijven Quatt-data. De koude kant van de COP-tabel
+schuift dus pas mee naarmate er koude dagen met OpenQuatt bijkomen.

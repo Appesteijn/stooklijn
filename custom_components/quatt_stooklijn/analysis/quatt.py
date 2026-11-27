@@ -33,12 +33,22 @@ from ..discovery import (
     ROLE_OUTDOOR_TEMP,
     ROLE_POWER_INPUT,
     ROLE_TOTAL_POWER,
+    _async_openquatt_node,
     async_discover_quatt_entities,
     async_resolve_entity,
 )
-from .utils import classify_heat_mode
+from .utils import MODE_HEATING, classify_heat_mode
 
 _LOGGER = logging.getLogger(__name__)
+
+#: OpenQuatt-entiteiten (firmwarenaam) voor de dagtotalen. Op naam, niet op
+#: entity-ID: zie ``OPENQUATT_NAMES`` in discovery.py.
+OPENQUATT_HEAT_NAME = "Total Heat Power"
+OPENQUATT_ELECTRIC_NAME = "Total Power Input"
+#: Zoveel uren moet een dag minstens hebben voordat OpenQuatt hem overneemt.
+#: Een dag met gaten (installatie, storing) houdt de Quatt-waarden; 22 laat de
+#: zomertijdwisseling (23 uur) door.
+OPENQUATT_MIN_HOURS_PER_DAY = 22
 
 # Global cache instance (will be initialized on first use)
 _cache: QuattInsightsCache | None = None
@@ -175,6 +185,122 @@ async def _async_fetch_recorder_daily(
     return df
 
 
+def openquatt_daily_from_hourly(
+    heat_rows: list[dict], electric_rows: list[dict]
+) -> pd.DataFrame:
+    """Dagtotalen (Wh) uit OpenQuatt-uurgemiddelden, per lokale dag.
+
+    Alleen uren waarin beide een gemiddelde hebben, en alleen dagen met
+    minstens ``OPENQUATT_MIN_HOURS_PER_DAY`` zulke uren. Totaal = gemiddeld
+    vermogen over die uren × 24, zoals de recorder-tak ook rekent.
+    """
+    def _by_hour(rows):
+        out = {}
+        for row in rows or []:
+            start, mean = row.get("start"), row.get("mean")
+            if start is None or mean is None:
+                continue
+            if not isinstance(start, (int, float)):
+                start = start.timestamp()
+            out[float(start)] = float(mean)
+        return out
+
+    heat, elec = _by_hour(heat_rows), _by_hour(electric_rows)
+    days: dict[str, list[tuple[float, float]]] = {}
+    for start in heat.keys() & elec.keys():
+        day = dt_util.as_local(dt_util.utc_from_timestamp(start)).strftime("%Y-%m-%d")
+        days.setdefault(day, []).append((heat[start], elec[start]))
+    records = {}
+    for day, pairs in days.items():
+        if len(pairs) < OPENQUATT_MIN_HOURS_PER_DAY:
+            continue
+        records[day] = {
+            "totalHpHeat": sum(h for h, _ in pairs) / len(pairs) * 24,
+            "totalHpElectric": sum(e for _, e in pairs) / len(pairs) * 24,
+        }
+    if not records:
+        return pd.DataFrame()
+    df = pd.DataFrame.from_dict(records, orient="index")
+    df.index = pd.to_datetime(df.index)
+    df.index.name = "date"
+    return df.sort_index()
+
+
+def apply_openquatt_days(df_daily: pd.DataFrame, df_oq: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Warmte en stroom van OpenQuatt over de stookdagen leggen; COP opnieuw.
+
+    Wat eronder ligt is Quatt: de cloud-cache, of de recorder. De recorder-tak
+    kiest zijn sensoren op bestaan (``async_resolve_entity``) en neemt dus de
+    CiC-sensoren van de Quatt-integratie, ook als het bronnenregister live
+    OpenQuatt gebruikt. Per dag overleggen werkt voor beide, en laat dagen van
+    vóór OpenQuatt gewoon staan.
+
+    Waarom: de stroom van Quatt (cloud én CiC) is een schatting die op het
+    testhuis 6–16 % te hoog zat. Tegen de slimme meter, 135 nachturen in
+    november 2026: OpenQuatt helling 0,997 met een basislast die klopt met de
+    nachten waarin de pompen uit stonden (357 tegen 354–365 W), Quatt 0,837.
+    De warmte was gelijk. Een COP uit de cloud viel daardoor structureel te
+    laag uit naast die van OpenQuatt.
+
+    Alleen stookdagen: een koeldag heeft bij OpenQuatt warmte 0 (koelen telt
+    apart) en zou anders stilstand worden. Geeft ``(df, aantal dagen)``.
+    """
+    if df_daily.empty or df_oq.empty or "totalHeatPerHour" not in df_daily.columns:
+        return df_daily, 0
+    heating = classify_heat_mode(df_daily["totalHeatPerHour"]) == MODE_HEATING
+    days = df_daily.index[heating].intersection(df_oq.index)
+    days = days[(df_oq.loc[days, "totalHpHeat"] > 0).to_numpy()
+                & (df_oq.loc[days, "totalHpElectric"] > 0).to_numpy()]
+    if len(days) == 0:
+        return df_daily, 0
+    df = df_daily.copy()
+    for col in ("totalHpHeat", "totalHpElectric"):
+        if col not in df.columns:
+            df[col] = float("nan")
+        df.loc[days, col] = df_oq.loc[days, col]
+    boiler = df.loc[days, "totalBoilerHeat"].fillna(0) if "totalBoilerHeat" in df.columns else 0
+    df.loc[days, "totalHeatPerHour"] = (df.loc[days, "totalHpHeat"] + boiler) / 24
+    df.loc[days, "averageCOP"] = df.loc[days, "totalHpHeat"] / df.loc[days, "totalHpElectric"]
+    return df, len(days)
+
+
+async def _async_fetch_openquatt_daily(
+    hass: HomeAssistant,
+    start_date: str,
+    end_date: str,
+    configured_heat: str | None,
+    configured_electric: str | None,
+) -> pd.DataFrame:
+    """Dagtotalen van OpenQuatt uit de uurstatistiek, of leeg.
+
+    Leeg zonder OpenQuatt, en als de gebruiker warmte of stroom op een andere
+    sensor heeft gezet: wat ingesteld is gaat voor, ook voor OpenQuatt.
+    """
+    node = _async_openquatt_node(hass)
+    heat, elec = node.get(OPENQUATT_HEAT_NAME), node.get(OPENQUATT_ELECTRIC_NAME)
+    if not heat or not elec:
+        return pd.DataFrame()
+    if (configured_heat and configured_heat != heat) or (
+        configured_electric and configured_electric != elec
+    ):
+        return pd.DataFrame()
+
+    tz = dt_util.get_default_time_zone()
+    start_dt = dt_util.as_utc(datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=tz))
+    end_dt = dt_util.as_utc(
+        (datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)).replace(tzinfo=tz)
+    )
+
+    def _fetch() -> dict:
+        return statistics_during_period(
+            hass, start_time=start_dt, end_time=end_dt,
+            statistic_ids={heat, elec}, period="hour", units=None, types={"mean"},
+        )
+
+    stats = await get_instance(hass).async_add_executor_job(_fetch)
+    return openquatt_daily_from_hourly((stats or {}).get(heat, []), (stats or {}).get(elec, []))
+
+
 async def _async_fetch_api_days(
     hass: HomeAssistant,
     start_dt: datetime,
@@ -299,6 +425,8 @@ async def async_fetch_quatt_insights(
     4. Merge: API daily data overwrites recorder data where available
     """
     cache = await _get_cache(hass)
+    # Wat de gebruiker zelf instelde, vóór de detectie het invult (stap 7).
+    configured_power, configured_power_input = power_entity, power_input_entity
 
     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
@@ -495,6 +623,18 @@ async def async_fetch_quatt_insights(
         df_daily = df_daily_recorder
     else:
         df_daily = pd.DataFrame()
+
+    # === Step 7: OpenQuatt gaat voor op Quatt (cloud-cache en CiC-sensoren) ===
+    # Een fout hier mag de rest van de analyse niet meenemen.
+    try:
+        df_oq = await _async_fetch_openquatt_daily(
+            hass, start_date, end_date, configured_power, configured_power_input
+        )
+        df_daily, n_oq = apply_openquatt_days(df_daily, df_oq)
+        if n_oq:
+            _LOGGER.info("COP: %d stookdagen met warmte en stroom van OpenQuatt", n_oq)
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning("OpenQuatt-dagtotalen ophalen mislukt; Quatt-waarden blijven", exc_info=True)
 
     # Label each day heating/cooling/idle from net heat delivery, so cooling
     # days stay identifiable downstream instead of being silently dropped by
