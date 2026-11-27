@@ -3,7 +3,7 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
-## Nog niet uitgebracht
+## v0.10.7-beta.20 — 2026-11-28
 
 - **Het oude meetlogboek wordt achteraf begrensd** zodra je extra
   kamersensoren kiest. Het huismodel (2R2C) leert van de laatste 90 dagen;
