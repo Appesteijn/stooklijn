@@ -39,6 +39,7 @@ from .const import (
     CONF_CH_MAX_WATER_MARGIN,
     CONF_COMFORT_FLOOR_TEMP,
     CONF_PV_POWER_ENTITY,
+    CONF_WINDOW_AZIMUTH,
     CONF_THROTTLE_ENTITY,
     CONF_PRICE_MODE,
     CONF_PRICE_NORMAL,
@@ -229,6 +230,7 @@ OPTION_SECTIONS: dict[str, tuple[str, ...]] = {
         CONF_COMPRESSOR_2_ENTITY,
         CONF_WEATHER_ENTITY,
         CONF_PV_POWER_ENTITY,
+        CONF_WINDOW_AZIMUTH,
     ),
 }
 
@@ -806,14 +808,18 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                     ): vol.All(vol.Coerce(float), vol.Range(min=10.0, max=22.0)),
                     # Zon zoals de ramen hem zien (ZONNEWARMTE_PLAN.md). Een
                     # PV-installatie meet de zon lokaal; zonder blijft alles op
-                    # Open-Meteo draaien zoals voorheen. De richting van panelen
-                    # en ramen wordt geleerd, niet gevraagd.
+                    # Open-Meteo draaien zoals voorheen. De richting van de
+                    # panelen wordt geleerd; die van de ramen mag je opgeven.
                     _prefill(
                         CONF_PV_POWER_ENTITY, _existing(data.get(CONF_PV_POWER_ENTITY))
                     # Alleen vermogen: een energiesensor (kWh) werd als W gelezen
                     # (Tweakers 22-11-2026). Wordt toch een energiesensor
                     # ingesteld, dan negeert de integratie hem (_is_energy_unit).
                     ): _entity("sensor", device_class="power"),
+                    # Richting van de ramen (0 noord, 90 oost, 180 zuid, 270
+                    # west). Leeg = grof leren; dat is op het testhuis ruis.
+                    _prefill(CONF_WINDOW_AZIMUTH, data.get(CONF_WINDOW_AZIMUTH)
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=359.0)),
                     # Optioneel: entity die aangeeft dat een externe regelaar de
                     # WP knijpt (cap < 20) — tariefsturing, dynamisch contract, eigen
                     # script. Die periodes worden uitgesloten van de COP- en

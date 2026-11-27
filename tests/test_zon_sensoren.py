@@ -117,6 +117,20 @@ class TestBewaardePVSchaal:
         o = s.solar_orientation
         assert (o.window_azimuth, o.pv_azimuth) == (225, 195)
 
+    def test_opgegeven_raamrichting_gaat_voor(self):
+        """27-11-2026: geleerd 135° (eerder 225°) bij ramen op ~180°."""
+        s = _mpc(pv=0, options={"window_azimuth": 180})
+        s.pv_azimuth, s.window_azimuth = 195.0, 135.0
+        assert s.window_azimuth_configured == 180.0
+        assert s.solar_orientation.window_azimuth == 180
+
+    @pytest.mark.parametrize("waarde", [None, "", "zuid"])
+    def test_leeg_of_onleesbaar_wordt_geleerd(self, waarde):
+        s = _mpc(pv=0, options={"window_azimuth": waarde})
+        s.window_azimuth = 225.0
+        assert s.window_azimuth_configured is None
+        assert s.solar_orientation.window_azimuth == 225
+
 
 class TestRichtingPanelenLeren:
     """Eens per etmaal uit een jaar PV-statistiek; mislukken laat de vorige staan."""
@@ -216,6 +230,24 @@ class TestRichtingRamenKiezen:
         assert gezien and all(a is not None and a[2:] == (280.0, 16.5) for a in gezien)
         assert len({a[1] for a in gezien}) > 1          # eigen ankers per richting
         assert r["geankerd"] is True
+
+    def test_opgegeven_richting_is_de_enige_kandidaat(self, monkeypatch):
+        import custom_components.quatt_stooklijn.analysis.model_benchmark as mb
+        import custom_components.quatt_stooklijn.analysis.solar_input as si
+        from custom_components.quatt_stooklijn.sensor import (
+            _window_variant_with_learned_direction,
+        )
+
+        gezien = []
+        monkeypatch.setattr(si, "window_rows",
+                            lambda rows, where, hourly, saved=None: gezien.append(where.window_azimuth)
+                            or ([[where.window_azimuth]], {"pv_dekking": 1.0}))
+        monkeypatch.setattr(mb, "compare_variant",
+                            lambda v, reverse=False, **kw: {"rmse_k": 0.25, "params": {}})
+        r = _window_variant_with_learned_direction([], WAAR, [], candidates=(180.0,))
+        assert gezien == [180.0]
+        assert r["richting_ramen"] == 180
+        assert r["rmse_per_richting"] == {"180": 0.25}
 
     def test_te_weinig_pv(self, monkeypatch):
         import custom_components.quatt_stooklijn.analysis.solar_input as si

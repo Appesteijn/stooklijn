@@ -202,7 +202,8 @@
               "compressor_entity": "Compressorfrequentie WP1 (Hz)",
               "compressor_2_entity": "Compressorfrequentie WP2 (Hz)",
               "weather_entity": "Weersverwachting",
-              "pv_power_entity": "Zonnesensor: PV-vermogen (W of kW)"
+              "pv_power_entity": "Zonnesensor: PV-vermogen (W of kW)",
+              "window_azimuth": "Richting van de ramen (°)"
             },
             "data_description": {
               "temp_entities": "Een of meer sensoren; de eerste die een waarde geeft wordt gebruikt.",
@@ -219,7 +220,8 @@
               "compressor_entity": "Hieruit worden de compressorstarts geteld.",
               "compressor_2_entity": "Alleen bij een Duo; leeg laten op een Solo.",
               "weather_entity": "De buitentemperatuur van de komende uren, voor de vooruitblik en de prijsverschuiving.",
-              "pv_power_entity": "Optioneel. Meet de zon lokaal. De richting van panelen en ramen wordt geleerd, niet gevraagd."
+              "pv_power_entity": "Optioneel. Meet de zon lokaal. De richting van de panelen wordt geleerd.",
+              "window_azimuth": "Optioneel. 90 oost, 180 zuid, 270 west: de gevel met de meeste ramen. Leeg = grof leren uit de data, maar dat is onbetrouwbaar."
             }
           }
         }

@@ -131,6 +131,7 @@ from .const import (
     MPC_ADVICE_STATUS_ATTR,
     MPC_2R2C_START_TTL_S,
     CONF_PV_POWER_ENTITY,
+    CONF_WINDOW_AZIMUTH,
     DEFAULT_ORIENTATION_AZIMUTH,
     PV_ORIENTATION_HISTORY_DAYS,
     PV_ORIENTATION_REFRESH_HOURS,
@@ -1851,6 +1852,16 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         cfg = {**self._entry.data, **self._entry.options}
         return cfg.get(CONF_PV_POWER_ENTITY) or None
 
+    @property
+    def window_azimuth_configured(self) -> float | None:
+        """De opgegeven richting van de ramen, of None (dan wordt hij geleerd)."""
+        cfg = {**self._entry.data, **self._entry.options}
+        value = cfg.get(CONF_WINDOW_AZIMUTH)
+        try:
+            return float(value) % 360.0 if value not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
     def _pv_power_w(self) -> float | None:
         """PV-vermogen nu, in W. None als onbekend (omvormers slapen 's nachts)
         of als de sensor energie meet in plaats van vermogen."""
@@ -1901,7 +1912,8 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
     def solar_orientation(self) -> Orientation:
         """Waar het huis staat en waar ramen en panelen naar wijzen.
 
-        Beide richtingen zijn geleerd; zolang dat niet gelukt is geldt zuid.
+        De panelen worden geleerd. De ramen: de opgegeven richting, anders de
+        geleerde; zolang geen van beide er is geldt zuid.
         De helling van de panelen staat vast: uit de data nauwelijks te
         bepalen, en op het gemeten huis maakte 15–35° geen verschil.
         """
@@ -1911,7 +1923,9 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             lat=float(self.hass.config.latitude),
             lon=float(self.hass.config.longitude),
             window_azimuth=float(
-                getattr(self, "window_azimuth", None) or DEFAULT_ORIENTATION_AZIMUTH
+                self.window_azimuth_configured
+                if self.window_azimuth_configured is not None
+                else getattr(self, "window_azimuth", None) or DEFAULT_ORIENTATION_AZIMUTH
             ),
             pv_tilt=PV_TILT_ASSUMED,
             pv_azimuth=float(
@@ -3406,6 +3420,7 @@ class QuattModelBenchmarkSensor(
         attrs["zonfactor_gevel"] = ((window or {}).get("params") or {}).get("g")
         attrs["gevelzon_rmse_k"] = (window or {}).get("rmse_k")
         attrs["richting_ramen"] = (window or {}).get("richting_ramen")
+        attrs["richting_ramen_bron"] = (window or {}).get("richting_ramen_bron")
         attrs["richting_panelen"] = (window or {}).get("richting_panelen")
         attrs["naspeler"] = getattr(self, "_replay", None)
         return attrs
@@ -3544,15 +3559,21 @@ class QuattModelBenchmarkSensor(
                 self.hass, entity, min(r[0] for r in rows), max(r[0] for r in rows)
             )
             where = self._mpc.solar_orientation
+            configured = self._mpc.window_azimuth_configured
+            candidates = (
+                (configured,) if configured is not None else WINDOW_AZIMUTH_CANDIDATES
+            )
             result = await self.hass.async_add_executor_job(
                 _window_variant_with_learned_direction, rows, where, hourly, u, bp,
-                self._mpc.saved_pv_scale(entity),
+                self._mpc.saved_pv_scale(entity), candidates,
             )
         except Exception:
             _LOGGER.warning("Modelvergelijking met gevelzon mislukt", exc_info=True)
             return {"reden": "berekening mislukt"}
         if result.get("richting_ramen") is not None:
-            self._mpc.window_azimuth = result["richting_ramen"]
+            result["richting_ramen_bron"] = "ingesteld" if configured is not None else "geleerd"
+            if configured is None:
+                self._mpc.window_azimuth = result["richting_ramen"]
         result["richting_panelen"] = self._mpc.pv_azimuth
         return result
 
@@ -3581,8 +3602,13 @@ def _compare_anchored(rows, model, u, balance_point, now_ts):
 
 def _window_variant_with_learned_direction(
     rows, where, hourly, u=None, balance_point=None, saved_scale=None,
+    candidates=WINDOW_AZIMUTH_CANDIDATES,
 ) -> dict:
     """De gevelzonvariant voor elke kandidaat-raamrichting; de beste wint.
+
+    Met een opgegeven richting is er één kandidaat. Dat is ook beter: op het
+    gemeten huis lagen 135–270° binnen 0,01 K van elkaar en won op 20-11 225°,
+    op 27-11 135°, terwijl de ramen op ~180° staan.
 
     Gekozen op het gemiddelde van beide week-splitsingen: met één splitsing
     sprong het beste punt op het gemeten huis tussen 135° en 250°. De getoonde
@@ -3597,7 +3623,7 @@ def _window_variant_with_learned_direction(
     per_richting: dict[int, float] = {}
     gewoon: dict[int, dict] = {}
     info: dict = {}
-    for cand in WINDOW_AZIMUTH_CANDIDATES:
+    for cand in candidates:
         variant, info = window_rows(
             rows, replace(where, window_azimuth=float(cand)), hourly, saved_scale)
         if variant is None:
@@ -3608,6 +3634,7 @@ def _window_variant_with_learned_direction(
         b = mb.compare_variant(variant, reverse=True, anchors=anchors)
         if a.get("rmse_k") is None or b.get("rmse_k") is None:
             return {**info, **a}
+        cand = int(round(cand))
         per_richting[cand] = round((a["rmse_k"] + b["rmse_k"]) / 2, 3)
         gewoon[cand] = a
     best = min(per_richting, key=per_richting.get)

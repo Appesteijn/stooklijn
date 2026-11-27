@@ -328,11 +328,12 @@ DEFAULT_COMFORT_FLOOR_TEMP = 19.0  # °C
 # 2R2C (14–20 % minder fout op 12 uur vooruit). Bewust een nieuwe sleutel: de
 # vervallen ``CONF_SOLAR_ENTITY`` kan in oude entries nog iets anders bevatten.
 CONF_PV_POWER_ENTITY = "pv_power_entity"
-# Richting van panelen en ramen worden geleerd, niet ingesteld (20-11-2026).
-# Panelen: uit een jaar PV-uurstatistiek (gemeten huis: 180°, gelijk aan de
-# omvormer). Ramen: alleen grof te leren — op het gemeten huis gaven 135–250°
-# dezelfde voorspelling, oost en west waren duidelijk slechter — dus vijf
-# kandidaten in de nachtelijke modelvergelijking.
+# Panelen: geleerd uit een jaar PV-uurstatistiek (gemeten huis: 180°, gelijk
+# aan de omvormer). Ramen: optioneel in te stellen. Leeg = grof leren uit vijf
+# kandidaten in de nachtelijke modelvergelijking. Dat leren bleek ruis: op het
+# gemeten huis won op 20-11 225°, op 27-11 135°, met 135–270° binnen 0,01 K
+# van elkaar (de ramen staan op ~180°). Wie zijn gevel kent, vult hem in.
+CONF_WINDOW_AZIMUTH = "window_azimuth"
 WINDOW_AZIMUTH_CANDIDATES = (90, 135, 180, 225, 270)
 DEFAULT_ORIENTATION_AZIMUTH = 180.0
 PV_ORIENTATION_HISTORY_DAYS = 365

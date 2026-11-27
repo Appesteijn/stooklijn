@@ -202,7 +202,8 @@
               "compressor_entity": "Compressor frequency HP1 (Hz)",
               "compressor_2_entity": "Compressor frequency HP2 (Hz)",
               "weather_entity": "Weather forecast",
-              "pv_power_entity": "Sun sensor: PV power (W or kW)"
+              "pv_power_entity": "Sun sensor: PV power (W or kW)",
+              "window_azimuth": "Window orientation (°)"
             },
             "data_description": {
               "temp_entities": "One or more sensors; the first one with a value is used.",
@@ -219,7 +220,8 @@
               "compressor_entity": "Compressor starts are counted from this.",
               "compressor_2_entity": "Duo only; leave empty on a Solo.",
               "weather_entity": "Outdoor temperature for the coming hours, for the look-ahead and the price shift.",
-              "pv_power_entity": "Optional. Measures the sun locally. The orientation of panels and windows is learned, not asked."
+              "pv_power_entity": "Optional. Measures the sun locally. The orientation of the panels is learned.",
+              "window_azimuth": "Optional. 90 east, 180 south, 270 west: the facade with most of the windows. Empty = learned roughly from the data, but that is unreliable."
             }
           }
         }

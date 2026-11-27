@@ -202,7 +202,8 @@
               "compressor_entity": "Verdichterfrequenz WP1 (Hz)",
               "compressor_2_entity": "Verdichterfrequenz WP2 (Hz)",
               "weather_entity": "Wettervorhersage",
-              "pv_power_entity": "Sonnensensor: PV-Leistung (W oder kW)"
+              "pv_power_entity": "Sonnensensor: PV-Leistung (W oder kW)",
+              "window_azimuth": "Ausrichtung der Fenster (°)"
             },
             "data_description": {
               "temp_entities": "Ein oder mehrere Sensoren; der erste mit einem Wert wird verwendet.",
@@ -219,7 +220,8 @@
               "compressor_entity": "Daraus werden die Verdichterstarts gezählt.",
               "compressor_2_entity": "Nur beim Duo; bei einem Solo leer lassen.",
               "weather_entity": "Die Außentemperatur der kommenden Stunden, für die Vorschau und die Preisverschiebung.",
-              "pv_power_entity": "Optional. Misst die Sonne lokal. Die Ausrichtung von Modulen und Fenstern wird gelernt, nicht abgefragt."
+              "pv_power_entity": "Optional. Misst die Sonne lokal. Die Ausrichtung der Module wird gelernt.",
+              "window_azimuth": "Optional. 90 Ost, 180 Süd, 270 West: die Fassade mit den meisten Fenstern. Leer = grob aus den Daten gelernt, das ist aber unzuverlässig."
             }
           }
         }

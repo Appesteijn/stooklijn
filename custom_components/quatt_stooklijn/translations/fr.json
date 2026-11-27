@@ -202,7 +202,8 @@
               "compressor_entity": "Fréquence du compresseur PAC1 (Hz)",
               "compressor_2_entity": "Fréquence du compresseur PAC2 (Hz)",
               "weather_entity": "Prévisions météo",
-              "pv_power_entity": "Capteur solaire : puissance PV (W ou kW)"
+              "pv_power_entity": "Capteur solaire : puissance PV (W ou kW)",
+              "window_azimuth": "Orientation des fenêtres (°)"
             },
             "data_description": {
               "temp_entities": "Un ou plusieurs capteurs ; le premier qui fournit une valeur est utilisé.",
@@ -219,7 +220,8 @@
               "compressor_entity": "Les démarrages du compresseur sont comptés à partir de celle-ci.",
               "compressor_2_entity": "Duo uniquement ; laisser vide sur un Solo.",
               "weather_entity": "La température extérieure des heures à venir, pour la prévision et le décalage tarifaire.",
-              "pv_power_entity": "Facultatif. Mesure le soleil localement. L'orientation des panneaux et des fenêtres est apprise, pas demandée."
+              "pv_power_entity": "Facultatif. Mesure le soleil localement. L'orientation des panneaux est apprise.",
+              "window_azimuth": "Facultatif. 90 est, 180 sud, 270 ouest : la façade avec le plus de fenêtres. Vide = appris grossièrement à partir des données, mais peu fiable."
             }
           }
         }

@@ -1333,7 +1333,7 @@ views:
               {% set gz = state_attr(s, 'gevelzon_rmse_k') %}{% if gz is not none %}| 2R2C, zon op de ramen | {{ gz }}&nbsp;K |{% endif %}
 
 
-              {% set rr = state_attr(s, 'richting_ramen') %}{% if rr is not none %}Geleerd uit je data: ramen op **{{ rr | int }}°**{% set rp = state_attr(s, 'richting_panelen') %}{% if rp is not none %}, panelen op **{{ rp | int }}°**{% endif %} (90 oost · 180 zuid · 270 west). De raamrichting is alleen grof te leren: binnen ~45° voorspelt het model even goed.{% endif %}
+              {% set rr = state_attr(s, 'richting_ramen') %}{% if rr is not none %}{% set rp = state_attr(s, 'richting_panelen') %}{% if state_attr(s, 'richting_ramen_bron') == 'ingesteld' %}Ramen op **{{ rr | int }}°** (ingesteld){% if rp is not none %}, panelen op **{{ rp | int }}°** (geleerd){% endif %} (90 oost · 180 zuid · 270 west).{% else %}Geleerd uit je data: ramen op **{{ rr | int }}°**{% if rp is not none %}, panelen op **{{ rp | int }}°**{% endif %} (90 oost · 180 zuid · 270 west). De raamrichting is uit de data nauwelijks te leren: oost tot west voorspellen vaak even goed. Ken je hem, vul hem dan in bij de opties (Metingen).{% endif %}{% endif %}
 
               {% set winst = state_attr(s, 'verbetering_pct') %}
 
