@@ -64,6 +64,41 @@ def cop_at_temperature(energy: pd.DataFrame, temp: float) -> float | None:
     return seasonal_cop(band)
 
 
+#: Afstand tussen de temperaturen van de COP-tabel (``heat_at_temps``).
+COP_TABLE_STEP_K = 5.0
+
+
+def cop_from_table(heat_at_temps: dict | None, temp: float) -> float | None:
+    """COP bij ``temp`` uit de COP-tabel van de warmteverliesanalyse.
+
+    Lineair tussen de twee tabelpunten eromheen, en alleen als die allebei een
+    waarde hebben en buren zijn. Daarbuiten None: niet doortrekken, net als de
+    tabel zelf. Tot v0.10.7-beta.17 interpoleerde de sensor "geschatte actuele
+    COP" nog door de losse dag-COP's, de fout die de tabel in beta.16 kwijtraakte.
+    """
+    if not heat_at_temps or temp is None:
+        return None
+    points: dict[float, float] = {}
+    for key, value in heat_at_temps.items():
+        try:
+            t = float(key)
+        except (TypeError, ValueError):
+            continue
+        cop = (value or {}).get("cop") if isinstance(value, dict) else None
+        if isinstance(cop, (int, float)) and cop > 0:
+            points[t] = float(cop)
+    if temp in points:
+        return points[temp]
+    lower = [t for t in points if t < temp]
+    upper = [t for t in points if t > temp]
+    if not lower or not upper:
+        return None
+    t0, t1 = max(lower), min(upper)
+    if t1 - t0 > COP_TABLE_STEP_K + 1e-6:
+        return None
+    return points[t0] + (points[t1] - points[t0]) * (temp - t0) / (t1 - t0)
+
+
 def calculate_heat_loss(
     df_daily: pd.DataFrame,
     source_name: str = "heat_pump",

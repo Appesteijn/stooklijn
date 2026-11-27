@@ -620,7 +620,7 @@ class QuattEstimatedCopSensor(
 ):
     """Live sensor: estimated COP at current outdoor temperature.
 
-    Interpolates from the historically measured COP scatter data.
+    Interpolates within the COP table of the heat-loss analysis.
     Updates whenever the outdoor temperature sensor changes.
     """
 
@@ -671,22 +671,21 @@ class QuattEstimatedCopSensor(
 
     @property
     def native_value(self) -> float | None:
-        """Interpolate COP from scatter data at current outdoor temperature."""
+        """COP bij de buitentemperatuur van nu, uit de COP-tabel (warmte / stroom).
+
+        Zelfde pad als de tabel in de warmteverliesanalyse
+        (``cop_at_temperature``), zodat sensor en tabel niet uiteenlopen.
+        """
+        from .analysis.heat_loss import cop_from_table  # noqa: PLC0415
+
         if self.coordinator.data is None:
-            return None
-        cop_data = self.coordinator.data.stooklijn.cop_scatter_data
-        if not cop_data or len(cop_data) < 2:
             return None
         t_outdoor = get_float_state(self.hass, self._outdoor_entity)
         if t_outdoor is None:
             return None
-
-        import numpy as np  # noqa: PLC0415
-
-        cop_sorted = sorted(cop_data, key=lambda p: p["temp"])
-        temps = [p["temp"] for p in cop_sorted]
-        cops = [p["cop"] for p in cop_sorted]
-        return round(float(np.interp(t_outdoor, temps, cops)), 2)
+        table = getattr(self.coordinator.data.heat_loss_hp, "heat_at_temps", None)
+        cop = cop_from_table(table, t_outdoor)
+        return round(cop, 2) if cop is not None else None
 
     @property
     def extra_state_attributes(self) -> dict | None:
