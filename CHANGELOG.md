@@ -3,6 +3,29 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.19 — 2026-11-27
+
+Kamertemperatuur (testhuis 27-11: zon op de thermostaat):
+
+- **Extra kamersensoren** (Opties → Metingen). Temperatuursensoren in dezelfde
+  kamer als je thermostaat begrenzen de thermostaat als de zon erop valt. De
+  thermostaat blijft de bron: de extra sensoren kappen alleen af, nooit omhoog.
+  Per sensor leert de integratie het vaste verschil met de thermostaat (op de
+  nachturen) en welke uren hij zelf zon krijgt; in die uren telt hij niet mee.
+  Leeg laten = alles zoals voorheen. De kamertemperatuur-sensor toont de
+  begrensde waarde, met de thermostaat zelf en de details per sensor in de
+  attributen.
+- **Melding als de thermostaat zonpieken lijkt te maken**, ook zonder extra
+  sensoren. Schiet de kamertemperatuur op zonnige dagen rond hetzelfde uur snel
+  op en weer af, dan verschijnt er een melding onder Reparaties met het advies
+  een tweede sensor te plaatsen. Zonder tweede sensor is niet te zien of het zon
+  op de sensor is of een kamer die echt snel opwarmt; met een tweede sensor wel,
+  en dan wordt de melding concreet of verdwijnt hij. Een extra sensor die zelf
+  zon krijgt, krijgt ook een melding.
+- **Kaart "Kamersensoren"** op het dashboard (onder Databronnen): per sensor het
+  verschil met de thermostaat, wanneer hij zon krijgt, en of hij nu gebruikt
+  wordt; hoeveel er de laatste 14 dagen is afgekapt.
+
 ## v0.10.7-beta.18 — 2026-11-27
 
 COP (testhuis 27-11, "de COP van OpenQuatt verschilt erg van de geschatte actuele COP"):
