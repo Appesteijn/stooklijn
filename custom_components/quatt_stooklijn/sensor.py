@@ -199,6 +199,7 @@ _COMPRESSOR_STORE_KEYS = {
     ROLE_COMPRESSOR_2: "runs_hp2",
 }
 from .highres_log import SAMPLE_INTERVAL, HighResLogStore
+from .room_temperature import async_room_temperature, reference_entities, room_value
 from .analysis.solar_forecast_log import SolarForecastLog
 from .analysis.solar_input import SCALE_MEASURED, Orientation
 from .thermal_store import ThermalModelStore
@@ -465,6 +466,12 @@ def candidate_entities(
         source = registry.get(role) if registry else None
         if source:
             tracked.update(c for c in source.candidates if c)
+    if ROLE_INDOOR_TEMP in roles:
+        # De extra kamersensoren begrenzen de thermostaat: verandert er een,
+        # dan kan de kamertemperatuur veranderen (room_temperature.py).
+        room = async_room_temperature(hass, entry_id)
+        if room is not None:
+            tracked.update(room.references)
     return sorted(tracked)
 
 
@@ -876,7 +883,7 @@ class QuattSupplyTempSensor(
             self.hass, self._entry.entry_id, ROLE_INDOOR_TEMP,
             config=cfg, conf_key=CONF_INDOOR_TEMP_ENTITY,
         )
-        t_room = get_float_state(self.hass, entity) if entity else None
+        t_room = room_value(self.hass, self._entry.entry_id, entity)
         if t_room is not None:
             return t_room
         # Geen kamersensor: het kamerdoel, zoals de andere bronnen
@@ -1552,7 +1559,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         model = self.thermal_model
         if model is None or not model.is_converged:
             return None, "huismodel nog niet gekalibreerd"
-        t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
+        t_indoor = room_value(self.hass, self._entry.entry_id, self._indoor_temp_entity)
         if t_indoor is None:
             return None, "geen kamertemperatuur"
         setpoint, _source = self._resolve_room_setpoint()
@@ -1644,6 +1651,13 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+
+        # De extra kamersensoren hebben per uur een helderheid nodig om te zien
+        # welke sensor zon krijgt; die zon kent deze sensor.
+        room = async_room_temperature(self.hass, self._entry.entry_id)
+        if room is not None:
+            room.clearness_provider = self.async_hourly_clearness
+            room.rows_provider = self.highres_rows
 
         self.async_on_remove(
             async_track_state_change_event(
@@ -1773,7 +1787,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         # update (1h from now) can already produce an RLS update instead
         # of only storing prev values.
         if model._prev_timestamp is None:
-            t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
+            t_indoor = room_value(self.hass, self._entry.entry_id, self._indoor_temp_entity)
             t_outdoor = get_float_state(self.hass, self._outdoor_entity)
             q_hp = self._house_heat_w()
             q_solar_wm2 = self._get_current_solar_radiation_wm2()
@@ -1886,6 +1900,47 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             "Zonnesensor %s meet energie (%s), geen vermogen; kies een sensor in "
             "W of kW. Tot dan rekent de zon met Open-Meteo.", entity, unit,
         )
+
+    async def async_hourly_clearness(
+        self, start_ts: float, end_ts: float
+    ) -> tuple[dict[float, float], str | None]:
+        """Helderheid per uur (gemeten / heldere hemel) en waar hij vandaan komt.
+
+        Uit de zonnesensor als die er is en zijn schaal bekend is; anders uit de
+        Open-Meteo-verwachting van dat uur (``solar_forecast_log``, 30 dagen).
+        Voor de zonuren per kamersensor (room_temperature.py). Uren met weinig
+        heldere-hemelzon tellen niet: daar is "bewolkt" geen uitspraak.
+        """
+        import numpy as np
+
+        from .analysis.solar_geometry import clearsky_ghi, pv_clear_sky, sun_position
+
+        where = self.solar_orientation
+        entity = self.pv_power_entity
+        if entity:
+            scale = self.saved_pv_scale(entity)
+            if scale:
+                hourly = await async_pv_hourly(self.hass, entity, start_ts, end_ts)
+                if hourly:
+                    mids = np.array([h for h, _ in hourly], dtype=float) + 1800.0
+                    el, az, e0 = sun_position(mids, where.lat, where.lon)
+                    cs = pv_clear_sky(el, az, e0, where.pv_tilt, where.pv_azimuth) * scale
+                    out = {float(h): w / float(c) for (h, w), c in zip(hourly, cs) if c > 150.0}
+                    if out:
+                        return out, "zonnesensor"
+        log = self.solar_forecast_log
+        hours = [h for h in log.hours() if start_ts <= h <= end_ts]
+        if not hours:
+            return {}, None
+        el, _az, _e0 = sun_position(np.array(hours, dtype=float) + 1800.0, where.lat, where.lon)
+        out = {}
+        for h, c in zip(hours, clearsky_ghi(el)):
+            v = log.at(h, 0)
+            if v is None:
+                v = log.latest(h)
+            if v is not None and c > 100.0:
+                out[float(h)] = float(v) / float(c)
+        return out, ("open-meteo" if out else None)
 
     def saved_pv_scale(self, entity: str | None) -> float | None:
         """De bewaarde PV-schaal, mits van deze zonnesensor."""
@@ -2003,7 +2058,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         if not self._highres_loaded:
             return
         self._update_balance_bias()
-        t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
+        t_indoor = room_value(self.hass, self._entry.entry_id, self._indoor_temp_entity)
         t_outdoor = get_float_state(self.hass, self._outdoor_entity)
         q_solar_wm2 = self._get_current_solar_radiation_wm2()
         # Zelfde afweging als bij het model: een verzonnen nul voor de zon
@@ -2015,9 +2070,13 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         # kolom heet nog q_hp; vóór v0.10.7-beta.6 was het alleen de warmtepomp.
         q_hp = self._house_heat_w()
         now = dt_util.utcnow()
+        extra = self._highres_extra(now)
+        room = async_room_temperature(self.hass, self._entry.entry_id)
+        if room is not None and room.references:
+            extra = {**extra, "t_indoor_raw": room.raw()}
         self._highres_store.record(
             now, t_indoor, t_outdoor, q_hp, q_solar_wm2,
-            self._pv_power_w(), extra=self._highres_extra(now),
+            self._pv_power_w(), extra=extra,
         )
 
     def _steers_max_water(self) -> bool:
@@ -2035,7 +2094,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         bias.update(
             dt_util.utcnow().timestamp(),
             self._resolve_room_setpoint()[0],
-            get_float_state(self.hass, self._indoor_temp_entity),
+            room_value(self.hass, self._entry.entry_id, self._indoor_temp_entity),
             demand.stationary_w if demand is not None else 0.0,
             demand.capped if demand is not None else False,
             self._steers_max_water(),
@@ -2249,7 +2308,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         # Update thermal model
         if self._thermal_loaded:
             self._refresh_u_prior()
-            t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
+            t_indoor = room_value(self.hass, self._entry.entry_id, self._indoor_temp_entity)
             t_outdoor = get_float_state(self.hass, self._outdoor_entity)
             q_hp = self._house_heat_w()
             q_solar_wm2 = self._get_current_solar_radiation_wm2()
@@ -2514,7 +2573,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         aanvoer uit het afgiftemodel, met de kamer van nu (of het setpoint)."""
         if self.emitter is None or self._pump_running(flow_lph):
             return {}
-        t_room = get_float_state(self.hass, self._indoor_temp_entity)
+        t_room = room_value(self.hass, self._entry.entry_id, self._indoor_temp_entity)
         if t_room is None:
             t_room = self._resolve_room_setpoint()[0]
         return {"emitter": self.emitter, "t_room": t_room}
@@ -2554,7 +2613,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         demand = rc_advice_demand(
             model,
             t_outdoor,
-            get_float_state(self.hass, self._indoor_temp_entity),
+            room_value(self.hass, self._entry.entry_id, self._indoor_temp_entity),
             t_setpoint,
             self._get_current_solar_radiation_wm2(),
             MPC_CATCHUP_FACTOR,
@@ -2611,7 +2670,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             u_wk,
             balance_point,
             t_outdoor,
-            get_float_state(self.hass, self._indoor_temp_entity),
+            room_value(self.hass, self._entry.entry_id, self._indoor_temp_entity),
             t_setpoint,
             MPC_CATCHUP_FACTOR,
             self._capacity_w(t_outdoor),
@@ -2673,7 +2732,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
         forecast_basis: str | None = None
         loss = self._heat_loss_line()
         if fc_temps and loss is not None:
-            t_indoor = get_float_state(self.hass, self._indoor_temp_entity)
+            t_indoor = room_value(self.hass, self._entry.entry_id, self._indoor_temp_entity)
             temps = list(fc_temps)
             if t_outdoor is not None:
                 temps[0] = t_outdoor
@@ -2802,7 +2861,7 @@ class QuattMpcSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorEntity)
             "afgiftemodel_reden": self.emitter_reason,
             "stored_heat_kwh": stored_heat_kwh(
                 model.raw_params["C"] if model.raw_params else None,
-                get_float_state(self.hass, self._indoor_temp_entity),
+                room_value(self.hass, self._entry.entry_id, self._indoor_temp_entity),
                 self._comfort_floor,
             ),
             "comfort_floor": self._comfort_floor,
@@ -2997,7 +3056,7 @@ class QuattCoastTimeSensor(CoordinatorEntity[QuattStooklijnCoordinator], SensorE
         if not candidates:
             return None
 
-        t_indoor = get_float_state(self.hass, self._mpc._indoor_temp_entity)
+        t_indoor = room_value(self.hass, self._mpc._entry.entry_id, self._mpc._indoor_temp_entity)
         t_outdoor = get_float_state(self.hass, self._mpc._outdoor_entity)
         if t_indoor is None or t_outdoor is None:
             return None
@@ -3166,7 +3225,7 @@ class QuattStoredHeatSensor(
 
     @property
     def _t_indoor(self) -> float | None:
-        return get_float_state(self.hass, self._mpc._indoor_temp_entity)
+        return room_value(self.hass, self._mpc._entry.entry_id, self._mpc._indoor_temp_entity)
 
     @property
     def native_value(self) -> float | None:
@@ -4531,9 +4590,14 @@ class QuattSourceMirrorSensor(SensorEntity):
             self._remove_tracker = None
 
         self._tracked = candidates
-        if candidates:
+        tracked = list(candidates)
+        if self._spec.role == ROLE_INDOOR_TEMP:
+            room = async_room_temperature(self.hass, self._entry.entry_id)
+            if room is not None:
+                tracked += [e for e in room.references if e not in tracked]
+        if tracked:
             self._remove_tracker = async_track_state_change_event(
-                self.hass, candidates, self._handle_source_change
+                self.hass, tracked, self._handle_source_change
             )
 
     @callback
@@ -4550,6 +4614,10 @@ class QuattSourceMirrorSensor(SensorEntity):
         entity_id = self._registry.active_entity(self._spec.role)
         if entity_id is None:
             return None
+        if self._spec.role == ROLE_INDOOR_TEMP:
+            # De kamertemperatuur zoals de integratie hem gebruikt: begrensd
+            # op de extra kamersensoren, als die er zijn.
+            return room_value(self.hass, self._entry.entry_id, entity_id)
         return get_float_state(self.hass, entity_id)
 
     @property
@@ -4561,7 +4629,7 @@ class QuattSourceMirrorSensor(SensorEntity):
         source = self._registry.get(self._spec.role)
         if source is None:
             return {}
-        return {
+        attrs = {
             "source_entity": source.active,
             "source_integration": source.integration,
             "candidates": list(source.candidates),
@@ -4569,6 +4637,11 @@ class QuattSourceMirrorSensor(SensorEntity):
                 source.switched_at.isoformat() if source.switched_at else None
             ),
         }
+        if self._spec.role == ROLE_INDOOR_TEMP:
+            room = async_room_temperature(self.hass, self._entry.entry_id)
+            if room is not None:
+                attrs.update(room.attributes())
+        return attrs
 
 
 class QuattSourceOverviewSensor(SensorEntity):

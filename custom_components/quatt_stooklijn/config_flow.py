@@ -31,6 +31,7 @@ from .const import (
     CONF_GAS_START_DATE,
     CONF_HOT_WATER_TEMP_THRESHOLD,
     CONF_INDOOR_TEMP_ENTITY,
+    CONF_INDOOR_TEMP_REFERENCES,
     CONF_CH_MAX_WATER_ENABLED,
     CONF_CH_MAX_WATER_ENTITY,
     CONF_CH_MAX_WATER_SOURCE,
@@ -223,6 +224,7 @@ OPTION_SECTIONS: dict[str, tuple[str, ...]] = {
         CONF_RETURN_TEMP_ENTITY,
         CONF_BOILER_HEAT_ENTITY,
         CONF_INDOOR_TEMP_ENTITY,
+        CONF_INDOOR_TEMP_REFERENCES,
         CONF_ROOM_SETPOINT_ENTITY,
         CONF_CONTROL_SETPOINT_ENTITY,
         CONF_COP_ENTITY,
@@ -640,6 +642,12 @@ class QuattStooklijnOptionsFlow(config_entries.OptionsFlow):
                         CONF_INDOOR_TEMP_ENTITY,
                         _current(CONF_INDOOR_TEMP_ENTITY, ROLE_INDOOR_TEMP),
                     ): _entity("sensor"),
+                    # Extra kamersensoren: begrenzen de thermostaat naar beneden
+                    # als de zon erop valt (KAMERSENSOREN_PLAN.md). Leeg = uit.
+                    _prefill(
+                        CONF_INDOOR_TEMP_REFERENCES,
+                        _existing(data.get(CONF_INDOOR_TEMP_REFERENCES)),
+                    ): _entity("sensor", multiple=True, device_class="temperature"),
                     # De resterende gespiegelde metingen. Ze zijn zelden nodig
                     # — auto-detectie vindt ze — maar zonder keuze kan de vaste
                     # volgorde (Quatt vóór OpenQuatt) niet overruled worden.

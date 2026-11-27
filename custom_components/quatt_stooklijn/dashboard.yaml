@@ -2470,6 +2470,56 @@ views:
               columns: full
               rows: auto
 
+      # ── Kamersensoren: zon op de thermostaat (KAMERSENSOREN_PLAN.md) ──
+      - type: grid
+        cards:
+          - type: markdown
+            title: Kamersensoren
+            content: >
+              {% set s = 'sensor.quatt_warmteanalyse_kamertemperatuur' %}
+
+              {% set refs = state_attr(s, 'referenties') %}
+
+              {% set zp = state_attr(s, 'zonpieken') %}
+
+              {% if refs %}
+
+              Kamertemperatuur **{{ states(s) | float(0) | round(2) }} °C**, thermostaat
+              zelf **{{ state_attr(s, 'thermostaat') | float(0) | round(2) }} °C**{% if state_attr(s, 'begrensd') %},
+              nu **{{ state_attr(s, 'afgekapt_k') }} K afgekapt**{% endif %}.
+
+              | Sensor | Verschil met thermostaat | Krijgt zon | Gebruikt nu |
+
+              |:--|--:|:--|:--|
+
+              {% set tz = state_attr(s, 'thermostaat_zon_uren') or [] -%}
+
+              | Thermostaat | — | {% if tz %}{{ tz | min }}–{{ (tz | max) + 1 }} u{% else %}nee{% endif %} | bron |
+
+              {% for e, r in refs.items() -%}
+
+              | {{ r.naam }} | {% if r.verschil_k is not none %}{{ r.verschil_k }} K{% else %}*nog niet*{% endif %} | {% if r.zon_uren %}{{ r.zon_uren | min }}–{{ (r.zon_uren | max) + 1 }} u{% else %}nee{% endif %} | {{ 'ja' if r.gebruikt else 'nee' }} |
+
+              {% endfor %}
+
+              {% set a = state_attr(s, 'afgekapt_14d') %}{% if a %}Afgekapt in de laatste 14 dagen: **{{ a.uren }} uur**, gemiddeld {{ a.gem_k }} K.{% endif %}
+              De thermostaat blijft de bron: extra sensoren kappen alleen zonpieken af, nooit omhoog.
+              Zon bepaald uit {{ state_attr(s, 'zon_bron') or '*nog niet bepaald*' }}.
+
+              {% else %}
+
+              Geen extra kamersensoren ingesteld.{% if zp %}
+
+              > Op {{ zp.dagen }} zonnige dagen liep de thermostaat tussen {{ zp.van }} en {{ zp.tot }} ongeveer {{ zp.kelvin }} °C op en zakte weer terug. Dat is zon op de sensor, of een kamer die echt snel opwarmt. Een tweede sensor in de kamer maakt het verschil (*Opties → Metingen → Extra kamersensoren*).
+              {% else %} Zet je er één of twee in de kamer van de thermostaat (uit de
+              zon, niet bij een radiator), dan kapt de integratie zonpieken van de thermostaat af:
+              *Opties → Metingen → Extra kamersensoren*.{% endif %}
+
+              {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
+
       # ── Max. aanvoertemperatuur — huidige status ──
       - type: grid
         visibility:

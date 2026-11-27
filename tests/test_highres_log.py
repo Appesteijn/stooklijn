@@ -103,7 +103,7 @@ class TestSerialisatie:
         assert HighResLog().to_dict()["columns"] == [
             "ts", "t_indoor", "t_outdoor", "q_hp_w", "q_solar_wm2", "pv_w",
             "t_supply", "t_return", "flow_lph", "p_el_w", "setpoint",
-            "ceiling", "max_water", "sound", "demand",
+            "ceiling", "max_water", "sound", "demand", "t_indoor_raw",
         ]
 
     def test_corrupte_rijen_worden_overgeslagen(self):
@@ -377,13 +377,21 @@ class TestExtraKolommen:
         log = HighResLog()
         log.record(T0, 20.0, 4.0, 2500.0, 0.0, None, extra=self.EXTRA)
         row = log.to_dict()["samples"][0]
-        assert row[6:] == [34.57, 29.12, 812, 1235, 20.5, 38.0, 2, 0, 1]
+        assert row[6:] == [34.57, 29.12, 812, 1235, 20.5, 38.0, 2, 0, 1, None]
+
+    def test_thermostaat_ruw_naast_de_begrensde_kamer(self):
+        """Sinds de extra kamersensoren: t_indoor is begrensd, t_indoor_raw de
+        thermostaat zelf, zodat de correctie achteraf te controleren is."""
+        log = HighResLog()
+        log.record(T0, 20.05, 4.0, 2500.0, 0.0, None, extra={"t_indoor_raw": 21.7349})
+        row = log.to_dict()["samples"][0]
+        assert row[1] == 20.05 and row[-1] == 21.73
 
     def test_ontbrekende_extra_houdt_het_monster_niet_tegen(self):
         log = HighResLog()
         assert log.record(T0, 20.0, 4.0, 2500.0, 0.0, None,
                           extra={"t_supply": float("nan"), "t_return": None})
-        assert log.to_dict()["samples"][0][6:] == [None] * 9
+        assert log.to_dict()["samples"][0][6:] == [None] * 10
 
     def test_compacte_opslag_rondreis(self):
         import json
@@ -469,7 +477,7 @@ class TestExtraKolommen:
         oud = {"samples": [[1_790_000_000, 20.0, 4.0, 2500.0, 10.0, 1500.0]]}
         row = HighResLog.from_dict(oud).to_dict()["samples"][0]
         assert row[:6] == [1_790_000_000, 20.0, 4.0, 2500.0, 10.0, 1500.0]
-        assert row[6:] == [None] * 9
+        assert row[6:] == [None] * 10
 
     def test_nieuwere_opslagversie_wordt_niet_overschreven(self):
         """Een terugstap naar een oudere integratie mag het logboek niet wissen;

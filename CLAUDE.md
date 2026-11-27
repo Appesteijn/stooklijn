@@ -482,3 +482,41 @@ stroom van OpenQuatt per dag over het samengevoegde resultaat:
 
 Dagen van vóór OpenQuatt blijven Quatt-data. De koude kant van de COP-tabel
 schuift dus pas mee naarmate er koude dagen met OpenQuatt bijkomen.
+
+## De kamertemperatuur komt uit `room_value`, nooit rechtstreeks van de entity
+
+Een thermostaat waar de zon op valt, meet zichzelf. Testhuis (november 2026):
+de iSense liep op zonnige middagen tot +2,3 K op (uurgemiddelde +0,9) terwijl
+drie andere sensoren in dezelfde kamer vlak bleven; OpenQuatt kneep de pomp
+daardoor af (~4 kW minder) en het 2R2C leerde een te grote zonnewinst (g op de
+grens) en een raamrichting van 135° bij ramen op ~180°. Zie
+`KAMERSENSOREN_PLAN.md`.
+
+Daarom kan de gebruiker extra kamersensoren opgeven (`indoor_temp_reference_entities`),
+en leest alles in de integratie de kamertemperatuur via
+`room_temperature.room_value` (advies, 1R1C, BalanceBias, meetlogboek,
+sturingseffect, uitlooptijd, spiegelsensor). `test_niemand_leest_de_thermostaat_nog_zelf`
+bewaakt dat. Zonder extra sensoren is het de thermostaat zelf, bit voor bit.
+
+De regels, alle drie gemeten op het testhuis (2R2C 12 u, beide splitsingen):
+
+- **De thermostaat blijft de bron, de referenties begrenzen alleen naar
+  beneden**: `min(thermostaat, mediaan(referentie + verschil) + 0,3 K)`. Zon
+  maakt alleen warmer, en het setpoint hoort bij de thermostaat. Een mediaan
+  inclusief de thermostaat was slechter dan niets (0,287/0,274 tegen
+  0,234/0,276); begrensd op midden + bewegingsmelder 0,217/0,214.
+- **Vast verschil per referentie uit de nachturen** (0–6 u, 7 dagen): daar
+  schijnt geen zon. Op bewolkte dagen was het verschil de hele dag gelijk.
+- **Een referentie die zelf zon krijgt, telt in die uren niet** (`sun_hours`,
+  zonnige min bewolkte uren ≥ 0,4 K, 14 dagen). Begrensd op de bench (zon
+  10–12 u) werd het slechter dan zonder referentie (0,268/0,267). Helderheid
+  per uur uit de zonnesensor, anders Open-Meteo (`async_hourly_clearness`).
+
+Wat níét kan: met alleen de thermostaat zon op de sensor onderscheiden van een
+kamer die echt snel opwarmt. Nagebootst: een licht huis met grote ramen gaf
+5 van 5 keer dezelfde pieken als zon op de sensor; vormregels (steilheid,
+snelle daling) maakten het testhuis slechter en hielden het lichte huis niet
+tegen. Een melding zonder referenties moet dus neutraal zijn (plan, stap 2).
+
+`highres_log` bewaart de thermostaat zelf in `t_indoor_raw` als er extra
+sensoren zijn; `t_indoor` is dan de begrensde waarde.

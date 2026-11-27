@@ -203,7 +203,8 @@
               "compressor_2_entity": "Verdichterfrequenz WP2 (Hz)",
               "weather_entity": "Wettervorhersage",
               "pv_power_entity": "Sonnensensor: PV-Leistung (W oder kW)",
-              "window_azimuth": "Ausrichtung der Fenster (°)"
+              "window_azimuth": "Ausrichtung der Fenster (°)",
+              "indoor_temp_reference_entities": "Zusätzliche Raumsensoren"
             },
             "data_description": {
               "temp_entities": "Ein oder mehrere Sensoren; der erste mit einem Wert wird verwendet.",
@@ -221,7 +222,8 @@
               "compressor_2_entity": "Nur beim Duo; bei einem Solo leer lassen.",
               "weather_entity": "Die Außentemperatur der kommenden Stunden, für die Vorschau und die Preisverschiebung.",
               "pv_power_entity": "Optional. Misst die Sonne lokal. Die Ausrichtung der Module wird gelernt.",
-              "window_azimuth": "Optional. 90 Ost, 180 Süd, 270 West: die Fassade mit den meisten Fenstern. Leer = grob aus den Daten gelernt, das ist aber unzuverlässig."
+              "window_azimuth": "Optional. 90 Ost, 180 Süd, 270 West: die Fassade mit den meisten Fenstern. Leer = grob aus den Daten gelernt, das ist aber unzuverlässig.",
+              "indoor_temp_reference_entities": "Optional. Temperatursensoren im selben Raum wie dein Thermostat, an Stellen ohne Sonne und nicht an Heizkörper, Fenster oder Außentür. Sie dienen nur dazu, Sonnenspitzen des Thermostats abzuschneiden; der Sollwert gehört weiterhin zu deinem Thermostat."
             }
           }
         }
@@ -431,6 +433,18 @@
     "supply_sensor_offset": {
       "title": "Vorlauftemperatursensor weicht ab",
       "description": "Die Vorlauftemperatur ({supply_entity}) liegt {offset} K neben dem Wasserausgang der Wärmepumpe ({reference_entity}), gemessen über {hours} Stunden stabilen Heizbetriebs. Zwischen diesen beiden Punkten ändert sich die Wassertemperatur kaum, der Sensor weicht also ab. Die Vorlaufempfehlung und die Fehlersensoren erscheinen dadurch um denselben Betrag verschoben.\n\nNutzt du OpenQuatt? Führe die Kalibrierung der Wassersensoren aus und prüfe **Water Supply Temperature Calibration Status**. Ohne OpenQuatt: prüfe die Montage des Vorlaufsensors.\n\nDiese Meldung verschwindet von selbst, sobald die Abweichung unter {clear} K liegt."
+    },
+    "room_sun_peaks": {
+      "title": "Deine Raumtemperatur steigt an sonnigen Nachmittagen schnell an",
+      "description": "An {dagen} sonnigen Tagen in den letzten zwei Wochen stieg **{sensor}** zwischen **{van}** und **{tot}** um etwa **{kelvin} °C** und fiel danach wieder zurück. An bewölkten Tagen passiert das nicht. Entweder scheint die Sonne direkt auf den Sensor, oder dein Raum wird durch die Sonne wirklich schnell warm. Mit nur einem Sensor lässt sich das nicht unterscheiden.\n\n**Was du tun kannst:** Stelle einen zweiten Temperatursensor in denselben Raum, an eine Stelle ohne Sonne, nicht an Heizkörper, Fenster oder Außentür, auf etwa 1–1,5 m Höhe. Wähle ihn unter *Optionen → Messungen → Zusätzliche Raumsensoren*. Nach einigen sonnigen Tagen weiß die Integration, was davon zutrifft:\n- **Sonne auf dem Sensor:** Die Integration schneidet die Spitzen ab, sodass Hausmodell und Empfehlung mit der echten Raumtemperatur rechnen.\n- **Der Raum wird wirklich warm:** Dann ändert sich nichts, und diese Meldung verschwindet.\n\nDiese Meldung verschwindet auch von selbst nach 14 sonnigen Tagen ohne solche Spitze."
+    },
+    "room_sensor_sun": {
+      "title": "Die Sonne scheint auf dein Thermostat",
+      "description": "**{sensor}** steigt an sonnigen Tagen zwischen **{van}** und **{tot}** um bis zu **{kelvin} °C** gegenüber deinen zusätzlichen Raumsensoren, die gleich bleiben. Die Sonne scheint dann direkt auf den Sensor.\n\nDie Integration schneidet diese Spitzen ab ({uren} Stunden in den letzten zwei Wochen), sodass Hausmodell und Empfehlung mit der echten Raumtemperatur rechnen. Regelt deine Heizung selbst nach diesem Sensor, sieht sie weiterhin einen zu warmen Raum und liefert weniger.\n\nKannst du den Sensor aus der Sonne nehmen (versetzen oder die tiefe Sonne um {van}–{tot} abschirmen), verschwindet diese Meldung von selbst."
+    },
+    "room_reference_sun": {
+      "title": "Ein zusätzlicher Raumsensor bekommt selbst Sonne",
+      "description": "{sensoren}. In diesen Stunden wird er nicht zur Korrektur deines Thermostats verwendet. Verwendet: {gebruikt}.\n\nVersetze den Sensor an eine Stelle ohne Sonne oder entferne ihn unter *Optionen → Messungen → Zusätzliche Raumsensoren*."
     }
   },
   "selector": {

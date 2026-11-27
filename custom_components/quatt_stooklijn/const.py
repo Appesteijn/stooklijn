@@ -157,11 +157,17 @@ FORECAST_RETRY_DELAYS = (30, 120, 300)
 # hij wordt genegeerd.
 CONF_WEATHER_ENTITY = "weather_entity"
 
-# Kamertemperatuur voor RC-regressie (solar gain learning).
-# Gebruik bij voorkeur een sensor dicht bij een groot zuidraam: die reageert
-# het snelst op zoninstraling en geeft het scherpste leerssignaal.
-# Elke kamerthermometer werkt, maar hoe dichter bij de zon, hoe beter.
+# Kamertemperatuur: voor de kamercorrectie van het advies en de huismodellen.
+# Bij voorkeur de thermostaat (het setpoint hoort daarbij), en nooit een sensor
+# waar de zon op valt: die meet zichzelf. Tot 27-11-2026 stond hier het
+# omgekeerde ("dicht bij een groot zuidraam"); gemeten op het testhuis gaf zon
+# op de thermostaat pieken tot 2,3 K en een te grote geleerde zonnewinst.
 CONF_INDOOR_TEMP_ENTITY = "indoor_temp_entity"
+# Extra temperatuursensoren in de kamer van de thermostaat. Ze begrenzen de
+# thermostaat alleen naar beneden (zon op de thermostaat), zie
+# KAMERSENSOREN_PLAN.md en analysis/room_reference.py.
+CONF_INDOOR_TEMP_REFERENCES = "indoor_temp_reference_entities"
+ROOM_REFERENCE_STORAGE_KEY = f"{DOMAIN}.room_reference"
 
 DEFAULT_WEATHER_ENTITY = "weather.home"
 

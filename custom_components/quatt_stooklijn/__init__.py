@@ -12,6 +12,7 @@ from homeassistant.helpers.event import async_track_time_change
 
 from .ch_max_water import ChMaxWaterController
 from .supply_check import SupplySensorCheck
+from .room_temperature import RoomTemperature, room_key
 from .dashboard import DashboardManager
 from .sources import ENTITY_PREFIX, MIRROR_SPECS, OVERVIEW_SLUG, SourceRegistry
 from .const import (
@@ -227,6 +228,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][f"{entry.entry_id}_sources"] = source_registry
     entry.async_on_unload(source_registry.async_setup())
 
+    # De kamertemperatuur op één plek: de thermostaat, begrensd op eventuele
+    # extra kamersensoren (KAMERSENSOREN_PLAN.md). Na de bronregistratie, die
+    # hij gebruikt om de thermostaat te vinden; vóór de platforms, die hem lezen.
+    room = RoomTemperature(hass, entry.entry_id, merged_config)
+    await room.async_load()
+    hass.data[DOMAIN][room_key(entry.entry_id)] = room
+    entry.async_on_unload(room.async_setup())
+
     # Altijd aan: meldt via Repairs een aanvoersensor die structureel naast de
     # wateruitgang van de warmtepomp ligt (zie supply_check.py).
     supply_check = SupplySensorCheck(hass, entry.entry_id, merged_config)
@@ -408,6 +417,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
         hass.data[DOMAIN].pop(f"{entry.entry_id}_sources", None)
+        hass.data[DOMAIN].pop(room_key(entry.entry_id), None)
         hass.data[DOMAIN].pop(f"{entry.entry_id}_supply_check", None)
         # Zonder deze twee bleef hass.data[DOMAIN] nooit leeg (de services
         # werden nooit afgemeld), en meldde de adviessensor na uitschakelen

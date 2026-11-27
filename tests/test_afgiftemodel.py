@@ -213,8 +213,11 @@ class TestAdviesBijStilstaandePomp:
 
         s = _Mpc.__new__(_Mpc)
         s.hass = MagicMock()
+        s._entry = MagicMock(entry_id="e1")
         s.emitter = emitter
-        return s, patch("custom_components.quatt_stooklijn.sensor.get_float_state",
+        # De kamertemperatuur komt sinds de extra kamersensoren uit
+        # room_temperature.room_value; zonder RoomTemperature is dat de entity zelf.
+        return s, patch("custom_components.quatt_stooklijn.room_temperature.get_float_state",
                         return_value=indoor)
 
     def test_draaiende_pomp_rekent_met_de_retour(self):

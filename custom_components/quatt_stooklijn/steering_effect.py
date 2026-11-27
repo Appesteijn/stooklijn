@@ -225,6 +225,10 @@ class QuattSteeringEffectSensor(SensorEntity):
             self.hass, self._entry.entry_id, role,
             config=cfg, conf_key=ROLE_CONF_KEYS.get(role),
         )
+        if role == ROLE_INDOOR_TEMP:
+            from .room_temperature import room_value
+
+            return room_value(self.hass, self._entry.entry_id, entity_id)
         return get_float_state(self.hass, entity_id) if entity_id else None
 
     def _base_temp(self) -> float:

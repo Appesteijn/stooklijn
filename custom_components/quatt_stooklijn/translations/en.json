@@ -203,7 +203,8 @@
               "compressor_2_entity": "Compressor frequency HP2 (Hz)",
               "weather_entity": "Weather forecast",
               "pv_power_entity": "Sun sensor: PV power (W or kW)",
-              "window_azimuth": "Window orientation (°)"
+              "window_azimuth": "Window orientation (°)",
+              "indoor_temp_reference_entities": "Extra room sensors"
             },
             "data_description": {
               "temp_entities": "One or more sensors; the first one with a value is used.",
@@ -221,7 +222,8 @@
               "compressor_2_entity": "Duo only; leave empty on a Solo.",
               "weather_entity": "Outdoor temperature for the coming hours, for the look-ahead and the price shift.",
               "pv_power_entity": "Optional. Measures the sun locally. The orientation of the panels is learned.",
-              "window_azimuth": "Optional. 90 east, 180 south, 270 west: the facade with most of the windows. Empty = learned roughly from the data, but that is unreliable."
+              "window_azimuth": "Optional. 90 east, 180 south, 270 west: the facade with most of the windows. Empty = learned roughly from the data, but that is unreliable.",
+              "indoor_temp_reference_entities": "Optional. Temperature sensors in the same room as your thermostat, in places without sun and away from radiators, windows and outside doors. They are only used to cut off sun spikes of the thermostat; the setpoint still belongs to your thermostat."
             }
           }
         }
@@ -431,6 +433,18 @@
     "supply_sensor_offset": {
       "title": "Supply temperature sensor is off",
       "description": "The supply temperature ({supply_entity}) reads {offset} K compared with the water outlet of the heat pump ({reference_entity}), measured over {hours} hours of steady heating. Between those two points the water temperature hardly changes, so the sensor is off. The supply advice and the error sensors appear shifted by the same amount.\n\nUsing OpenQuatt? Run the water sensor calibration and check **Water Supply Temperature Calibration Status**. Without OpenQuatt, check how the supply sensor is mounted.\n\nThis notice disappears on its own once the difference drops below {clear} K."
+    },
+    "room_sun_peaks": {
+      "title": "Your room temperature shoots up on sunny afternoons",
+      "description": "On {dagen} sunny days in the last two weeks, **{sensor}** rose by about **{kelvin} °C** between **{van}** and **{tot}**, and then dropped back. On cloudy days this does not happen. Either the sun shines directly on the sensor, or your room really warms up quickly from the sun. With a single sensor the two cannot be told apart.\n\n**What you can do:** place a second temperature sensor in the same room, somewhere without sun, away from radiators, windows and outside doors, at about 1–1.5 m height. Select it under *Options → Measurements → Extra room sensors*. After a few sunny days the integration knows which of the two it is:\n- **Sun on the sensor:** the integration cuts off the spikes, so the house model and the advice use the real room temperature.\n- **The room really warms up:** nothing changes, and this notice disappears.\n\nThis notice also disappears by itself after 14 sunny days without such a spike."
+    },
+    "room_sensor_sun": {
+      "title": "The sun shines on your thermostat",
+      "description": "On sunny days **{sensor}** rises by up to **{kelvin} °C** between **{van}** and **{tot}** compared with your extra room sensors, which stay flat. The sun then shines directly on the sensor.\n\nThe integration cuts off those spikes ({uren} hours in the last two weeks), so the house model and the advice use the real room temperature. If your heating itself controls on this sensor, it still sees a room that is too warm and delivers less.\n\nIf you can get the sensor out of the sun (move it, or shield it from the low sun around {van}–{tot}), this notice disappears by itself."
+    },
+    "room_reference_sun": {
+      "title": "An extra room sensor gets sun itself",
+      "description": "{sensoren}. During those hours it is not used to correct your thermostat. Used: {gebruikt}.\n\nMove the sensor to a place without sun, or remove it under *Options → Measurements → Extra room sensors*."
     }
   },
   "selector": {

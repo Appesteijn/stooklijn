@@ -203,7 +203,8 @@
               "compressor_2_entity": "Compressorfrequentie WP2 (Hz)",
               "weather_entity": "Weersverwachting",
               "pv_power_entity": "Zonnesensor: PV-vermogen (W of kW)",
-              "window_azimuth": "Richting van de ramen (°)"
+              "window_azimuth": "Richting van de ramen (°)",
+              "indoor_temp_reference_entities": "Extra kamersensoren"
             },
             "data_description": {
               "temp_entities": "Een of meer sensoren; de eerste die een waarde geeft wordt gebruikt.",
@@ -221,7 +222,8 @@
               "compressor_2_entity": "Alleen bij een Duo; leeg laten op een Solo.",
               "weather_entity": "De buitentemperatuur van de komende uren, voor de vooruitblik en de prijsverschuiving.",
               "pv_power_entity": "Optioneel. Meet de zon lokaal. De richting van de panelen wordt geleerd.",
-              "window_azimuth": "Optioneel. 90 oost, 180 zuid, 270 west: de gevel met de meeste ramen. Leeg = grof leren uit de data, maar dat is onbetrouwbaar."
+              "window_azimuth": "Optioneel. 90 oost, 180 zuid, 270 west: de gevel met de meeste ramen. Leeg = grof leren uit de data, maar dat is onbetrouwbaar.",
+              "indoor_temp_reference_entities": "Optioneel. Temperatuursensoren in dezelfde kamer als je thermostaat, op plekken zonder zon en niet bij een radiator, raam of buitendeur. Ze worden alleen gebruikt om zonpieken van de thermostaat af te kappen; het setpoint blijft bij je thermostaat horen."
             }
           }
         }
@@ -431,6 +433,18 @@
     "supply_sensor_offset": {
       "title": "Aanvoertemperatuursensor wijkt af",
       "description": "De aanvoertemperatuur ({supply_entity}) ligt {offset} K naast de wateruitgang van de warmtepomp ({reference_entity}), gemeten over {hours} uur stabiel stoken. Tussen die twee punten verandert de watertemperatuur nauwelijks, dus de sensor wijkt af. Het aanvoeradvies en de foutsensoren lijken daardoor even ver verschoven.\n\nGebruik je OpenQuatt? Voer de kalibratie van de watersensoren uit en kijk bij **Water Supply Temperature Calibration Status**. Zonder OpenQuatt: controleer hoe de aanvoersensor gemonteerd is.\n\nDeze melding verdwijnt vanzelf zodra het verschil onder {clear} K komt."
+    },
+    "room_sun_peaks": {
+      "title": "Je kamertemperatuur schiet op zonnige middagen snel op",
+      "description": "Op {dagen} zonnige dagen in de laatste twee weken liep **{sensor}** tussen **{van}** en **{tot}** ongeveer **{kelvin} °C** op, en zakte daarna weer terug. Op bewolkte dagen gebeurt dat niet. Dat is óf zon die direct op de sensor valt, óf je kamer die door de zon echt snel opwarmt. Met één sensor is dat niet te onderscheiden.\n\n**Wat je kunt doen:** plaats een tweede temperatuursensor in dezelfde kamer, op een plek waar geen zon komt, niet bij een radiator, raam of buitendeur, op ongeveer 1–1,5 m hoogte. Kies hem bij *Opties → Metingen → Extra kamersensoren*. Na een paar zonnige dagen weet de integratie welke van de twee het is:\n- **Zon op de sensor:** de integratie kapt de pieken af, zodat het huismodel en het advies met de echte kamertemperatuur rekenen.\n- **De kamer warmt echt op:** dan verandert er niets, en verdwijnt deze melding.\n\nDeze melding verdwijnt ook vanzelf na 14 zonnige dagen zonder zo'n piek."
+    },
+    "room_sensor_sun": {
+      "title": "De zon schijnt op je thermostaat",
+      "description": "**{sensor}** loopt op zonnige dagen tussen **{van}** en **{tot}** tot **{kelvin} °C** op ten opzichte van je extra kamersensoren, die vlak blijven. De zon schijnt dan direct op de sensor.\n\nDe integratie kapt die pieken af ({uren} uur in de laatste twee weken), zodat het huismodel en het advies met de echte kamertemperatuur rekenen. Regelt je verwarming zelf op deze sensor, dan ziet die nog wel een te warme kamer en levert ze minder.\n\nKun je de sensor uit de zon halen (verplaatsen, of de lage zon er rond {van}–{tot} afschermen), dan verdwijnt deze melding vanzelf."
+    },
+    "room_reference_sun": {
+      "title": "Een extra kamersensor krijgt zelf zon",
+      "description": "{sensoren}. In die uren wordt hij niet gebruikt om je thermostaat te corrigeren. Wel gebruikt: {gebruikt}.\n\nVerplaats de sensor naar een plek zonder zon, of haal hem weg bij *Opties → Metingen → Extra kamersensoren*."
     }
   },
   "selector": {

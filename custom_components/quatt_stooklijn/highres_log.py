@@ -54,13 +54,18 @@ BASE_COLUMNS = ("ts", "t_indoor", "t_outdoor", "q_hp_w", "q_solar_wm2", "pv_w")
 EXTRA_COLUMNS = (
     "t_supply", "t_return", "flow_lph", "p_el_w", "setpoint",
     "ceiling", "max_water", "sound", "demand",
+    # Sinds v0.10.7-beta.19: de thermostaat zelf, als extra kamersensoren hem
+    # begrenzen (t_indoor is dan de begrensde waarde). Zonder extra sensoren
+    # leeg. Zo is de correctie achteraf te controleren en terug te draaien;
+    # zie KAMERSENSOREN_PLAN.md.
+    "t_indoor_raw",
 )
 COLUMNS = BASE_COLUMNS + EXTRA_COLUMNS
 
 #: Afronding per extra kolom: genoeg voor de analyse, niet meer.
 _EXTRA_DIGITS = {
     "t_supply": 2, "t_return": 2, "flow_lph": 0, "p_el_w": 0, "setpoint": 2,
-    "ceiling": 1, "max_water": 0, "sound": 0, "demand": 0,
+    "ceiling": 1, "max_water": 0, "sound": 0, "demand": 0, "t_indoor_raw": 2,
 }
 
 #: Bemonsteringsinterval. Fijn genoeg voor een tijdconstante van een uur,
