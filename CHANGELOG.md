@@ -3,6 +3,32 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## v0.10.7-beta.18 — 2026-11-27
+
+COP (testhuis 27-11, "de COP van OpenQuatt verschilt erg van de geschatte actuele COP"):
+
+- **Warmte en stroom per dag komen van OpenQuatt als dat er is.** Tot nu toe
+  van Quatt: de cloud-cache, of de sensoren van de CiC. Quatts stroommeting
+  is een schatting die bij hoog vermogen te hoog uitvalt. Tegen de slimme
+  meter (135 nachturen) klopte OpenQuatt (helling 0,997), Quatt zat bij 2 kW
+  ~10 % te hoog. De warmte was gelijk. **Op koude dagen stijgt de dag-COP
+  daardoor**; op het testhuis bij −5 tot 2,5 °C van 2,63 naar 2,86. Zacht weer
+  verandert niet. Dagen van vóór OpenQuatt blijven zoals ze waren, en een dag
+  met gaten in de OpenQuatt-data ook. Heb je warmte of stroom zelf op een
+  andere sensor gezet, dan blijft die gelden.
+- **"Geschatte actuele COP" rekent met de COP-tabel.** Hij interpoleerde nog
+  door losse dagen, de fout die de tabel in beta.16 kwijtraakte. Nu tussen
+  twee punten van dezelfde tabel, en een streepje waar de tabel er geen heeft.
+
+Zon op de ramen:
+
+- **De richting van de ramen is in te stellen** (Opties → Metingen, in
+  graden: 90 oost, 180 zuid, 270 west). Uit de data leren bleek ruis: op het
+  testhuis koos de integratie de ene keer 225°, de andere keer 135°, bij ramen
+  op ~180°. Alle richtingen van oost tot west voorspelden binnen 0,01 K even
+  goed. Leeg laten = leren zoals voorheen. Het dashboard toont of de richting
+  ingesteld of geleerd is.
+
 ## v0.10.7-beta.17 — 2026-11-26
 
 Analyse (Tweakers 26-11, "capaciteit_w 2.826 W" na een nacht met ~5 kW):
