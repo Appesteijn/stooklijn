@@ -3,7 +3,7 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
-## Nog niet uitgebracht
+## v0.10.7-beta.22 — 2026-11-28
 
 - **Afwijking voor *Huismodel + kamer*** (Tweakers 28-11). Nieuwe sensor
   `sensor.quatt_warmteanalyse_1r1c_fout_aanvoertemperatuur`: het advies van
