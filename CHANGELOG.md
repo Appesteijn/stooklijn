@@ -3,7 +3,7 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
-## Nog niet uitgebracht
+## v0.10.7-beta.21 — 2026-11-28
 
 - **Schaduwvoorspelling** (eerste stap naar sturen met de zon). Elk uur legt de
   integratie vast waarmee het huismodel (2R2C) de kamer zou voorspellen, en
