@@ -3405,8 +3405,16 @@ class QuattModelBenchmarkSensor(
         self._store = Store(
             coordinator.hass, 1, f"{DOMAIN}.model_benchmark_{entry.entry_id}"
         )
-        # Het 2R2C met de zon op de ramen (zonnesensor), naast de hoofduitkomst.
-        # None zonder zonnesensor of zolang er niet gemeten is.
+        # Schaduwvoorspelling (MPC_ZON_PLAN.md, stap 1): elk uur vastleggen
+        # waarmee een planner zou rekenen, elke zes uur achteraf scoren.
+        from .analysis.shadow_forecast import ShadowLog
+
+        self._shadow = ShadowLog()
+        self._shadow_store = Store(
+            coordinator.hass, 1, f"{DOMAIN}.shadow_forecast_{entry.entry_id}"
+        )
+        self._shadow_score: dict | None = None
+        self._shadow_scoring = False
         self._running = False
         self._attr_unique_id = f"{entry.entry_id}_model_benchmark"
         self._attr_device_info = get_device_info(entry.entry_id)
@@ -3455,6 +3463,7 @@ class QuattModelBenchmarkSensor(
         # stabiliseert. Zon op de ramen (gevelzon) is er sinds beta.20 uit:
         # op een schone kamertemperatuur niet beter dan horizontaal (CLAUDE.md).
         attrs["zonfactor_horizontaal"] = (self._result.params or {}).get("g")
+        attrs["schaduwvoorspelling"] = getattr(self, "_shadow_score", None)
         attrs["naspeler"] = getattr(self, "_replay", None)
         return attrs
 
@@ -3478,6 +3487,99 @@ class QuattModelBenchmarkSensor(
                 self.hass, self.STARTUP_DELAY.total_seconds(), self._async_run
             )
         )
+        await self._async_shadow_load()
+        self.async_on_remove(
+            async_track_time_change(
+                self.hass, self._async_shadow_record, minute=0, second=30
+            )
+        )
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass, self._async_shadow_score, self.SHADOW_SCORE_INTERVAL
+            )
+        )
+        self.async_on_remove(
+            async_call_later(
+                self.hass, self.SHADOW_SCORE_DELAY.total_seconds(), self._async_shadow_score
+            )
+        )
+
+    # -- schaduwvoorspelling (MPC_ZON_PLAN.md, stap 1) ------------------------
+
+    #: Doorrekenen kost op een pc ~0,1 s voor een week; vaker dan dit heeft geen
+    #: zin, er komt per uur één moment bij dat pas twaalf uur later te scoren is.
+    SHADOW_SCORE_INTERVAL = timedelta(hours=6)
+    SHADOW_SCORE_DELAY = timedelta(minutes=15)
+
+    async def _async_shadow_load(self) -> None:
+        from .analysis.shadow_forecast import ShadowLog
+
+        try:
+            self._shadow = ShadowLog.from_dict(await self._shadow_store.async_load())
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("Bewaarde schaduwvoorspelling onleesbaar", exc_info=True)
+
+    async def _async_shadow_record(self, _now=None) -> None:
+        """Leg vast waarmee de kamerlijn nu zou rekenen.
+
+        Dezelfde keuze als de kamerlijn van de vooruitblik: de fit op het hele
+        logboek als het 2R2C goedgekeurd is, anders de fit die de toets haalde.
+        Zonder 2R2C dat beter is dan het 1R1C geen moment.
+        """
+        from .analysis.shadow_forecast import Moment
+
+        result = self._result
+        if result is None or not result.accepted or not result.params:
+            return
+        now_ts = dt_util.utcnow().timestamp()
+        params_dict = result.params_use if _approved_for_use(result, now_ts) else result.params
+        try:
+            _params, start = self._mpc._start_state_2r2c(params_dict)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Schaduwvoorspelling: geen begintoestand", exc_info=True)
+            return
+        if start.reason is not None:
+            return
+        r1c = None
+        model = self._mpc.thermal_model
+        if model is not None:
+            theta = model._rls.theta
+            r1c = [float(theta[0]), float(theta[1]), float(theta[2]),
+                   float(model._constant_gain_term(theta))]
+        moment = Moment(
+            ts=int(now_ts // 3600 * 3600), t_indoor=float(start.t_indoor),
+            t_mass=float(start.t_mass), params=dict(params_dict), r1c=r1c,
+            factor=self._mpc.solar_forecast_log.lead_factor(now_ts),
+        )
+        if self._shadow.record(moment):
+            self._shadow.prune(now_ts)
+            self._shadow_store.async_delay_save(self._shadow.to_dict, 600)
+
+    async def _async_shadow_score(self, _now=None) -> None:
+        """Alle afgeronde momenten doorrekenen, in de executor."""
+        from .analysis.shadow_forecast import HORIZON_HOURS, ShadowLog, score
+        from .analysis.solar_forecast_log import SolarForecastLog
+
+        if self._shadow_scoring or not len(self._shadow):
+            return
+        now_ts = dt_util.utcnow().timestamp()
+        since = min(self._shadow.moments) - 3600
+        rows = self._mpc.highres_rows(since)
+        if not rows:
+            return
+        log = ShadowLog.from_dict(self._shadow.to_dict())
+        forecast = SolarForecastLog.from_dict(self._mpc.solar_forecast_log.to_dict())
+        self._shadow_scoring = True
+        try:
+            self._shadow_score = await self.hass.async_add_executor_job(
+                score, log, rows, forecast, now_ts, dt_util.get_default_time_zone())
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("Schaduwvoorspelling scoren mislukt", exc_info=True)
+            return
+        finally:
+            self._shadow_scoring = False
+        self._shadow_score["horizon_uren"] = HORIZON_HOURS
+        self.async_write_ha_state()
 
     def _restore(self, stored, now_ts: float) -> None:
         """Een bewaarde uitkomst terugzetten, als hij niet te oud is."""

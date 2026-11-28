@@ -1427,6 +1427,44 @@ views:
             grid_options:
               columns: full
               rows: auto
+          - type: markdown
+            title: Schaduwvoorspelling — de kamer vooruit met de verwachte zon
+            content: >
+              {% set sv = state_attr('sensor.quatt_warmteanalyse_modelvergelijking', 'schaduwvoorspelling') %}
+
+              {% if not sv or not sv.gescoord %}
+
+              *Nog niets gescoord. Elk heel uur legt de integratie vast waarmee
+              het 2R2C de kamer zou voorspellen; dertien uur later wordt dat naast
+              de gemeten kamer gelegd, met de zon die toen verwacht werd.{% if sv
+              %} {{ sv.momenten }} momenten vastgelegd.{% endif %}*
+
+              {% else %}
+
+              De kamer **1–12 uur vooruit**, achteraf doorgerekend met het echte
+              vermogen en de echte buitentemperatuur, maar met de zon die toen
+              **verwacht** werd. {{ sv.gescoord }} startmomenten over {{ sv.dagen }}
+              dagen, waarvan {{ sv.zonnig }} zonnig ({{ sv.zonnige_dagen }} dagen).
+              Fout (RMSE) op de zonnige startmomenten, gemiddelde afwijking tussen
+              haakjes:
+
+
+              {% set names = {'2r2c_verwacht': '2R2C, verwachte zon', '2r2c_verwacht_ruw': '2R2C, verwachting zonder correctie', '2r2c_achteraf': '2R2C, zon van het uur zelf', '2r2c_geen_zon': '2R2C zonder zon', '1r1c_verwacht': 'Lerend huismodel (1R1C), verwachte zon', 'niets_doen': 'Niets doen'} %}{% set z = sv.zonnige_uren or {} %}{% set ns = namespace(t='| | 1 u | 3 u | 6 u | 12 u |\n|:--|--:|--:|--:|--:|\n') %}{% for k, n in names.items() if k in z %}{% set ns.t = ns.t ~ '| ' ~ n ~ ' |' %}{% for L in ['1', '3', '6', '12'] %}{% set ns.t = ns.t ~ ' ' ~ ('%.2f' | format(z[k][L].rmse_k)) ~ ' (' ~ ('%+.2f' | format(z[k][L].gem_k)) ~ ') |' %}{% endfor %}{% set ns.t = ns.t ~ '\n' %}{% endfor %}
+
+              {{ ns.t }}
+
+              {% set d = sv.doel or {} %}**Doel** (zonnige startmomenten,
+              verwachte zon): ≤ 0,25 K op 3 uur, ≤ 0,30 K op 6 uur en gemiddeld
+              binnen ±0,1 K, over 4 weken met minstens 5 zonnige dagen.
+              {% if d.gehaald %}✅ **Gehaald.**{% elif d.gehaald is false %}❌
+              **Niet gehaald.**{% elif d.op_koers %}Tot nu toe op koers, nog te
+              weinig dagen.{% else %}Nu niet op koers, nog te weinig
+              dagen.{% endif %}
+
+              {% endif %}
+            grid_options:
+              columns: full
+              rows: auto
 
       # ── Zon: wat het huis leert en hoe goed de verwachting is (volle breedte) ──
       - type: grid

@@ -561,3 +561,21 @@ toets van de zonverwachting. `solar_geometry.window_irradiance` staat er nog,
 zonder aanroeper. Wie de ramen terug wil: eerst meten, in het voorjaar
 (hogere zon, en dan verschilt verticaal glas het meest van horizontaal), op
 een begrensde kamertemperatuur.
+
+## De schaduwvoorspelling bewaart momenten, geen voorspellingen
+
+`analysis/shadow_forecast.py` (MPC_ZON_PLAN.md, stap 1) legt per uur vast wat
+de kamerlijn op dat moment wist (begintoestand, parameters, `lead_factor`) en
+rekent pas achteraf door, met het echte vermogen en de echte buitentemperatuur.
+Zo verschilt alleen de zon, en kunnen er varianten bij zonder nieuwe data.
+
+- **Zon voor stap k: vooruitkijktijd k+1.** Het moment ligt net na het hele
+  uur; de ophaling van dat uur kan nog komen. De verwachting van het uur ervoor
+  was er zeker.
+- **Correctie: `lead_factor`, niet gemeten / verwacht.** Het 2R2C leerde g op
+  de Open-Meteo-waarde van het lopende uur (de zonkolom); gemeten / verwacht
+  haalt de zon dan een tweede keer omlaag (zie `SolarForecastLog.lead_factor`).
+- **Waarheid op het eind van de stap**, het vijfminutenmonster binnen 10 min,
+  niet het uurgemiddelde: de kamerlijn voorspelt de kamer op het hele uur.
+- `test_juiste_zon_geen_fout` houdt de uitlijning exact (fout 0 op een
+  gesimuleerd huis met de juiste zon).

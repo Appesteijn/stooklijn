@@ -3,6 +3,16 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## Nog niet uitgebracht
+
+- **Schaduwvoorspelling** (eerste stap naar sturen met de zon). Elk uur legt de
+  integratie vast waarmee het huismodel (2R2C) de kamer zou voorspellen, en
+  rekent dat twaalf uur later na met de zon die toen verwacht werd, naast de
+  gemeten kamer. Zo is te zien of de zonverwachting goed genoeg is om op te
+  sturen, voordat er iets gestuurd wordt. Nieuwe kaart onder de
+  modelvergelijking; het doel (zonnige uren: ≤ 0,25 K op 3 uur, ≤ 0,30 K op
+  6 uur, over vier weken) staat erbij. Stuurt niets.
+
 ## v0.10.7-beta.20 — 2026-11-28
 
 - **Het oude meetlogboek wordt achteraf begrensd** zodra je extra
