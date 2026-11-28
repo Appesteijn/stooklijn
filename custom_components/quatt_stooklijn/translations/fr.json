@@ -390,6 +390,9 @@
       },
       "rc_recommended_supply_temp": {
         "name": "Température de départ recommandée (modèle de maison + pièce)"
+      },
+      "rc_supply_temp_error": {
+        "name": "Écart température de départ (modèle de maison + pièce)"
       }
     },
     "binary_sensor": {

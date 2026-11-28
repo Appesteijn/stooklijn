@@ -339,6 +339,7 @@ Each carries `source_entity`, `source_integration`, `candidates` and `switched_a
 | `1r1c_aanbevolen_aanvoertemperatuur` | °C | Advice *House model + room* (source `1r1c`): the learning house model (1R1C) with the same catch-up; passes *Outdoor temperature + room* through (`terugval: true`) until the model is online |
 | `stooklijn_fout_aanvoertemperatuur` | °C | Deviation: advice *Outdoor temperature* − actual supply |
 | `mpc_fout_aanvoertemperatuur` | °C | Deviation: advice *Outdoor temperature + room* − actual supply |
+| `1r1c_fout_aanvoertemperatuur` | °C | Deviation: advice *House model + room* − actual supply; equal to the previous one while the house model is still learning (`terugval`) |
 | `veilige_uitlooptijd` | min | How long the house can coast with the heat pump off before hitting the comfort floor. With an approved 2R2C both house models compute it and the shorter one wins (`model_source`, both in `per_model`). Attribute `recovery_on_min_minutes` is how long getting back to the room setpoint takes with the heat pump at its minimum output |
 | `opgeslagen_warmte` | kWh | Heat stored in the building above the comfort floor: what the house has to lose before it reaches that floor. Negative when the room is below it. Available once the online model has converged |
 | `max_aanvoertemperatuur_instelling` | °C | Value last written to the heat pump's max supply temperature (only when [max supply temperature](#max-supply-temperature) is enabled) |

@@ -512,6 +512,13 @@ async def async_setup_entry(
         coordinator, entry, "mpc",
         "sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur",
     ))
+    # Tweakers 28-11-2026: wie op Huismodel + kamer stuurt, wil die afwijking
+    # ook zien. Tijdens de terugval (model nog niet online) is hij gelijk aan
+    # die van buiten + kamer, want dan geeft de 1R1C-sensor dat advies door.
+    entities.append(QuattAdviceErrorSensor(
+        coordinator, entry, "1r1c",
+        "sensor.quatt_warmteanalyse_1r1c_aanbevolen_aanvoertemperatuur",
+    ))
     entities.append(QuattCopPerformanceSensor(hass, coordinator, entry))
     entities.append(QuattAdviceSensor(coordinator, entry))
     entities.append(QuattOpenQuattCurveSensor(coordinator, entry))
@@ -3878,9 +3885,13 @@ class QuattAdviceErrorSensor(
         self._entry = entry
         self._advised_entity = advised_entity
         self._attr_unique_id = f"{entry.entry_id}_{mode}_advice_error"
+        # Voorwaardelijke expressie, geen dict: test_translations leest de
+        # sleutels via de AST en kent alleen deze vorm.
         self._attr_translation_key = (
             "mpc_supply_temp_error"
             if mode == "mpc"
+            else "rc_supply_temp_error"
+            if mode == "1r1c"
             else "stooklijn_supply_temp_error"
         )
         self._attr_device_info = get_device_info(entry.entry_id)

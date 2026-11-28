@@ -1143,10 +1143,16 @@ views:
       - type: grid
         column_span: 2
         cards:
+          # Eén rij per bron: links het advies, rechts de afwijking.
           - type: tile
             entity: sensor.quatt_warmteanalyse_aanbevolen_aanvoertemperatuur
             name: Advies buiten
             icon: mdi:thermometer-water
+            color: blue
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_stooklijn_fout_aanvoertemperatuur
+            name: Afwijking buiten
+            icon: mdi:thermometer-alert
             color: blue
           - type: tile
             entity: sensor.quatt_warmteanalyse_mpc_aanbevolen_aanvoertemperatuur
@@ -1154,15 +1160,20 @@ views:
             icon: mdi:brain
             color: green
           - type: tile
-            entity: sensor.quatt_warmteanalyse_stooklijn_fout_aanvoertemperatuur
-            name: Afwijking buiten
-            icon: mdi:thermometer-alert
-            color: blue
-          - type: tile
             entity: sensor.quatt_warmteanalyse_mpc_fout_aanvoertemperatuur
             name: Afwijking buiten + kamer
             icon: mdi:thermometer-alert
             color: green
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_1r1c_aanbevolen_aanvoertemperatuur
+            name: Advies huismodel + kamer
+            icon: mdi:home-analytics
+            color: deep-orange
+          - type: tile
+            entity: sensor.quatt_warmteanalyse_1r1c_fout_aanvoertemperatuur
+            name: Afwijking huismodel + kamer
+            icon: mdi:thermometer-alert
+            color: deep-orange
           - type: tile
             entity: sensor.quatt_warmteanalyse_veilige_uitlooptijd
             name: Veilige uitlooptijd
@@ -1181,7 +1192,7 @@ views:
           - type: markdown
             title: Hoe lees je dit?
             content: >
-              **Advies** is de aanvoertemperatuur die het huis volgens de berekening nu nodig heeft. *Advies buiten + kamer* toont geen waarde als de kamer al op of boven het setpoint staat: dan is er geen warmtevraag.
+              **Advies** is de aanvoertemperatuur die het huis volgens de berekening nu nodig heeft. *Advies buiten + kamer* toont geen waarde als de kamer al op of boven het setpoint staat: dan is er geen warmtevraag. *Advies huismodel + kamer* geeft het advies van buiten + kamer door zolang het huismodel nog leert; de twee rijen zijn dan gelijk.
 
 
               **Afwijking** is het advies min de werkelijke aanvoer. Het zegt niet dat het model fout zit. Negatief betekent dat de warmtepomp warmer stookt dan het advies, positief dat hij kouder stookt. Beide tonen geen waarde als er geen water circuleert.
@@ -1831,9 +1842,9 @@ views:
                 max: 10
                 tickAmount: 4
               stroke:
-                width: [2, 2]
+                width: [2, 2, 2]
                 curve: smooth
-                dashArray: [0, 4]
+                dashArray: [0, 4, 0]
               annotations:
                 yaxis:
                   - "y": 0
@@ -1849,6 +1860,10 @@ views:
                 stroke_width: 2
               - entity: sensor.quatt_warmteanalyse_mpc_fout_aanvoertemperatuur
                 name: Afwijking buiten + kamer
+                color: "#4CAF50"
+                stroke_width: 2
+              - entity: sensor.quatt_warmteanalyse_1r1c_fout_aanvoertemperatuur
+                name: Afwijking huismodel + kamer
                 color: "#FF9800"
                 stroke_width: 2
             grid_options:

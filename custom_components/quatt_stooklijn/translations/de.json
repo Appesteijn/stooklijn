@@ -390,6 +390,9 @@
       },
       "rc_recommended_supply_temp": {
         "name": "Empfohlene Vorlauftemperatur (Hausmodell + Raum)"
+      },
+      "rc_supply_temp_error": {
+        "name": "Abweichung Vorlauftemperatur (Hausmodell + Raum)"
       }
     },
     "binary_sensor": {

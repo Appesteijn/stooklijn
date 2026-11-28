@@ -3,6 +3,16 @@
 Alle noemenswaardige wijzigingen per release, opgebouwd uit de
 commitgeschiedenis. Versienummers volgen [SemVer](https://semver.org).
 
+## Nog niet uitgebracht
+
+- **Afwijking voor *Huismodel + kamer*** (Tweakers 28-11). Nieuwe sensor
+  `sensor.quatt_warmteanalyse_1r1c_fout_aanvoertemperatuur`: het advies van
+  het huismodel min de werkelijke aanvoer, op dezelfde manier als de andere
+  twee. Zolang het huismodel nog leert, is hij gelijk aan die van buiten +
+  kamer. De tegels op Huismodel en vooruitblik staan nu per bron op een rij
+  (advies links, afwijking rechts), en de afwijkingsgrafiek heeft een derde
+  lijn, in dezelfde kleuren als de adviesgrafiek.
+
 ## v0.10.7-beta.21 — 2026-11-28
 
 - **Schaduwvoorspelling** (eerste stap naar sturen met de zon). Elk uur legt de

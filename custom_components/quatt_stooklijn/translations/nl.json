@@ -390,6 +390,9 @@
       },
       "rc_recommended_supply_temp": {
         "name": "Aanbevolen aanvoertemperatuur (huismodel + kamer)"
+      },
+      "rc_supply_temp_error": {
+        "name": "Afwijking aanvoertemperatuur (huismodel + kamer)"
       }
     },
     "binary_sensor": {

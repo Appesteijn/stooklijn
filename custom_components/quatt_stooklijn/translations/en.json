@@ -390,6 +390,9 @@
       },
       "rc_recommended_supply_temp": {
         "name": "Recommended supply temperature (house model + room)"
+      },
+      "rc_supply_temp_error": {
+        "name": "Supply temperature deviation (house model + room)"
       }
     },
     "binary_sensor": {

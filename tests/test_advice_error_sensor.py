@@ -226,3 +226,37 @@ class TestAdviesClamp:
         sensor = _supply_sensor(**{OUTDOOR: 25.0, RETURN: 22.0, FLOW: 800})
         with _sources():
             assert sensor.native_value is None
+
+
+class TestAfwijkingPerBron:
+    """Tweakers 28-11-2026: een afwijkingssensor per stuurbron, ook *Huismodel + kamer*."""
+
+    @pytest.mark.parametrize("mode,sleutel", [
+        ("stooklijn", "stooklijn_supply_temp_error"),
+        ("mpc", "mpc_supply_temp_error"),
+        ("1r1c", "rc_supply_temp_error"),
+    ])
+    def test_naam_id_en_entity_id_per_bron(self, mode, sleutel):
+        import json
+        import pathlib
+
+        entry = MagicMock()
+        entry.entry_id = "abc"
+        from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+        with patch(
+            "custom_components.quatt_stooklijn.sensor.async_generate_entity_id",
+            side_effect=lambda fmt, slug, hass=None: fmt.format(slug),
+        ), patch.object(
+            CoordinatorEntity, "__init__", lambda self, coordinator: None, create=True,
+        ):
+            sensor = QuattAdviceErrorSensor(MagicMock(), entry, mode, ADVISED)
+        assert sensor._attr_translation_key == sleutel
+        assert sensor._attr_unique_id == f"abc_{mode}_advice_error"
+        assert sensor.entity_id == f"sensor.quatt_warmteanalyse_{mode}_fout_aanvoertemperatuur"
+
+        comp = pathlib.Path(__file__).resolve().parents[1] / "custom_components" / "quatt_stooklijn"
+        for bestand in [comp / "strings.json", *sorted((comp / "translations").glob("*.json"))]:
+            namen = json.loads(bestand.read_text())["entity"]["sensor"]
+            assert sleutel in namen, bestand.name
+
